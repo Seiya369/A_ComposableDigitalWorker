@@ -1,0 +1,25 @@
+.wf-modal-root .wf-panel.wf-team-dialog { width: min(520px, 100%); height: auto; max-height: calc(100dvh - 48px); }
+.wf-team-dialog .wf-header { justify-content: space-between; }
+.wf-team-dialog-content { min-height: 100px; overflow: auto; padding: 20px 24px; }
+.wf-team-dialog-project { display: flex; align-items: center; gap: 8px; color: var(--wf-muted); overflow-wrap: anywhere; margin-bottom: 18px !important; }
+.wf-team-dialog-project svg { flex-shrink: 0; }
+.wf-team-options { display: grid; gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.wf-team-options legend { padding: 0 0 10px; font-weight: 500; }
+.wf-team-option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--wf-line); border-radius: 12px; cursor: pointer; }
+.wf-team-option:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-team-option.is-selected { border-color: var(--wf-accent); background: var(--wf-accent-bg); }
+.wf-team-option:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+.wf-team-option > span:first-of-type { flex: 1; min-width: 0; }
+.wf-team-option strong, .wf-team-option small { display: block; overflow-wrap: anywhere; }
+.wf-team-option strong { font-weight: 500; }
+.wf-team-option small { font: var(--dsw-font-xs-13); color: var(--wf-muted); margin-top: 4px; }
+.wf-team-dialog-actions { display: flex; align-items: center; justify-content: flex-end; padding: 16px 24px; border-top: 1px solid var(--wf-line-soft); }
+.wf-project-team-section { margin-bottom: 24px; }
+.wf-project-team-section > h3 { margin-bottom: 12px; font-size: 15px; }
+.wf-project-workflow { border: 1px solid var(--wf-line); border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+.wf-project-workflow summary { cursor: pointer; font-weight: 500; }
+.wf-project-workflow ol { padding-left: 22px; margin: 12px 0 0; }
+.wf-project-workflow li + li { margin-top: 12px; }
+.wf-project-workflow li span { color: var(--wf-muted); margin-left: 8px; }
+.wf-project-workflow li p { margin-top: 4px; color: var(--wf-muted); white-space: pre-wrap; }
+@media (max-width: 560px) { .wf-team-dialog-content { padding: 16px; } .wf-team-dialog-actions { padding: 14px 16px; } }

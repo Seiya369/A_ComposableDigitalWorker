@@ -1,0 +1,18 @@
+.wf-project-workflows { min-width: 0; }
+.wf-project-flow-definition { display: flex; align-items: center; gap: 10px; border: 1px solid var(--wf-line); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+.wf-project-flow-definition > div { flex: 1; min-width: 0; }
+.wf-project-flow-definition strong, .wf-project-flow-definition span { display: block; }
+.wf-project-flow-definition span { color: var(--wf-muted); font: var(--dsw-font-xs-13); margin-top: 4px; }
+.wf-project-flow-editor { min-width: 0; }
+.wf-flow-steps { margin: 18px 0; padding-left: 24px; }
+.wf-flow-steps > li { padding: 12px 0; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-flow-steps .wf-record-title { flex-wrap: wrap; }
+.wf-flow-steps .wf-record-title > span:not(.wf-tag) { color: var(--wf-muted); font: var(--dsw-font-xs-13); }
+.wf-flow-attempt { margin-top: 10px; }
+.wf-flow-attempt summary, .wf-flow-events summary { cursor: pointer; color: var(--wf-muted); }
+.wf-flow-attempt pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 360px; overflow: auto; margin-block: 12px; }
+.wf-flow-events { margin-top: 20px; font: var(--dsw-font-xs-13); }
+.wf-flow-events p { margin-top: 8px; }
+.wf-flow-events time { color: var(--wf-muted); }
+
+.wf-flow-start-fields { border: 0; margin: 0; padding: 0; min-width: 0; }

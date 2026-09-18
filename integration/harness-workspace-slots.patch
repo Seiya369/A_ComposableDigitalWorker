@@ -1,0 +1,578 @@
+diff --git a/apps/web/tests/background-job-list.e2e.ts b/apps/web/tests/background-job-list.e2e.ts
+index 0e0a98de93..8ffb6a1aee 100644
+--- a/apps/web/tests/background-job-list.e2e.ts
++++ b/apps/web/tests/background-job-list.e2e.ts
+@@ -121,6 +121,11 @@ describe.skipIf(MODE === 'record')('web e2e: background job list', () => {
+     const idle = page.getByRole('button', { name: '1 background job' })
+     await idle.waitFor({ timeout: 20_000 })
+ 
++    // The header count and the open list subscribe separately; wait for the
++    // list's terminal outcome rather than snapshotting its last running row.
++    const row = page.getByRole('list', { name: 'Background jobs' }).getByRole('listitem').first()
++    await expect.poll(() => row.textContent(), { timeout: 10_000 }).toContain('SIGTERM')
++
+     const snapshot = await captureStableAria(page, '[class*="menu"]', scaffold.workspaceCwd)
+     await compareOrRefreshGolden(SETTLED_EXPECTED, snapshot, MODE)
+     expect(tripwire.pageErrors).toEqual([])
+diff --git a/apps/web/tests/built-boot.snapshot.ts b/apps/web/tests/built-boot.snapshot.ts
+index 0e48e08ec0..258661c02a 100644
+--- a/apps/web/tests/built-boot.snapshot.ts
++++ b/apps/web/tests/built-boot.snapshot.ts
+@@ -42,8 +42,15 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
+ 
+   // The sidebar renders from the boot graph: every inject layer activated.
+   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+-  expect(document.querySelector('svg[viewBox="26 0 156 24"]')).not.toBeNull()
+-  expect(screen.queryByText('DSH Local Build')).toBeNull()
++  // Match the artifact's recorded profile: local builds intentionally retain
++  // their local-build identity instead of displaying the official wordmark.
++  if (Reflect.get(clientBuildEnvironment, 'DSH_CLIENT_BUILD_PROFILE') === 'official') {
++    expect(document.querySelector('svg[viewBox="26 0 156 24"]')).not.toBeNull()
++    expect(screen.queryByText('DSH Local Build')).toBeNull()
++  } else {
++    expect(document.querySelector('svg[viewBox="26 0 156 24"]')).toBeNull()
++    expect(screen.getByText('DSH Local Build')).toBeTruthy()
++  }
+   // The compact layout dropped group session counts; the fixture workspace
+   // group row renders immediately with its sessions beneath it.
+   const fixtureGroup = (await within(tree).findAllByText('fixture'))
+diff --git a/apps/web/tests/settings-chrome.e2e.ts b/apps/web/tests/settings-chrome.e2e.ts
+index 61f5af88c5..886ca44ad4 100644
+--- a/apps/web/tests/settings-chrome.e2e.ts
++++ b/apps/web/tests/settings-chrome.e2e.ts
+@@ -509,6 +509,9 @@ describe('web e2e: settings modal and General preferences', () => {
+       // — the zh scenario above is the discriminating half. Asserted here too
+       // so a future change that resolves en but writes the wrong tag is caught.
+       expect(await frPage.evaluate(() => document.documentElement.lang)).toBe('en')
++      // Locale resolves before the independent preset inventory necessarily
++      // arrives. The settled golden includes an enabled preset selector.
++      await expect.poll(() => dialog.getByRole('button', { name: 'Standard mode', exact: true }).isEnabled(), { timeout: 10_000 }).toBe(true)
+       // Golden of the English fallback dialog — the visible output this change
+       // produces. The zh golden above covers the detected-locale surface, so
+       // the pair pins both directions of the resolution.
+diff --git a/packages/client/ui-primitives/README.i18n.yaml b/packages/client/ui-primitives/README.i18n.yaml
+index 9bd21da46c..dc8cdb4286 100644
+--- a/packages/client/ui-primitives/README.i18n.yaml
++++ b/packages/client/ui-primitives/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/client/ui-primitives/README.md
+-README.md: 7822a5d41e8125752b8bc28fea3db2232323fd81
+-README.zh.md: 8de384f276e8be5b78d2659a1e14e4afe12c030e
++README.md: 335cd4f221c91d929fb5ebf3873e966a9f5e62b8
++README.zh.md: b336e194ccc16f201352f0b98c2e12283958f4fe
+diff --git a/packages/client/ui-primitives/README.md b/packages/client/ui-primitives/README.md
+index 7822a5d41e..335cd4f221 100644
+--- a/packages/client/ui-primitives/README.md
++++ b/packages/client/ui-primitives/README.md
+@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
+ 
+ Pure React atoms (zero cordis): StateDot, DisclosureRow, ic_ds_* icons, Button/Pill/Menu/Modal/Input, the Toast transient banner, the OnboardingSurface first-run takeover (body-portaled mask + opaque stage that holds `#root` inert for exactly its own lifetime), the markdown family (MessageText/MarkdownText/JsonBlock), the read-only JsonTree inspector, the `useAnchoredMaxHeight` hook that clamps a bottom-anchored overlay to the viewport space above its anchor (re-measured on resize, scroll, and a caller-supplied dependency), the `useAnchoredPosition` hook that holds a fixed-position floating panel under its anchor (measure, offset, clamp inside the viewport margin, re-placed on capture-phase scroll, window resize, and the panel's own size changes), TerminalBlock, DiffBlock, ReadBlock, SearchBlock, and WebBlock.
+ 
++The `Menu` primitive accepts optional `beforeItems` content for owner-rendered extension rows before its built-in items. These rows share the same scroll viewport, outside-click and Escape dismissal boundary. The caller supplies their menu-item semantics and calls `onClose` before its action; the primitive has no knowledge of slots or feature domains.
++
+ ## Hover cards
+ 
+ `HoverCard` keeps its portaled preview reachable across the anchor gap with a pointer-leave grace. A consumer may also pass `copyText`: the card then exposes button semantics for pointer and keyboard activation, includes that value after the `copyLabel` prefix in its accessible name, writes the exact value through the package clipboard helper, and temporarily replaces its content with `copiedLabel` only after the host accepts the write. A non-collapsed text selection intersecting the card suppresses pointer-click activation, while success feedback retains the original card height and clears when the card closes or after one second. `copyLabel` and `copiedLabel` are label props because this zero-cordis atom cannot read the application locale; omitting `copyText` preserves the read/select-only card. Historical rationale: [the archived hover-card copy note](../../../.agents/notes/archived/feature/2026-07-31-hover-card-click-copy.md).
+diff --git a/packages/client/ui-primitives/README.zh.md b/packages/client/ui-primitives/README.zh.md
+index 8de384f276..b336e194cc 100644
+--- a/packages/client/ui-primitives/README.zh.md
++++ b/packages/client/ui-primitives/README.zh.md
+@@ -4,6 +4,8 @@
+ 
+ 纯 React 原子组件（零 cordis）：StateDot、DisclosureRow、ic_ds_* 图标、Button/Pill/Menu/Modal/Input、Toast 短时横幅、OnboardingSurface 首次使用接管层（portal 到 body 的遮罩加不透明展示层，在且仅在自身生命周期内保持 `#root` 为 `inert`）、markdown 家族（MessageText/MarkdownText/JsonBlock）、只读 JsonTree 检查器、`useAnchoredMaxHeight` 钩子（把底部锚定的浮层高度收敛到锚点上方的视口空间，并在 resize、scroll 与调用方提供的依赖变化时重新测量）、`useAnchoredPosition` 钩子（让固定定位的浮动面板跟住锚点：测量、偏移、按视口边距钳制，并在捕获阶段滚动、窗口缩放与面板自身尺寸变化时重新定位）、TerminalBlock、DiffBlock、ReadBlock、SearchBlock，以及 WebBlock。
+ 
++`Menu` 基础组件接受可选的 `beforeItems` 内容，让属主在内置菜单项之前渲染扩展行。这些行共享同一滚动视口、外部点击和 Escape 关闭边界。调用方负责菜单项语义，并在执行操作前调用 `onClose`；基础组件不感知插槽或业务领域。
++
+ ## 悬浮卡片
+ 
+ `HoverCard` 通过指针离开宽限期，使采用 portal 渲染的预览在跨过与锚点之间的间隙时仍可触及。消费方还可传入 `copyText`：此时卡片为指针与键盘激活提供按钮语义，其无障碍名称会在 `copyLabel` 前缀后包含该值，通过包内剪贴板辅助函数原样写入该值，并且只有宿主接受写入后，才会临时将内容替换为 `copiedLabel`。与卡片相交的非折叠文本选区会阻止指针点击激活；成功反馈保持卡片原有高度，并随卡片关闭或在一秒后清除。`copyLabel` 和 `copiedLabel` 采用 label prop，是因为这个 zero-cordis 原子组件无法读取应用 locale；省略 `copyText` 时，卡片维持只读且可选择文本的行为。历史依据见[已归档的悬浮卡片复制 Agent Note](../../../.agents/notes/archived/feature/2026-07-31-hover-card-click-copy.md)。
+diff --git a/packages/client/ui-primitives/src/Menu.tsx b/packages/client/ui-primitives/src/Menu.tsx
+index 46c30b8afb..4755bcf45e 100644
+--- a/packages/client/ui-primitives/src/Menu.tsx
++++ b/packages/client/ui-primitives/src/Menu.tsx
+@@ -83,14 +83,16 @@ const MEASURE_STYLE: CSSProperties = { visibility: 'hidden', left: 0, top: 0 }
+  * the trigger (render-prop anchors, effect-positioned proxies — measuring the
+  * wrapper there races the host's layout effects). Called on open and on every
+  * scroll/resize; return null to skip placement for that frame.
++ * @param props.beforeItems - slot-rendered menu items preceding the built-in rows; share the same scroll and dismissal behavior.
+  * @param props.footer - rows pinned below the scrolling items area, separated
+  * by a hairline; they stay visible while the items above scroll.
+  * @returns anchor wrapper with the conditional list.
+  */
+-export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, getAnchorRect, footer, className }: {
++export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, onClose, align = 'start', side = 'bottom', portal = false, closeOnPointerLeave = false, dense = false, compact = false, getAnchorRect, footer, beforeItems, className }: {
+   open: boolean
+   anchor: ReactNode
+   items: readonly MenuEntry[]
++  beforeItems?: ReactNode
+   footer?: readonly MenuEntry[]
+   selectedId?: string | undefined
+   selectedIds?: readonly string[] | undefined
+@@ -274,6 +276,7 @@ export function Menu({ open, anchor, items, selectedId, selectedIds, onSelect, o
+       onClick={(e) => { e.stopPropagation() }}
+     >
+       <div className={css.viewport} role="presentation">
++        {beforeItems}
+         {items.map(renderEntry)}
+       </div>
+       {footer !== undefined && footer.length > 0 && (
+diff --git a/packages/client/ui-workspace/README.i18n.yaml b/packages/client/ui-workspace/README.i18n.yaml
+index dbc3aa46dd..11c5e7d3b4 100644
+--- a/packages/client/ui-workspace/README.i18n.yaml
++++ b/packages/client/ui-workspace/README.i18n.yaml
+@@ -2,5 +2,5 @@
+ # side as of the last confirmed-consistent state. Both languages carry equal authority;
+ # after editing either side, bring the other along and re-record with:
+ #   pnpm run verify-translation-pairing --write packages/client/ui-workspace/README.md
+-README.md: 041c886ae3f38415ac01fbfc3546a1f32581257c
+-README.zh.md: de9419799e23fcf66489d4b407d7a5424b532bb2
++README.md: ccd9b4a91fcc9ea0e6700ac4ab259ed5f9fa34df
++README.zh.md: d2acb51ca66a3a0b0ea3d77f087a34754aed7c3e
+diff --git a/packages/client/ui-workspace/README.md b/packages/client/ui-workspace/README.md
+index 041c886ae3..ccd9b4a91f 100644
+--- a/packages/client/ui-workspace/README.md
++++ b/packages/client/ui-workspace/README.md
+@@ -20,6 +20,12 @@ Both target slots are declared by other plugins, so `apply` uses `slots.inject()
+ 
+ The shared sidebar projection hides rows whose durable Session summary has `origin: 'subagent'`; users enter those conversations through the selected parent's subagent header catalog. Each visible ordinary row inherits the blue activity indicator while any descendant reached through uninterrupted subagent-origin lineage is running, and its hover and assistive text report the exact running-descendant count without describing an idle parent as running. Ordinary forks remain visible and terminate this aggregation because lineage alone does not set their origin. Pending user interaction outranks the session's own running state, and either remains the primary row status while descendant activity stays available as a separate hover and assistive status. With neither present, descendant activity outranks the green unviewed-completion reminder; the reminder returns once no descendant is running. The runtime keeps hidden rows available for conversation, title, and addressed transport state.
+ 
++## Workspace extension slots
++
++The browser declares two additive root-scoped list slots. `sidebar.workspaces.header.action` renders beside the workspace heading while the sidebar is wide and search is collapsed, with no owner props. `sidebar.workspaces.menu.action` renders before Rename/Delete in each real Workspace's existing menu and supplies `{ workspaceId, onClose }`. Contributors render a `role="menuitem"` button and call `onClose()` before starting their action. Ungrouped and Session rows do not expose this Workspace-only menu slot.
++
++Register through `ctx.slots.inject()` and `ctx.slots.register()`, deriving component props from `PropsRuntime` after importing this package's client types. Standard slot ordering and lifecycle apply: disposal removes contributions and owner re-declaration restores them. Empty slots preserve the native browser and menu. The [workspace extension decision](../../../.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.md) records the boundary and coverage.
++
+ ## Model Experience
+ 
+ None, as the picker is browser chrome; nothing here reaches a model request.
+diff --git a/packages/client/ui-workspace/README.zh.md b/packages/client/ui-workspace/README.zh.md
+index de9419799e..d2acb51ca6 100644
+--- a/packages/client/ui-workspace/README.zh.md
++++ b/packages/client/ui-workspace/README.zh.md
+@@ -20,6 +20,12 @@ Session 行渲染运行时的实时 `pendingInteraction` 分类：审批显示**
+ 
+ 共享侧边栏投影会隐藏持久化 Session 摘要中带有 `origin: 'subagent'` 的行；用户从所选父级的 subagent 页头目录进入这些对话。每个可见的普通行都会在经不间断的 subagent 谱系可达的任一后代运行时继承蓝色活动指示器；其悬停与无障碍文本会报告确切的运行中后代数量，同时不会把空闲 parent 描述为正在运行。普通 fork 仍然可见，并会终止此聚合，因为仅有谱系不会设置该 origin。待处理的用户交互优先于会话自身的运行中状态，二者无论哪一项存在都会保持为行的主要状态，而后代活动仍作为独立的悬停与无障碍状态保留。两者均不存在时，后代活动优先于绿色的未查看完成提醒；最后一个运行中的后代停止后，该提醒会重新出现。运行时仍保留隐藏行，供对话、标题与已寻址传输状态使用。
+ 
++## 工作区扩展插槽
++
++浏览器声明两个 root 作用域的可叠加 list 插槽。`sidebar.workspaces.header.action` 在侧边栏展开且搜索收起时渲染于工作区标题旁，不携带属主属性。`sidebar.workspaces.menu.action` 在每个真实 Workspace 的原有菜单中、重命名和删除之前渲染，并提供 `{ workspaceId, onClose }`。扩展方渲染带 `role="menuitem"` 的按钮，在启动操作前调用 `onClose()`。未分组和 Session 行不提供这一 Workspace 专用菜单插槽。
++
++通过 `ctx.slots.inject()` 和 `ctx.slots.register()` 注册；导入本包的 client 类型后，通过 `PropsRuntime` 派生组件属性。遵循标准插槽排序和生命周期：销毁会移除贡献，属主重新声明后会恢复注册。空插槽保留原生浏览器和菜单。[工作区扩展决策](../../../.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.zh.md)记录了边界和验证范围。
++
+ ## 模型体验
+ 
+ 无。选择器属于浏览器界面；这里没有任何内容进入模型请求。
+diff --git a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
+index 08f22ed400..c7e1ff74f4 100644
+--- a/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
++++ b/packages/client/ui-workspace/src/client/WorkspaceBrowser.tsx
+@@ -216,7 +216,7 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
+ type SessionTreeProps = Pick<
+   WorkspaceBrowserProps,
+   'useSessions' | 'startSession' | 'open' | 'forkSession'
+-  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
++  | 'insertWorkspaceBefore' | 'insertSessionBefore' | 'renderSlot' | 't'
+ > & {
+   /** Host account home for POSIX hover-path abbreviation. */
+   home?: string | undefined
+@@ -249,7 +249,7 @@ type SessionTreeProps = Pick<
+ 
+ /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
+ function SessionTree({
+-  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds,
++  useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, renderSlot,
+   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
+   insertWorkspaceBefore, insertSessionBefore, orderBy,
+   groupExpansion, setGroupExpanded,
+@@ -451,6 +451,7 @@ function SessionTree({
+                 }}
+             >
+               <ProjectRowItem
++                renderSlot={renderSlot}
+                 group={group}
+                 home={home}
+                 t={t}
+@@ -1015,6 +1016,7 @@ export function WorkspaceBrowser({
+             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+           </span>
+         )}
++        {wide && !searchExpanded && renderSlot('sidebar.workspaces.header.action', {})}
+         {wide && (
+           <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
+             <div
+@@ -1170,6 +1172,7 @@ export function WorkspaceBrowser({
+             )
+             : (
+               <SessionTree
++                renderSlot={renderSlot}
+                 useSessions={useSessions}
+                 onSessionRename={onSessionRename}
+                 onSessionArchive={onSessionArchive}
+diff --git a/packages/client/ui-workspace/src/client/contract/slots.ts b/packages/client/ui-workspace/src/client/contract/slots.ts
+index bdd85052a0..3e5078dcec 100644
+--- a/packages/client/ui-workspace/src/client/contract/slots.ts
++++ b/packages/client/ui-workspace/src/client/contract/slots.ts
+@@ -51,8 +51,20 @@ export interface DirectoryFlowOwnerProps {
+   onError: (message: string) => void
+ }
+ 
++/** Minimal share for additive actions on a real Workspace's existing menu. */
++export interface WorkspaceMenuActionOwnerProps {
++  /** Stable identity of the Workspace whose menu was opened. */
++  workspaceId: WorkspaceId
++  /** Close the native menu before opening another surface or starting an action. */
++  onClose: () => void
++}
++
+ declare module '@deepseek-ai/dsh-client-ui-slots' {
+   interface SlotMap {
++    /** Additive actions beside the workspace heading; rendered in the wide sidebar while search is collapsed. */
++    'sidebar.workspaces.header.action': { kind: 'list'; scope: 'root'; owner: {} }
++    /** Additive menu items for a real Workspace. Call onClose before starting the selected action. */
++    'sidebar.workspaces.menu.action': { kind: 'list'; scope: 'root'; owner: WorkspaceMenuActionOwnerProps }
+     /** Directory-flow hole under the conversation empty-state picker (declared by the WorkspacePicker entry). */
+     'conversation.hero.workspace.directoryFlow': { kind: 'single'; scope: 'root'; owner: DirectoryFlowOwnerProps }
+     /** Directory-flow hole under the sidebar browsing region (declared by the WorkspaceBrowser entry). */
+@@ -142,7 +154,7 @@ export type WorkspaceBrowserInjected = {
+ /** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
+ export type WorkspaceBrowserProps =
+   PropsRuntime<'sidebar.workspaces'>
+-  & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>
++  & PropsRenderSlots<'sidebar.workspaces.directoryFlow' | 'sidebar.workspaces.header.action' | 'sidebar.workspaces.menu.action'>
+   & PropsStore<ReturnType<typeof createWorkspaceViewStore>>
+   & Omit<WorkspaceBrowserInjected, 'hooks'>
+   & PropsHooks<WorkspaceBrowserInjected['hooks']>
+diff --git a/packages/client/ui-workspace/src/client/index.ts b/packages/client/ui-workspace/src/client/index.ts
+index 93269c22c1..66a749522f 100644
+--- a/packages/client/ui-workspace/src/client/index.ts
++++ b/packages/client/ui-workspace/src/client/index.ts
+@@ -113,7 +113,11 @@ export function apply(ctx: ClientContext): void {
+   ctx.slots.inject('sidebar.workspaces', () => ctx.slots.register(
+     {
+       name: 'sidebar.workspaces',
+-      children: { 'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' } },
++      children: {
++        'sidebar.workspaces.directoryFlow': { kind: 'single', scope: 'root' },
++        'sidebar.workspaces.header.action': { kind: 'list', scope: 'root' },
++        'sidebar.workspaces.menu.action': { kind: 'list', scope: 'root' },
++      },
+       store: createWorkspaceViewStore(),
+       inject: browserInjected,
+       locale: NS,
+diff --git a/packages/client/ui-workspace/src/client/rows/Rows.tsx b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+index d2d121fe4d..aac6d18593 100644
+--- a/packages/client/ui-workspace/src/client/rows/Rows.tsx
++++ b/packages/client/ui-workspace/src/client/rows/Rows.tsx
+@@ -109,8 +109,10 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
+  * @param props.t - the browser root's locale seat.
+  * @returns the row element.
+  */
+-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }: {
++export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, renderSlot }: {
+   group: GroupNode
++  /** Owner-authorized rendering of additive project menu items. */
++  renderSlot?: WorkspaceBrowserProps['renderSlot']
+   onToggle: () => void
+   onCreate: () => void
+   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
+@@ -160,6 +162,7 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
+           <Menu
+             open={menuOpen}
+             onClose={() => { setMenuOpen(false) }}
++            beforeItems={row.workspaceId !== undefined && renderSlot?.('sidebar.workspaces.menu.action', { workspaceId: row.workspaceId, onClose: () => { setMenuOpen(false) } })}
+             items={workspaceMenuItems}
+             onSelect={(id) => {
+               setMenuOpen(false)
+diff --git a/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts b/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
+index 08b22ffdef..a7510add1d 100644
+--- a/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
++++ b/packages/extensions/cordis-client-runner/src/client/slot-catalog.ts
+@@ -562,7 +562,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
+     ],
+     replaceRisk: 'shadows-shipped-ui',
+     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.hero.workspace.directoryFlow\', () => ctx.slots.register(\n      { name: \'conversation.hero.workspace.directoryFlow\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:57',
++    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:69',
+   },
+   {
+     key: 'conversation.input.attachments',
+@@ -1788,7 +1788,93 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
+     ],
+     replaceRisk: 'shadows-shipped-ui',
+     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.workspaces.directoryFlow\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.directoryFlow\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+-    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:59',
++    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:71',
++  },
++  {
++    key: 'sidebar.workspaces.header.action',
++    kind: 'list',
++    scope: 'root',
++    summary: 'Additive actions beside the workspace heading; rendered in the wide sidebar while search is collapsed.',
++    doc: 'Additive actions beside the workspace heading; rendered in the wide sidebar while search is collapsed.',
++    registerOptions: [
++      {
++        name: 'id',
++        requirement: 'required',
++        type: 'string',
++        doc: 'Your cell key. Use an id of your own: a fresh id is added beside the shipped entries, while reusing a shipped id puts you in THAT cell and replaces it. Owners that filter by id address you by it.',
++      },
++      {
++        name: 'order',
++        requirement: 'optional',
++        type: 'number',
++        doc: 'Position among the entries, ascending (default 0).',
++      },
++      {
++        name: 'label',
++        requirement: 'optional',
++        type: 'string | (() => string)',
++        doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
++      },
++    ],
++    ownerProps: [],
++    ownerPropsReferences: [],
++    standardProps: [
++      'useSessions: SnapshotSelectorHook<SessionListState>',
++      'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
++    ],
++    keyDomain: '',
++    hookContext: '',
++    slotInject: '',
++    declaredBy: 'an entry in \'sidebar.workspaces\' (client-ui-workspace), so it exists while that entry is mounted',
++    occupants: [],
++    replaceRisk: 'none',
++    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.workspaces.header.action\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.header.action\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
++    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:65',
++  },
++  {
++    key: 'sidebar.workspaces.menu.action',
++    kind: 'list',
++    scope: 'root',
++    summary: 'Additive menu items for a real Workspace.',
++    doc: 'Additive menu items for a real Workspace. Call onClose before starting the selected action.',
++    registerOptions: [
++      {
++        name: 'id',
++        requirement: 'required',
++        type: 'string',
++        doc: 'Your cell key. Use an id of your own: a fresh id is added beside the shipped entries, while reusing a shipped id puts you in THAT cell and replaces it. Owners that filter by id address you by it.',
++      },
++      {
++        name: 'order',
++        requirement: 'optional',
++        type: 'number',
++        doc: 'Position among the entries, ascending (default 0).',
++      },
++      {
++        name: 'label',
++        requirement: 'optional',
++        type: 'string | (() => string)',
++        doc: 'Display text where the owner projects one (nav rows, tabs). A thunk is re-read on every projection, so localized text follows the active locale without re-registering.',
++      },
++    ],
++    ownerProps: [
++      '/** Minimal share for additive actions on a real Workspace\'s existing menu. */\nexport interface WorkspaceMenuActionOwnerProps {\n  /** Stable identity of the Workspace whose menu was opened. */\n  workspaceId: WorkspaceId\n  /** Close the native menu before opening another surface or starting an action. */\n  onClose: () => void\n}',
++    ],
++    ownerPropsReferences: [
++      'Workspace',
++    ],
++    standardProps: [
++      'useSessions: SnapshotSelectorHook<SessionListState>',
++      'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
++    ],
++    keyDomain: '',
++    hookContext: '',
++    slotInject: '',
++    declaredBy: 'an entry in \'sidebar.workspaces\' (client-ui-workspace), so it exists while that entry is mounted',
++    occupants: [],
++    replaceRisk: 'none',
++    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.workspaces.menu.action\', () => ctx.slots.register(\n      { name: \'sidebar.workspaces.menu.action\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
++    source: 'packages/client/ui-workspace/src/client/contract/slots.ts:67',
+   },
+   {
+     key: 'tool.call.toolview',
+diff --git a/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.i18n.yaml b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.i18n.yaml
+new file mode 100644
+index 0000000000..a52d6a3b7c
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.i18n.yaml
+@@ -0,0 +1,6 @@
++# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
++# side as of the last confirmed-consistent state. Both languages carry equal authority;
++# after editing either side, bring the other along and re-record with:
++#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.md
++2026-09-09-workspace-extension-slots.md: 96344eb55ac3c60db3c9354e9ee34b3f8b99e102
++2026-09-09-workspace-extension-slots.zh.md: 2460b1d427b1aaacca683bdcabf9d9aa1b2c120f
+diff --git a/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.md b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.md
+new file mode 100644
+index 0000000000..96344eb55a
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.md
+@@ -0,0 +1,29 @@
++# Agent Note: Additive workspace extension slots
++
++Status: implemented
++
++English | [中文](2026-09-09-workspace-extension-slots.zh.md)
++
++## Problem
++
++An external feature needs a workspace-header action and workspace-specific menu items. Occupying `sidebar.workspaces` to add these entries replaces native search, ordering and directory picking, coupling a small feature to private browser implementation and complicating uninstallation.
++
++## Decision
++
++The existing browser declares `sidebar.workspaces.header.action` and `sidebar.workspaces.menu.action` as root-scoped list slots. The header has no owner share; the menu passes only a real Workspace id and a close callback. The browser authorizes its nested row to render the menu slot. The shared Menu primitive accepts an optional `beforeItems` region within its existing scrolling and dismissal boundary. Business logic remains with contributors.
++
++Contributors use declaration-lifetime `slots.inject` registration. Ordering, unloading and owner re-declaration use the existing runtime. Menu contributors supply accessible controls and close the native menu before taking action. Header contributions appear only in the wide sidebar with collapsed search; rail affordances can use existing sidebar slots.
++
++## Alternatives considered
++
++Copying or replacing WorkspaceBrowser duplicates unrelated behavior and tracks private source. DOM injection bypasses lifecycle and accessibility contracts. A separate menu-action registry duplicates the slot runtime. A generic primitive region keeps the new slot contract with the workspace owner and the Menu primitive independent of business domains.
++
++## Consequences
++
++Plugins can add and remove actions while the native browser remains mounted. Consumers require a host build declaring these slots; older builds cannot render them. Contributors own their menu-item semantics and styling. Slots do not grant execution permission; each feature's host service remains responsible for authorization.
++
++The extension assembly tests cover empty native menus, multiple ordered contributors, identity across two Workspaces, closing before actions, removal while a menu is open, retained native Rename, registration before owner availability and owner remount without duplicates. Existing workspace tests retain search, ordering and directory-picker coverage.
++
++Full browser verification exposed two snapshot-readiness races: the background-job count can settle before its independently subscribed open list, and locale can resolve before the settings preset inventory. Those tests now wait for the list's SIGTERM outcome and the enabled preset selector respectively; their expected snapshots and product behavior stay unchanged.
++
++The built-boot smoke reads the recorded client build profile when asserting branding. A local build must retain its local identity; requiring the official wordmark would reject the supported default build before exercising the workspace journey.
+diff --git a/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.zh.md b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.zh.md
+new file mode 100644
+index 0000000000..2460b1d427
+--- /dev/null
++++ b/.agents/notes/implemented/architecture/2026-09-09-workspace-extension-slots.zh.md
+@@ -0,0 +1,29 @@
++# Agent Note: 可叠加的工作区扩展插槽
++
++Status: implemented
++
++[English](2026-09-09-workspace-extension-slots.md) | 中文
++
++## 问题
++
++外部功能需要工作区标题栏操作和面向具体工作区的菜单项。为此占用整个 `sidebar.workspaces` 会替换原生搜索、排序和目录选择，让一个小功能依赖浏览器的私有实现，并使卸载变得复杂。
++
++## 决策
++
++现有浏览器将 `sidebar.workspaces.header.action` 和 `sidebar.workspaces.menu.action` 声明为 root 作用域的 list 插槽。标题栏不携带属主属性；菜单只传递真实 Workspace 的 id 和关闭回调。浏览器授权内部行组件渲染菜单插槽。共享 Menu 基础组件在既有滚动和关闭边界内接受可选的 `beforeItems` 区域。业务逻辑留在扩展方。
++
++扩展方通过 `slots.inject` 在声明生命周期内注册。排序、卸载和属主重新声明均使用现有运行时。菜单扩展方提供无障碍控件，并在执行操作前关闭原生菜单。标题栏扩展仅在侧边栏展开且搜索收起时显示；窄栏入口可使用已有侧边栏插槽。
++
++## 考虑过的替代方案
++
++复制或替换 WorkspaceBrowser 会重复无关行为，并要求跟踪私有源码。DOM 注入绕过生命周期和无障碍契约。独立的菜单操作注册表会重复插槽运行时。通用基础组件区域让新插槽契约归工作区属主所有，同时保持 Menu 基础组件与业务领域无关。
++
++## 影响
++
++插件可以添加和移除操作，原生浏览器始终保持挂载。使用方需要声明这些插槽的宿主构建；旧构建无法渲染它们。扩展方负责菜单项的语义和样式。插槽不授予执行权限；各功能的宿主服务仍负责授权。
++
++扩展组装测试覆盖无扩展的原生菜单、多个扩展的排序、两个 Workspace 的身份传递、操作前关闭菜单、菜单打开时移除扩展、保留原生重命名、属主可用前注册，以及属主重新挂载后不产生重复入口。现有工作区测试继续覆盖搜索、排序和目录选择。
++
++完整浏览器验证发现两个截图就绪时机的竞争：后台任务数量可能先于独立订阅的已打开列表完成更新，语言也可能先于设置页的预设列表完成加载。这两个测试现在分别等待列表中的 SIGTERM 结果和可用的预设选择器；期望截图与产品行为保持不变。
++
++构建启动冒烟测试根据已记录的客户端构建配置断言品牌显示。本地构建必须保留本地身份；若强制要求官方字标，会在验证工作区流程之前就拒绝受支持的默认构建。
+diff --git a/packages/client/ui-workspace/tests/extensions-assembly.client.spec.tsx b/packages/client/ui-workspace/tests/extensions-assembly.client.spec.tsx
+new file mode 100644
+index 0000000000..1dbcc3fd78
+--- /dev/null
++++ b/packages/client/ui-workspace/tests/extensions-assembly.client.spec.tsx
+@@ -0,0 +1,95 @@
++// @vitest-environment jsdom
++/** Additive workspace slots across contributor/owner installation and disposal. */
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import { cleanup, fireEvent, waitFor } from '@testing-library/react'
++import type { ClientContext, WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
++import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
++import { SlotTestRuntime, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
++import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
++import { apply, inject } from '@deepseek-ai/dsh-client-ui-workspace/client'
++
++usePinnedBrowserLanguages('zh-CN')
++let runtime: SlotTestRuntime
++beforeEach(async () => {
++  localStorage.clear()
++  runtime = await SlotTestRuntime.create()
++  runtime.provide('connection', { hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} } })
++  const locale = new LocaleRuntime(runtime.ctx)
++  runtime.provide('locale', locale)
++  runtime.slots.installLocale(locale)
++  await runtime.workspaces.update((draft) => {
++    draft.items = ['alpha', 'beta'].map(title => ({
++      workspaceId: title as WorkspaceId, title, path: `/w/${title}`, sessionIds: [],
++      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
++    }))
++  })
++  await runtime.root.declare({ 'sidebar.workspaces': { kind: 'single', scope: 'root' } } as never, Frame as never)
++})
++afterEach(async () => { cleanup(); await runtime.dispose() })
++
++function Frame({ renderSlot }: PropsRenderSlots<'sidebar.workspaces'>) {
++  return <>{renderSlot('sidebar.workspaces', { wide: true, expandSidebar: () => {} })}</>
++}
++
++function extension(label: string, order: number, invoke = vi.fn()) {
++  return {
++    inject: ['slots'],
++    apply(ctx: ClientContext) {
++      ctx.slots.inject('sidebar.workspaces.header.action', () => ctx.slots.register({
++        name: 'sidebar.workspaces.header.action', id: label, order,
++      }, () => <button>{label}</button>))
++      ctx.slots.inject('sidebar.workspaces.menu.action', () => ctx.slots.register({
++        name: 'sidebar.workspaces.menu.action', id: label, order,
++      }, ({ workspaceId, onClose }: PropsRuntime<'sidebar.workspaces.menu.action'>) =>
++        <button role="menuitem" onClick={() => { onClose(); invoke(workspaceId) }}>{label}</button>))
++    },
++  }
++}
++
++describe('additive workspace extensions', () => {
++  it('preserves native menus without contributors; late contributions receive the selected workspace and disappear on unload', async () => {
++    await runtime.mount({ inject: [...inject], apply })
++    const view = runtime.renderRoot()
++    const open = (title: string) => fireEvent.click(view.getByLabelText(`工作区“${title}”的操作`))
++    const names = () => view.getAllByRole('menuitem', { hidden: true }).map(item => item.textContent)
++    open('alpha')
++    expect(names()).toEqual(['重命名', '删除工作区'])
++    fireEvent.keyDown(document, { key: 'Escape' })
++
++    const invoke = vi.fn()
++    const second = await runtime.mount(extension('Second extension', 20, invoke))
++    const first = await runtime.mount(extension('First extension', 10))
++    expect(view.getAllByRole('button').filter(button => /extension/.test(button.textContent ?? '')).map(button => button.textContent))
++      .toEqual(['First extension', 'Second extension'])
++    for (const title of ['alpha', 'beta']) {
++      open(title)
++      expect(names()).toEqual(['First extension', 'Second extension', '重命名', '删除工作区'])
++      fireEvent.click(view.getByRole('menuitem', { name: 'Second extension', hidden: true }))
++      expect(invoke).toHaveBeenLastCalledWith(title)
++      await waitFor(() => { expect(view.queryByRole('menu', { hidden: true })).toBeNull() })
++    }
++    open('alpha')
++    await first.dispose()
++    await second.dispose()
++    expect(names()).toEqual(['重命名', '删除工作区'])
++    expect(view.queryByText('Second extension')).toBeNull()
++    fireEvent.click(view.getByRole('menuitem', { name: '重命名', hidden: true }))
++    expect(await view.findByLabelText('工作区名称')).toBeTruthy()
++  })
++
++  it('waits for the owner and restores exactly one contribution after the owner remounts', async () => {
++    const contributor = await runtime.mount(extension('Library extension', 10))
++    const view = runtime.renderRoot()
++    expect(view.queryByText('Library extension')).toBeNull()
++    const owner = await runtime.mount({ inject: [...inject], apply })
++    expect(view.getAllByRole('button', { name: 'Library extension' })).toHaveLength(1)
++    await owner.dispose()
++    expect(view.queryByText('Library extension')).toBeNull()
++    await runtime.mount({ inject: [...inject], apply })
++    expect(view.getAllByRole('button', { name: 'Library extension' })).toHaveLength(1)
++    await contributor.dispose()
++    expect(view.queryByText('Library extension')).toBeNull()
++    expect(view.getByText('alpha')).toBeTruthy()
++    expect(view.getByText('beta')).toBeTruthy()
++  })
++})

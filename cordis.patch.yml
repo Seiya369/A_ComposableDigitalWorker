@@ -1,0 +1,4 @@
+# One installable bundle adds both host and browser faces.
+- insert:
+    - id: composable-workforce
+      name: dsh-plugin-composable-workforce

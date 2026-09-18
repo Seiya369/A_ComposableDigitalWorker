@@ -1,0 +1,432 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
+import { Context } from '@deepseek-ai/cordis';
+import AgentRegistry from '@deepseek-ai/dsh-agent';
+import AgentLoop from '@deepseek-ai/dsh-agent-loop';
+import LlmRuntime, { CallId, createUserMessage, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm';
+import SessionStore from '@deepseek-ai/dsh-session';
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
+import ToolRuntime from '@deepseek-ai/dsh-tools';
+import { WorkforceStore } from '../src/domain/store.js';
+import { ARCHITECT_TEMPLATE_ID, createArchitectModules } from '../src/domain/seed.js';
+import { WorkforceRuntime, matchesPath, resolveProjectPath } from '../src/harness/runtime.js';
+import { assertRequestOrigin } from '../src/harness/host.js';
+import { WorkflowRepository } from '../src/workflow/repository.js';
+import { WorkflowEngine } from '../src/workflow/engine.js';
+
+/** A scripted adapter exists only in tests; the production runtime has no response fallback. */
+class ScriptedAdapter extends LlmAdapter {
+  requests: GenerateOptions[] = [];
+  constructor(private steps: Array<(request: GenerateOptions) => Promise<StreamChunk[]> | StreamChunk[]>) { super(); }
+  async *stream(request: GenerateOptions): AsyncIterable<StreamChunk> {
+    this.requests.push(request);
+    const next = this.steps.shift();
+    if (!next) throw new Error('test script exhausted');
+    for (const chunk of await next(request)) yield chunk;
+  }
+}
+const text = (value: string): StreamChunk[] => [
+  { type: 'block-start', index: 0, blockType: 'text' },
+  { type: 'text-delta', index: 0, text: value },
+  { type: 'block-end', index: 0, block: { type: 'text', text: value } },
+  { type: 'usage', usage: { inputTokens: 12, outputTokens: 8 } },
+  { type: 'finish', reason: { kind: 'stop' } },
+];
+const call = (name: string, args: object): StreamChunk[] => {
+  const id = CallId('fixture-call');
+  const argument = JSON.stringify(args);
+  return [
+    { type: 'block-start', index: 0, blockType: 'tool-call' },
+    { type: 'tool-call-delta', index: 0, id, name, argumentsDelta: argument },
+    { type: 'block-end', index: 0, block: { type: 'tool-call', id, name, arguments: argument } },
+    { type: 'usage', usage: { inputTokens: 12, outputTokens: 8 } },
+    { type: 'finish', reason: { kind: 'tool-calls' } },
+  ];
+};
+
+async function fixture(adapter: ScriptedAdapter, config: ConstructorParameters<typeof WorkforceRuntime>[3] = {}) {
+  const root = await mkdtemp(resolve(tmpdir(), 'workforce-runtime-'));
+  const projectRoot = resolve(root, 'project');
+  await mkdir(projectRoot);
+  await writeFile(resolve(projectRoot, 'README.md'), '# Runtime fixture');
+  const store = await WorkforceStore.open(resolve(root, 'state.json'));
+  const project = await store.saveProject({ id: 'workspace-fixture', name: 'Fixture', rootPath: projectRoot });
+  let employee = await store.createEmployee({ projectId: project.id, templateId: ARCHITECT_TEMPLATE_ID });
+  const modules = structuredClone(employee.modules);
+  modules.model = { mode: 'override', provider: 'fixture', model: 'fixture-model' };
+  modules.capabilities.skills = [];
+  employee = await store.updateEmployee(employee.id, { modules });
+  const ctx = new Context();
+  await ctx.plugin(LlmRuntime);
+  await ctx.plugin(SessionStore);
+  await ctx.plugin(SystemPrompt);
+  await ctx.plugin(ToolRuntime);
+  await ctx.plugin(AgentRegistry);
+  await ctx.plugin(AgentLoop, { agents: [] });
+  ctx.llm.registerAdapter(['fixture'], adapter);
+  const attached: string[] = [];
+  // Workspace persistence is independently tested in Harness; keep the real agent/tool loop here.
+  const workspace = { sessionIds: attached, attachSession: async (id: string) => { attached.push(id); } };
+  ctx.provide('workspaceRegistry', { get: (id: string) => id === project.id ? workspace : undefined } as never);
+  const runtime = new WorkforceRuntime(ctx, store, new Map(), config);
+  return { root, projectRoot, store, project, employee, ctx, runtime, attached, workspace };
+}
+
+test('path grants intersect and reject traversal and symlink escapes', async () => {
+  const root = await mkdtemp(resolve(tmpdir(), 'workforce-path-'));
+  await mkdir(resolve(root, 'docs'));
+  await writeFile(resolve(root, 'docs/file.md'), 'allowed');
+  const grant = createArchitectModules().permissions;
+  grant.readPaths = ['docs/**'];
+  grant.writePaths = ['docs/**'];
+  assert(matchesPath('docs/nested/a.md', 'docs/**'));
+  assert(!matchesPath('docs/nested/a.md', 'docs/*.md'));
+  assert(matchesPath('README.md', '**/*.md'));
+  await resolveProjectPath(root, 'docs/file.md', [grant], 'read');
+  await assert.rejects(resolveProjectPath(root, '../secret', [grant], 'read'), /项目范围/);
+  await symlink(tmpdir(), resolve(root, 'docs/alias'));
+  await assert.rejects(resolveProjectPath(root, 'docs/alias/secret', [grant], 'write'), /符号链接/);
+  await assert.rejects(resolveProjectPath(root, 'docs/file.md', [grant, { ...grant, readPaths: [] }], 'read'), /授权/);
+});
+
+test('HTTP routes require exact same-origin writes and reject rebinding hosts', () => {
+  const allowed = ['http://localhost:1234'];
+  assertRequestOrigin({ method: 'POST', headers: { host: 'localhost:1234', origin: allowed[0] } }, allowed);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { host: 'localhost:1234' } }, allowed), /Origin/);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { host: 'localhost:1234', origin: 'https://evil.example' } }, allowed), /同源/);
+  assert.throws(() => assertRequestOrigin({ method: 'GET', headers: { host: 'evil.example:1234' } }, allowed), /主机/);
+});
+
+test('real Harness loop runs isolated sessions, includes project memory, and awaits review', async () => {
+  const adapter = new ScriptedAdapter([() => text('架构方案已交付'), () => text('后续答复')]);
+  const f = await fixture(adapter);
+  f.ctx.systemPrompt.context({ name: 'unrelated-host-memory', order: 0, text: 'UNRELATED_HOST_CONTEXT_SENTINEL' });
+  await f.store.saveMemory({ projectId: f.project.id, scope: 'employee', employeeId: f.employee.id, title: '命名约定', content: '接口字段使用 snake_case；模板符号 {{literal}} 必须原样保留。', source: { kind: 'user-confirmed', reference: 'test user' } });
+  const first = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '分析架构' });
+  const result = await f.runtime.wait(first.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  assert.equal(result.output, '架构方案已交付');
+  assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 8 });
+  assert.equal(f.attached[0], result.sessionId);
+  assert.notEqual(result.sessionId, f.employee.id);
+  assert.match(JSON.stringify(adapter.requests[0]), /snake_case/);
+  assert.doesNotMatch(JSON.stringify(adapter.requests[0]), /UNRELATED_HOST_CONTEXT_SENTINEL/);
+  assert.match(JSON.stringify(adapter.requests[0]), /\{\{literal\}\}/);
+  assert.equal(adapter.requests[0]!.provider, 'fixture');
+  assert(adapter.requests[0]!.tools?.every(tool => tool.name.startsWith('worker_')));
+  const accepted = await f.store.reviewRun(result.id, { decision: 'accepted', reviewer: 'test user' });
+  assert.equal(accepted.status, 'succeeded');
+  const second = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '继续讨论' });
+  const next = await f.runtime.wait(second.id);
+  assert.notEqual(next.sessionId, result.sessionId);
+  assert.equal(next.employeeId, result.employeeId);
+  await f.runtime.dispose();
+});
+
+test('real employee tool writes a registered artifact and never overwrites an existing file', async () => {
+  const adapter = new ScriptedAdapter([
+    () => call('worker_write_artifact', { path: 'docs/architecture/proposal.md', title: '方案', content: '# Verified artifact' }),
+    () => call('worker_write_artifact', { path: 'docs/architecture/proposal.md', title: '重复', content: 'overwritten' }),
+    () => text('已提交方案；重复写入被拒绝。'),
+  ]);
+  const f = await fixture(adapter);
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '写出方案' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  assert.equal(result.artifacts.length, 1);
+  assert.equal(await readFile(resolve(f.projectRoot, 'docs/architecture/proposal.md'), 'utf8'), '# Verified artifact');
+  assert.match(JSON.stringify(adapter.requests[2]), /EEXIST/);
+  await f.runtime.dispose();
+});
+
+test('revoking an allowed tool during a run takes effect before actual file execution', async () => {
+  let revoke: () => Promise<unknown> = async () => undefined;
+  const adapter = new ScriptedAdapter([
+    async () => { await revoke(); return call('worker_read_file', { path: 'README.md' }); },
+    () => text('读取权限已撤销。'),
+  ]);
+  const f = await fixture(adapter);
+  revoke = async () => {
+    const modules = structuredClone(f.employee.modules);
+    modules.permissions.allowedTools = modules.permissions.allowedTools.filter(name => name !== 'worker_read_file');
+    return f.store.updateEmployee(f.employee.id, { modules });
+  };
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '读取项目' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  assert.match(JSON.stringify(adapter.requests[1]), /授权|撤销/);
+  assert.doesNotMatch(JSON.stringify(adapter.requests[1]), /# Runtime fixture/);
+  await f.runtime.dispose();
+});
+
+test('unconfigured or failed providers produce a failed run without simulated content', async () => {
+  const f = await fixture(new ScriptedAdapter([() => { throw new Error('provider unavailable'); }]));
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '运行失败情况' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error!, /provider unavailable/);
+  assert.equal(result.output, '');
+  await f.runtime.dispose();
+});
+
+test('the runtime stops repeated model-tool loops at its configured step budget', async () => {
+  const adapter = new ScriptedAdapter([() => call('worker_list_files', {}), () => call('worker_list_files', {}), () => text('should not run')]);
+  const f = await fixture(adapter, { maxSteps: 2 });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '检查循环限制' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error!, /预算/);
+  assert.equal(adapter.requests.length, 2);
+  await f.runtime.dispose();
+});
+
+test('delegation creates a child work order and real child session using the project roster', async () => {
+  let childId = '';
+  const adapter = new ScriptedAdapter([
+    () => call('worker_delegate', { employeeId: childId, request: '评审模块边界并回报结论' }),
+    () => text('子员工评审：模块边界清晰。'),
+    () => text('技术负责人已核验评审结论，提交验收。'),
+  ]);
+  const f = await fixture(adapter);
+  const modules = structuredClone(f.employee.modules);
+  modules.collaboration.allowedTemplateIds = [ARCHITECT_TEMPLATE_ID];
+  await f.store.updateEmployee(f.employee.id, { modules });
+  const employee = await f.store.createEmployee({ projectId: f.project.id, templateId: ARCHITECT_TEMPLATE_ID, name: '评审协作者', managerId: f.employee.id });
+  childId = employee.id;
+  const childModules = structuredClone(modules);
+  childModules.collaboration.canDelegate = false;
+  childModules.collaboration.allowedTemplateIds = [];
+  await f.store.updateEmployee(childId, { modules: childModules });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '请委派评审协作者审核架构' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  const child = f.store.snapshot().runs.find(item => item.parentRunId === run.id)!;
+  assert(child);
+  assert.equal(child.status, 'awaiting-review', child.error);
+  assert.equal(child.employeeId, childId);
+  assert.notEqual(child.sessionId, result.sessionId);
+  assert.match(JSON.stringify(adapter.requests[0]), new RegExp(childId));
+  assert.match(JSON.stringify(adapter.requests[2]), /子员工评审/);
+  await f.runtime.dispose();
+});
+
+test('cancellation stops the active provider and persists a cancelled work order', async () => {
+  let entered: () => void = () => undefined;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const adapter = new ScriptedAdapter([request => new Promise<StreamChunk[]>((_resolve, reject) => {
+    entered();
+    const cancelled = () => reject(new Error('cancelled by test'));
+    if (request.signal?.aborted) cancelled();
+    else request.signal?.addEventListener('abort', cancelled, { once: true });
+  })]);
+  const f = await fixture(adapter);
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '等待用户取消' });
+  await ready;
+  f.runtime.cancel(run.id);
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'cancelled');
+  assert.equal(f.ctx.agents.list().length, 1, 'cancelled delivery history remains visible');
+  await f.runtime.dispose();
+  assert.equal(f.ctx.agents.list().length, 0);
+});
+
+test('source session membership is checked even when no live agent can be found', async () => {
+  const f = await fixture(new ScriptedAdapter([() => text('来自本项目历史会话的新工作')]));
+  await assert.rejects(f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '请求', sourceSessionId: 'unknown-cold-session' }), /来源会话必须属于当前项目/);
+  assert.equal(f.store.snapshot().runs.length, 0);
+  f.attached.push('known-cold-session');
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '请求', sourceSessionId: 'known-cold-session' });
+  assert.equal((await f.runtime.wait(run.id)).status, 'awaiting-review');
+  await f.runtime.dispose();
+});
+
+test('inherit mode uses the Harness default model without requiring an existing conversation', async () => {
+  const adapter = new ScriptedAdapter([() => text('继承默认模型执行完成')]);
+  const f = await fixture(adapter);
+  f.ctx.provide('agentDefaultModel', { currentSelection: () => ({ provider: 'fixture', model: 'default-model' }) } as never);
+  const modules = structuredClone(f.employee.modules);
+  modules.model = { mode: 'inherit' };
+  await f.store.updateEmployee(f.employee.id, { modules });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '使用默认模型运行' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  assert.equal(adapter.requests[0]!.model, 'default-model');
+  await f.runtime.dispose();
+});
+
+test('cancelling a queued job persists immediately without waiting for the earlier employee job', async () => {
+  let entered: () => void = () => undefined;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const adapter = new ScriptedAdapter([request => new Promise<StreamChunk[]>((_resolve, reject) => {
+    entered();
+    request.signal!.addEventListener('abort', () => reject(new Error('cancelled')), { once: true });
+  })]);
+  const f = await fixture(adapter);
+  const first = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '第一个尚未结束的任务' });
+  await ready;
+  const queued = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '不应该执行的排队任务' });
+  await f.runtime.cancel(queued.id);
+  assert.equal(f.store.snapshot().runs.find(run => run.id === queued.id)!.status, 'cancelled');
+  assert.equal(f.store.snapshot().runs.find(run => run.id === first.id)!.status, 'running');
+  await f.runtime.cancel(first.id);
+  assert.equal((await f.runtime.wait(queued.id)).status, 'cancelled');
+  assert.equal(adapter.requests.length, 1);
+  await f.runtime.dispose();
+});
+
+test('session IDs become visible only after native creation and workspace attachment complete', async () => {
+  const adapter = new ScriptedAdapter([() => text('原生会话已可导航')]);
+  const f = await fixture(adapter);
+  let entered: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const attaching = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const originalAttach = f.workspace.attachSession;
+  f.workspace.attachSession = async id => {
+    assert(f.ctx.agents.list().some(agent => agent.id === id), 'native agent must exist before attaching');
+    entered();
+    await gate;
+    await originalAttach(id);
+  };
+  const originalUpdate = f.store.updateRun.bind(f.store);
+  f.store.updateRun = async (id, patch, options) => {
+    if (patch.sessionId) {
+      assert(f.attached.includes(patch.sessionId), 'session must already be a workspace member when published');
+      assert(f.ctx.agents.list().some(agent => agent.id === patch.sessionId), 'published native session must exist');
+    }
+    return originalUpdate(id, patch, options);
+  };
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '创建可导航的员工会话' });
+  await attaching;
+  const duringAttach = f.store.snapshot().runs.find(item => item.id === run.id)!;
+  assert.equal(duringAttach.status, 'running');
+  assert.equal(duringAttach.sessionId, undefined);
+  assert.equal(adapter.requests.length, 0);
+  release();
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+  assert(f.attached.includes(result.sessionId!));
+  await f.runtime.dispose();
+});
+
+test('workspace attachment failures never publish an unusable session ID or start the model', async () => {
+  const adapter = new ScriptedAdapter([() => text('must never execute')]);
+  const f = await fixture(adapter);
+  f.workspace.attachSession = async () => { throw new Error('workspace attach failed'); };
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '验证附加失败' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error!, /workspace attach failed/);
+  assert.equal(result.sessionId, undefined);
+  assert.equal(adapter.requests.length, 0);
+  assert.equal(f.ctx.agents.list().length, 0);
+  await f.runtime.dispose();
+});
+
+test('completed sessions remain visible and refuse untracked followups until plugin disposal', async () => {
+  const adapter = new ScriptedAdapter([() => text('已完成，等待验收')]);
+  const f = await fixture(adapter);
+  const removed: string[] = [];
+  f.ctx.on('session/disposed', session => { removed.push(session.id); });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '交付并保留历史' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review');
+  const agent = f.ctx.agents.list().find(agent => agent.id === result.sessionId)!;
+  assert(agent, 'completed native session must remain available to the sidebar');
+  assert(f.ctx.sessions.list().some(session => session.id === result.sessionId));
+  assert.deepEqual(removed, []);
+  agent.followup(createUserMessage({ content: [{ type: 'text', text: '尝试绕过工作单直接继续' }], source: { kind: 'user' } }));
+  await agent.whenIdle();
+  assert.equal(adapter.requests.length, 1, 'a native followup must not start another model request');
+  assert.match(JSON.stringify(agent.session.events.at(-1)), /通过 @ 员工创建新的工作单/);
+  assert.equal(f.store.snapshot().runs.find(item => item.id === run.id)!.output, result.output);
+  await f.runtime.dispose();
+  assert.deepEqual(removed, [result.sessionId]);
+  assert.equal(f.ctx.agents.list().length, 0);
+});
+
+test('cancelling while workspace attachment is pending never wakes the idle agent afterward', async () => {
+  const adapter = new ScriptedAdapter([() => text('must not execute after cancellation')]);
+  const f = await fixture(adapter);
+  let entered: () => void = () => undefined;
+  let release: () => void = () => undefined;
+  const attaching = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const originalAttach = f.workspace.attachSession;
+  f.workspace.attachSession = async id => { entered(); await gate; await originalAttach(id); };
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '在会话附加期间取消' });
+  await attaching;
+  await f.runtime.cancel(run.id);
+  release();
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'cancelled');
+  assert.equal(result.sessionId, undefined);
+  assert.equal(adapter.requests.length, 0);
+  assert.equal(f.ctx.agents.list().length, 0);
+  await f.runtime.dispose();
+});
+
+async function workflowFixture(adapter: ScriptedAdapter, timeoutMs = 600_000) {
+  const f = await fixture(adapter);
+  const template = await f.store.saveTemplate({ name: 'Workflow worker', status: 'ready', modules: f.employee.modules });
+  const team = await f.store.saveTeam({ name: 'Workflow team', members: [{ memberId: 'first', templateId: template.id }, { memberId: 'second', templateId: template.id }], workflows: [{ id: 'flow', name: 'Verified delivery', steps: [{ id: 'first', name: 'Plan', memberId: 'first', instruction: 'Provide a plan', timeoutMs }, { id: 'second', name: 'Review', memberId: 'second', instruction: 'Review the accepted plan', timeoutMs }] }] });
+  const installed = await f.store.configureProjectTeam({ projectId: f.project.id, teamId: team.id, teamVersion: team.version, templateVersions: { [template.id]: template.version } });
+  const repository = new WorkflowRepository(f.store);
+  const errors: unknown[] = [];
+  const engine = new WorkflowEngine(repository, f.runtime, error => errors.push(error));
+  await engine.start();
+  const flow = await repository.start({ projectId: f.project.id, projectTeamId: installed.id, workflowId: installed.workflows[0]!.id, workflowVersion: 1, requestId: 'fixture-workflow', request: 'Create and review a plan' });
+  await engine.idle();
+  const current = () => f.store.snapshot().workflowRuns!.find(item => item.id === flow.id)!;
+  const waitCurrent = async () => { const id = current().steps.find(step => step.status !== 'accepted')!.attempts.at(-1)!.runId; const result = await f.runtime.wait(id); await engine.idle(); return result; };
+  const control = async (action: 'review' | 'cancel', runId?: string) => { await repository.control({ projectId: f.project.id, id: flow.id, action, runId, decision: action === 'review' ? 'accepted' : undefined, commandId: `command-${current().version}`, expectedVersion: current().version }); await engine.idle(); };
+  return { ...f, engine, repository, errors, current, waitCurrent, control };
+}
+
+test('workflow engine executes real Harness sessions exactly once per reserved attempt and waits for human review', async t => {
+  const adapter = new ScriptedAdapter([() => text('ACCEPTED_PLAN_SENTINEL'), () => text('Review delivered')]);
+  const f = await workflowFixture(adapter);
+  t.after(async () => { await f.engine.dispose(); await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const first = await f.waitCurrent();
+  assert.equal(first.status, 'awaiting-review', first.error);
+  await Promise.all([f.runtime.startReserved(first.id), f.runtime.startReserved(first.id)]);
+  assert.equal(adapter.requests.length, 1);
+  assert.equal(f.current().status, 'awaiting-review');
+  await f.control('review', first.id);
+  const second = await f.waitCurrent();
+  assert.equal(second.status, 'awaiting-review', second.error);
+  assert.notEqual(first.sessionId, second.sessionId);
+  assert.match(JSON.stringify(adapter.requests[1]), /ACCEPTED_PLAN_SENTINEL/);
+  await f.control('review', second.id);
+  assert.equal(f.current().status, 'succeeded'); assert.equal(adapter.requests.length, 2); assert.deepEqual(f.errors, []);
+});
+
+test('workflow step deadline aborts the real provider, blocks the flow, and never starts the next employee', async t => {
+  const adapter = new ScriptedAdapter([request => new Promise((_resolve, reject) => {
+    const abort = () => reject(new Error('provider aborted'));
+    if (request.signal?.aborted) abort(); else request.signal?.addEventListener('abort', abort, { once: true });
+  })]);
+  const f = await workflowFixture(adapter, 100);
+  t.after(async () => { await f.engine.dispose(); await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const result = await f.waitCurrent();
+  assert.equal(result.status, 'failed'); assert.match(result.error!, /时间上限/);
+  assert.equal(f.current().status, 'blocked'); assert.equal(adapter.requests.length, 1);
+  assert.equal(f.current().steps[1]!.attempts.length, 0); assert.deepEqual(f.errors, []);
+});
+
+test('cancelling a workflow aborts its active Harness attempt and does not dispatch a successor', async t => {
+  let entered!: () => void;
+  const ready = new Promise<void>(resolve => { entered = resolve; });
+  const adapter = new ScriptedAdapter([request => new Promise((_resolve, reject) => { entered(); request.signal?.addEventListener('abort', () => reject(new Error('cancelled')), { once: true }); })]);
+  const f = await workflowFixture(adapter);
+  t.after(async () => { await f.engine.dispose(); await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  await ready;
+  const runId = f.current().steps[0]!.attempts[0]!.runId;
+  await f.control('cancel');
+  const result = await f.runtime.wait(runId); await f.engine.idle();
+  assert.equal(result.status, 'cancelled'); assert.equal(f.current().status, 'cancelled');
+  assert.equal(f.current().steps[1]!.attempts.length, 0); assert.deepEqual(f.errors, []);
+});

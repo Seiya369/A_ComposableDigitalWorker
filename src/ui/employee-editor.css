@@ -1,0 +1,18 @@
+.wf-employee-fields {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.wf-basic-fields.wf-employee-summary {
+  grid-template-columns: repeat(4, minmax(104px, 1fr));
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+@media (max-width: 600px) {
+  .wf-employee-fields .wf-editor-hero { max-height: 42vh; overflow-y: auto; }
+}

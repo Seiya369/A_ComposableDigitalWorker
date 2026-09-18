@@ -1,0 +1,92 @@
+.wf-native-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xxs-12);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.wf-workspace-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+.wf-workspace-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-workspace-menu-item svg { flex: none; color: var(--dsw-alias-label-tertiary); }
+.wf-workspace-action:hover,
+.wf-workspace-menu-item:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-workspace-menu-item:disabled { color: var(--dsw-alias-label-tertiary); cursor: default; }
+.wf-workspace-menu-error { margin: 4px 10px; max-width: 220px; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); overflow-wrap: anywhere; }
+.wf-workspace-action:focus-visible,
+.wf-workspace-menu-item:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: -2px;
+}
+.wf-native-button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.wf-native-button:focus-visible,
+.wf-native-dock button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+.wf-native-dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  padding: 8px 12px;
+  margin: 5px 0;
+  font: var(--dsw-font-xxs-12);
+  color: var(--dsw-alias-label-secondary);
+}
+.wf-native-dock b {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+.wf-native-dock button {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.wf-native-dock button:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}

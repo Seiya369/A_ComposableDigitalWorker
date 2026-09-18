@@ -1,0 +1,34 @@
+# Third-party notices
+
+The integration patch contains changes and context derived from DeepSeek Harness.
+The following notice applies to that patch. The distributed browser plugin no
+longer embeds the host workspace UI or clsx. Original plugin code is covered by
+the root `LICENSE`.
+
+## DeepSeek Harness integration patch
+
+Source: <https://github.com/deepseek-ai/deepseek-harness>, commit
+`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `packages/client/ui-workspace/src`.
+Modified to add generic, additive workspace header and menu extension slots.
+
+MIT License
+
+Copyright (c) 2026 DeepSeek
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
