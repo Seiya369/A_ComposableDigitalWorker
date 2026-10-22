@@ -24,9 +24,9 @@ function modules(value: unknown): void {
   array(value.capabilities.skills, '技能'); for (const skill of value.capabilities.skills) keys(skill, ['id', 'name', 'description'], '技能');
   array(value.capabilities.tools, '工具'); for (const tool of value.capabilities.tools) keys(tool, ['id', 'description'], '工具');
   keys(value.model, ['mode', 'provider', 'model', 'reasoningEffort'], '模型声明');
-  keys(value.knowledge, ['sources', 'projectMemory', 'employeeMemory', 'memoryWritePolicy'], '知识声明');
+  keys(value.knowledge, ['sources', 'organization', 'projectMemory', 'employeeMemory', 'memoryWritePolicy'], '知识声明');
   array(value.knowledge.sources, '知识来源'); for (const source of value.knowledge.sources) {
-    keys(source, ['id', 'title', 'kind', 'value'], '知识来源');
+    keys(source, ['id', 'title', 'kind', 'value', 'category'], '知识来源');
     if (source.kind === 'url' && typeof source.value === 'string') {
       let url: URL; try { url = new URL(source.value); } catch { throw new Error('知识链接无效'); }
       invariant(!url.username && !url.password && ![...url.searchParams.keys()].some(key => /token|secret|password|api[_-]?key|credential|signature/i.test(key)), '导入文档不能包含带凭据的知识链接');

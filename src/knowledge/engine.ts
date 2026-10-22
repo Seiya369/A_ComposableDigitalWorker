@@ -71,7 +71,8 @@ function plans(state: WorkforceState): SpacePlan[] {
 }
 function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): KnowledgeInput[] {
   const inputs: KnowledgeInput[] = [];
-  if (!space.memberId && group.description.trim()) inputs.push({ id: 'team-description', title: '团队说明', content: group.description, provenance: `team:${space.teamId}`, verified: false });
+  if (!space.memberId && group.description.trim()) inputs.push({ id: 'team-description', title: '团队说明', content: group.description, provenance: `team:${space.teamId}`, verified: false,
+    category: 'requirements-decisions', classificationReason: 'trusted:team-description' });
   if (space.memberId) {
     const member = group.members.find(item => item.id === space.memberId);
     for (const source of member?.modules.knowledge.sources ?? []) {
@@ -79,7 +80,8 @@ function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): 
       if (source.kind === 'project-file') continue;
       inputs.push({ id: `configuration:${digest(source.id)}`, title: source.title,
         content: source.kind === 'url' ? `外部资料引用（未抓取，内容未经核验）：${source.value}` : source.value,
-        provenance: `configuration:${source.kind}:${source.id}`, verified: false });
+        provenance: `configuration:${source.kind}:${source.id}`, verified: false,
+        category: 'category' in source ? source.category as KnowledgeInput['category'] : 'reference', classificationReason: 'category' in source ? 'explicit:configured-source' : 'default:professional-reference' });
     }
   }
   if (space.kind === 'template') return inputs;
@@ -87,7 +89,8 @@ function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): 
     if (memory.projectId !== space.projectId) continue;
     if (space.memberId ? memory.scope !== 'employee' || memory.employeeId !== space.memberId : memory.scope !== 'project') continue;
     inputs.push({ id: `memory:${memory.id}`, title: memory.title, content: memory.content,
-      provenance: JSON.stringify({ kind: 'confirmed-memory', id: memory.id, version: memory.version, source: memory.source }), verified: true });
+      provenance: JSON.stringify({ kind: 'confirmed-memory', id: memory.id, version: memory.version, source: memory.source }), verified: true,
+      category: 'reference', classificationReason: 'default:confirmed-memory-is-not-necessarily-a-preference' });
   }
   const members = new Set(group.members.map(member => member.id));
   const endedTaskStatuses = new Set(['awaiting-review', 'accepted', 'blocked', 'cancelled', 'needs-revalidation']);
@@ -95,11 +98,13 @@ function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): 
     if (task.projectId !== space.projectId || !members.has(task.employeeId) || !endedTaskStatuses.has(task.status) || (space.memberId && task.employeeId !== space.memberId)) continue;
     const deliverables = (state.workState?.deliverables ?? []).filter(item => item.projectId === space.projectId && item.taskId === task.id);
     const content = space.memberId ? task : { title: task.title, goal: task.goal, status: task.status, acceptanceCriteria: task.acceptanceCriteria, reviews: deliverables.map(item => ({ id: item.id, title: item.title, version: item.revisions.at(-1)?.version, review: item.revisions.at(-1)?.review, invalidatedAt: item.revisions.at(-1)?.invalidatedAt })) };
-    inputs.push({ id: `work-task:${task.id}`, title: `任务记录：${task.title.slice(0, 80)}`, content: JSON.stringify(content, null, 2), provenance: `work-task:${task.id}@${task.version}`, verified: task.status === 'accepted' });
+    inputs.push({ id: `work-task:${task.id}`, title: `任务记录：${task.title.slice(0, 80)}`, content: JSON.stringify(content, null, 2), provenance: `work-task:${task.id}@${task.version}`, verified: task.status === 'accepted',
+      category: space.memberId ? 'task-evidence' : 'requirements-decisions', classificationReason: space.memberId ? 'trusted:private-task-record' : 'trusted:shared-task-goal-and-review' });
     for (const deliverable of deliverables) {
       const revision = deliverable.revisions.at(-1);
       if (!revision || (!space.memberId && (task.status !== 'accepted' || revision.review?.decision !== 'accepted' || revision.invalidatedAt))) continue;
-      inputs.push({ id: `work-result:${deliverable.id}`, title: deliverable.title, content: JSON.stringify({ title: deliverable.title, revision }, null, 2), provenance: `work-result:${deliverable.id}@${revision.version}`, verified: task.status === 'accepted' && revision.review?.decision === 'accepted' && !revision.invalidatedAt });
+      inputs.push({ id: `work-result:${deliverable.id}`, title: deliverable.title, content: JSON.stringify({ title: deliverable.title, revision }, null, 2), provenance: `work-result:${deliverable.id}@${revision.version}`, verified: task.status === 'accepted' && revision.review?.decision === 'accepted' && !revision.invalidatedAt,
+        category: 'task-evidence', classificationReason: 'trusted:deliverable-revision' });
     }
   }
 
@@ -108,20 +113,23 @@ function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): 
     if (space.memberId) {
       if (run.employeeId !== space.memberId) continue;
       inputs.push({ id: `run:${run.id}`, title: `任务记录：${run.request.slice(0, 80)}`, content: JSON.stringify({ request: run.request, status: run.status, output: run.output, error: run.error, artifacts: run.artifacts, acceptance: run.acceptance }, null, 2),
-        provenance: `run:${run.id}@${run.version}`, verified: run.acceptance?.decision === 'accepted' });
+        provenance: `run:${run.id}@${run.version}`, verified: run.acceptance?.decision === 'accepted',
+        category: run.status === 'failed' || run.status === 'cancelled' ? 'incidents-reflections' : 'task-evidence', classificationReason: `trusted:run-status:${run.status}` });
     } else {
       const task = run.workTaskId ? state.workState?.tasks.find(item => item.id === run.workTaskId && item.projectId === space.projectId && item.employeeId === run.employeeId) : undefined;
       const workflow = run.workflow ? state.workflowRuns?.find(item => item.id === run.workflow!.workflowRunId && item.projectId === space.projectId && item.projectTeamId === space.teamId) : undefined;
       const step = workflow?.definition.steps.find(item => item.id === run.workflow!.stepId && item.employeeId === run.employeeId);
       const publicGoal = task ? { title: task.title, goal: task.goal, acceptanceCriteria: task.acceptanceCriteria }
         : step ? { title: step.name, goal: step.instruction, acceptanceCriteria: step.acceptanceCriteria } : undefined;
-      if (publicGoal) inputs.push({ id: `task-goal:${run.id}`, title: `任务目标：${publicGoal.title.slice(0, 80)}`, content: JSON.stringify(publicGoal, null, 2), provenance: `task-goal:${run.id}`, verified: false });
+      if (publicGoal) inputs.push({ id: `task-goal:${run.id}`, title: `任务目标：${publicGoal.title.slice(0, 80)}`, content: JSON.stringify(publicGoal, null, 2), provenance: `task-goal:${run.id}`, verified: false,
+        category: 'requirements-decisions', classificationReason: 'trusted:shared-task-goal' });
       const currentTaskApproval = !run.workTaskId || (task?.status === 'accepted' && task.attemptRunIds.at(-1) === run.id);
       const stepState = workflow?.steps.find(item => item.stepId === run.workflow?.stepId);
       const currentWorkflowApproval = !run.workflow || (stepState?.status === 'accepted' && stepState.attempts.at(-1)?.runId === run.id);
       if (run.status === 'succeeded' && run.acceptance?.decision === 'accepted' && currentTaskApproval && currentWorkflowApproval) inputs.push({
         id: `accepted-run:${run.id}`, title: `已验收成果：${run.id}`,
         content: JSON.stringify({ artifacts: run.artifacts, output: run.output, acceptance: run.acceptance }, null, 2), provenance: `accepted-run:${run.id}@${run.version}`, verified: true,
+        category: 'task-evidence', classificationReason: 'trusted:currently-accepted-deliverable',
       });
     }
   }
@@ -203,7 +211,7 @@ export class KnowledgeEngine {
         // would revive withdrawn configuration under a different source identity.
         if (source.id.startsWith('configuration:') || source.id === 'team-description') continue;
         await this.repository.ingest(plan.space, { id: `template:${source.id}`, title: source.title, content: source.content, verified: source.verified,
-          provenance: `template-snapshot:${template.id}@${template.version}/${source.id}@${source.version}` }, () => this.spaceActive(plan.space) && this.spaceActive(sourceSpace));
+          provenance: `template-snapshot:${template.id}@${template.version}/${source.id}@${source.version}`, category: source.category, classificationReason: 'trusted:detached-template-source-category' }, () => this.spaceActive(plan.space) && this.spaceActive(sourceSpace));
       }
     }
     // Record even an empty/unavailable seed, so future template edits cannot follow an installation.
