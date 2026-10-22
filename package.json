@@ -100,7 +100,10 @@
     "@deepseek-ai/dsh-skill-filesystem": "0.2.1-alpha.2"
   },
   "dependencies": {
-    "yaml": "^2.9.0"
+    "yaml": "^2.9.0",
+    "fflate": "0.8.3",
+    "pdfjs-dist": "6.4.299",
+    "saxes": "6.0.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.5",

@@ -31,8 +31,8 @@ export function createWorkforceClient(options: { onChange?: () => void; onRun?: 
     return result;
   };
   return {
-    uploadKnowledge: async (target, file) => (await command('knowledge.upload', { target, file }) as { result: KnowledgeUploadResult }).result,
-    listUploadedKnowledge: async target => (await command('knowledge.uploads.list', { target }) as { result: KnowledgeUploadedSource[] }).result,
+    uploadKnowledge: async (target, file) => (await request<{ result: KnowledgeUploadResult }>('/command', { action: 'knowledge.upload', payload: { target, file } })).result,
+    listUploadedKnowledge: async target => (await request<{ result: KnowledgeUploadedSource[] }>('/command', { action: 'knowledge.uploads.list', payload: { target } })).result,
     workCommand: (action, payload, opts) => command(action, payload, opts),
     listCapabilities: projectId => request<EmployeeCapabilityCatalog>(`/capabilities${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
     snapshot: () => request<WorkforceState>('/state'),
