@@ -1,4 +1,5 @@
 import type { EmployeeModules, EmployeeTemplate } from '../domain/types.js';
+import type { ReactNode } from 'react';
 import { StringList, TextField, Toggle } from './fields.js';
 import type { IconName } from './icons.js';
 import type { WorkforceClient } from './client.js';
@@ -27,9 +28,13 @@ interface ModuleEditorProps {
   onUploadKnowledge?: (files: File[]) => Promise<void>;
   knowledgeUploadDisabled?: boolean;
   knowledgeUploadAccept?: string;
+  knowledgeUploadTargetLabel?: string;
+  knowledgeUploadDisabledReason?: string;
+  knowledgeUploadedSources?: ReactNode;
+  knowledgeUploadKey?: string;
 }
 
-export function ModuleEditor({ activeModule, modules, onChange, templates, currentTemplateId, client, projectId, onUploadKnowledge, knowledgeUploadDisabled, knowledgeUploadAccept }: ModuleEditorProps) {
+export function ModuleEditor({ activeModule, modules, onChange, templates, currentTemplateId, client, projectId, onUploadKnowledge, knowledgeUploadDisabled, knowledgeUploadAccept, knowledgeUploadTargetLabel, knowledgeUploadDisabledReason, knowledgeUploadedSources, knowledgeUploadKey }: ModuleEditorProps) {
   function update<K extends ModuleKey>(key: K, next: Partial<EmployeeModules[K]>) { onChange({ ...modules, [key]: { ...modules[key], ...next } }); }
   if (activeModule === 'responsibilities') return <div className="wf-module-form wf-role-definition">
     <TextField label="岗位角色" value={modules.responsibilities.mission} onChange={mission => update('responsibilities', { mission })} multiline rows={5} placeholder="描述员工的角色、专业定位与岗位目标" />
@@ -40,7 +45,7 @@ export function ModuleEditor({ activeModule, modules, onChange, templates, curre
   if (activeModule === 'model') return <div className="wf-module-form">
     <ModelSelector client={client} value={modules.model} onChange={model => onChange({ ...modules, model })} />
   </div>;
-  if (activeModule === 'knowledge') return <KnowledgeEditor knowledge={modules.knowledge} onChange={knowledge => onChange({ ...modules, knowledge })} onUploadKnowledge={onUploadKnowledge} knowledgeUploadDisabled={knowledgeUploadDisabled} knowledgeUploadAccept={knowledgeUploadAccept} />;
+  if (activeModule === 'knowledge') return <KnowledgeEditor key={knowledgeUploadKey} knowledge={modules.knowledge} onChange={knowledge => onChange({ ...modules, knowledge })} onUploadKnowledge={onUploadKnowledge} knowledgeUploadDisabled={knowledgeUploadDisabled} knowledgeUploadAccept={knowledgeUploadAccept} knowledgeUploadTargetLabel={knowledgeUploadTargetLabel} knowledgeUploadDisabledReason={knowledgeUploadDisabledReason} knowledgeUploadedSources={knowledgeUploadedSources} />;
   if (activeModule === 'permissions') return <div className="wf-module-form">
     <StringList label="允许调用的工具 ID" values={modules.permissions.allowedTools} onChange={allowedTools => update('permissions', { allowedTools })} hint="留空时无工具权限。" placeholder="worker_read_file" addLabel="授权工具" />
     <StringList label="允许读取的路径" values={modules.permissions.readPaths} onChange={readPaths => update('permissions', { readPaths })} placeholder="src/**" hint="项目相对路径或 glob；留空时不可读取。" addLabel="添加读取范围" />
