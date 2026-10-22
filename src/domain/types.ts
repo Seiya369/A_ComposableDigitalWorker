@@ -1,5 +1,6 @@
 import type { WorkflowRun, WorkflowStepRequirements, WorkflowTaskLink } from '../workflow/types.js';
 import type { ProjectWorkState } from '../work/types.js';
+import type { KnowledgeSourceCategory } from '../knowledge/categories.js';
 /** Domain data is JSON-only. IDs remain stable when names or paths change. */
 export interface ResponsibilitiesModule {
   mission: string;
@@ -21,9 +22,22 @@ export interface KnowledgeSource {
   title: string;
   kind: 'project-file' | 'url' | 'text';
   value: string;
+  /** Omitted by legacy settings; source ingestion defaults to professional references. */
+  category?: KnowledgeSourceCategory;
+}
+/** Knowledge organization only; never grants tools, data access or acceptance authority. */
+export interface KnowledgeOrganization {
+  version: 1;
+  profession: string;
+  taskScope: string;
+  conceptRules: string;
+  /** IDs stay stable when display titles are renamed. */
+  categories: Array<{ id: string; title: string; description: string }>;
 }
 export interface KnowledgeModule {
   sources: KnowledgeSource[];
+  /** Missing on legacy records: derive organization from the employee's role. */
+  organization?: KnowledgeOrganization;
   projectMemory: boolean;
   employeeMemory: boolean;
   memoryWritePolicy: 'explicit-only';
