@@ -3,7 +3,7 @@ import type { EmployeeModules, WorkforceState } from './types.js';
 export const ARCHITECT_TEMPLATE_ID = 'employee-template-architect';
 export const SOFTWARE_TEAM_ID = 'team-template-software';
 
-/** Empty means no capability. Model inheritance is an explicit choice. */
+/** Empty means no capability; the legacy model marker requires an explicit selection. */
 export function createBlankModules(): EmployeeModules {
   return {
     responsibilities: { mission: '', duties: [], boundaries: [] },

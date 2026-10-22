@@ -64,3 +64,11 @@
 .wf-sidebar:not(.wf-project-sidebar) > .wf-sidebar-heading { margin-top: 12px; margin-bottom: 6px; }
 .wf-sidebar:not(.wf-project-sidebar) > .wf-search { height: 30px; flex-shrink: 0; }
 .wf-root .wf-sidebar:not(.wf-project-sidebar) > .wf-search input { height: 28px; }
+.wf-team-members { margin-bottom: 24px; }
+.wf-team-member-add { display: flex; gap: 12px; align-items: flex-end; margin-bottom: 16px; }
+.wf-team-member-add > .wf-field { flex: 1; margin: 0; }
+.wf-team-member-add > button { flex: none; }
+.wf-team-member-row { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) 28px; gap: 12px; align-items: end; padding-block: 12px; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-team-member-row > .wf-field { margin: 0; }
+.wf-team-member-row > button { margin-bottom: 4px; }
+@media (max-width: 600px) { .wf-team-member-row { grid-template-columns: minmax(0, 1fr) 28px; } .wf-team-member-row > .wf-field:nth-child(2) { grid-row: 2; } .wf-team-member-row > button { grid-column: 2; grid-row: 1; } .wf-team-member-add { flex-wrap: wrap; } }

@@ -1,6 +1,8 @@
 /** Native integration smoke; run with Harness listening on WORKFORCE_URL. */
 import { chromium, expect } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { authenticateWeb } from '../../integration/web-auth.mjs';
 const base = process.env.WORKFORCE_URL || 'http://127.0.0.1:3080';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1450, height: 1050 } });
@@ -19,6 +21,9 @@ const saveEmployeeConfiguration=async()=>{
 };
 await mkdir('artifacts/ui',{recursive:true});
 try {
+  const auth = await authenticateWeb(await readFile(resolve(process.env.WORKFORCE_SERVICE_LOG || '.local/service/stdout.log'), 'utf8'), base);
+  const split = auth.cookie.indexOf('=');
+  await page.context().addCookies([{ name: auth.cookie.slice(0, split), value: auth.cookie.slice(split+1), url: base, httpOnly: true, sameSite: 'Strict' }]);
   await page.goto(base,{waitUntil:'domcontentloaded'});
   console.log('Native loaded');
   await page.getByRole('button',{name:'数字员工模板',exact:true}).click();
@@ -33,24 +38,23 @@ try {
   await expect(softwareTeam).toHaveAttribute('aria-expanded','true');
   await expect(page.getByRole('button',{name:'配置团队成员 技术负责人（架构师），第 1 级',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'配置团队成员 技术负责人（架构师）',exact:true}).click();
-  await expect(page.getByRole('tab')).toHaveCount(7);
+  await expect(page.getByRole('tab')).toHaveCount(6);
   await expect(page.getByLabel('所属团队',{exact:true})).toContainText('软件开发团');
   await expect(page.getByRole('combobox',{name:'所属层级',exact:true})).toHaveValue('1');
   await expect(page.getByLabel('所属上级',{exact:true})).toBeDisabled();
   await page.screenshot({path:'artifacts/ui/template-architect.png'});
-  for(const label of ['岗位职责','能力组合','模型配置','知识与记忆','权限','协作规则','交付标准']) {
+  for(const label of ['岗位定义','能力组合','模型选择','知识与记忆','权限','交付标准']) {
     await page.getByRole('tab',{name:label,exact:true}).click();
     await expect(page.getByRole('tabpanel',{name:label,exact:true})).toBeVisible();
   }
   await page.getByRole('tab',{name:'能力组合',exact:true}).click();
   await page.screenshot({path:'artifacts/ui/architect-capabilities.png'});
-  console.log('Seven module tabs verified');
+  console.log('Six module tabs verified');
   await page.getByRole('button',{name:'添加员工',exact:true}).first().click();
   await page.getByLabel('员工名称',{exact:true}).fill(prefix);
   await page.getByLabel('所属团队',{exact:true}).selectOption('');
-  await page.getByLabel('岗位使命',{exact:true}).fill('验证配置的保存与项目隔离。');
-  await page.getByRole('button',{name:'添加职责',exact:true}).click();
-  await page.getByRole('textbox',{name:'工作职责 1',exact:true}).fill('检查当前项目配置。');
+  await page.getByLabel('岗位角色',{exact:true}).fill('验证配置的保存与项目隔离。');
+  await page.getByLabel('工作职责',{exact:true}).fill('检查当前项目配置。');
   await page.getByRole('tab',{name:'能力组合',exact:true}).click();
   await page.getByRole('button',{name:'添加技能',exact:true}).click();
   await page.getByLabel('技能 ID',{exact:true}).fill('architecture-review');
@@ -87,7 +91,7 @@ try {
   };
   const createTeamEmployee=async(name,manager,level)=>{
     await page.locator('.wf-team-toolbar').getByRole('button',{name:'添加员工',exact:true}).click();
-    await expect(page.getByRole('tab')).toHaveCount(7);
+    await expect(page.getByRole('tab')).toHaveCount(6);
     await page.getByLabel('员工名称',{exact:true}).fill(name);
     await expect(page.getByLabel('所属团队',{exact:true})).toHaveValue(team.id);
     const levelSelect=page.getByRole('combobox',{name:'所属层级',exact:true});
@@ -116,7 +120,7 @@ try {
   await page.screenshot({path:'artifacts/ui/team-organization.png'});
   // Choosing the middle employee's level updates its manager options and moves its subtree after saving.
   await page.getByRole('button',{name:`配置团队成员 ${collaboratorName}`,exact:true}).click();
-  await expect(page.getByRole('tab')).toHaveCount(7);
+  await expect(page.getByRole('tab')).toHaveCount(6);
   await page.getByLabel('所属层级',{exact:true}).selectOption('1');
   await expect(page.getByLabel('所属层级',{exact:true})).toHaveValue('1');
   await expect(page.getByLabel('所属上级',{exact:true})).toBeDisabled();
@@ -150,7 +154,7 @@ try {
   await teamHeading.click();
   await expect(teamHeading).toHaveAttribute('aria-expanded','true');
   await page.getByRole('button',{name:`配置团队成员 ${workerName}，第 3 级`,exact:true}).click();
-  await expect(page.getByRole('tab')).toHaveCount(7);
+  await expect(page.getByRole('tab')).toHaveCount(6);
   await expect(page.getByLabel('员工名称',{exact:true})).toHaveValue(workerName);
   await expect(page.getByLabel('所属层级',{exact:true})).toHaveValue('3');
   await expect(page.getByLabel('所属上级',{exact:true})).toHaveValue(collaborator.memberId);
@@ -161,7 +165,7 @@ try {
   console.log('Unified employee configuration and team hierarchy verified');
   await page.getByRole('button',{name:'关闭数字员工',exact:true}).click();
   if(errors.length)throw new Error('Browser errors: '+errors.join('\n'));
-  console.log('PASS: native modal, seven modules, template save, team hierarchy.');
+  console.log('PASS: native modal, six module tabs, template save, team hierarchy.');
 } catch (error) { console.error(error); await page.screenshot({path:'artifacts/ui/test-failure.png'}); throw error; } finally {
   const state=await snapshot();
   for(const t of state.teams.filter(t=>t.name.startsWith(prefix)))await api('team.delete',{id:t.id});

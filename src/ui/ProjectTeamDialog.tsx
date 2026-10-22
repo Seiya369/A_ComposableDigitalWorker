@@ -9,9 +9,10 @@ interface Props {
   projectId: string;
   onClose: () => void;
   onManage: () => void;
+  onOpenWorkspace?: (projectId: string) => void;
 }
 
-export function ProjectTeamDialog({ client, projectId, onClose, onManage }: Props) {
+export function ProjectTeamDialog({ client, projectId, onClose, onManage, onOpenWorkspace }: Props) {
   const [state, setState] = useState<WorkforceState>();
   const [selectedId, setSelectedId] = useState('');
   const [error, setError] = useState('');
@@ -89,6 +90,7 @@ export function ProjectTeamDialog({ client, projectId, onClose, onManage }: Prop
         </>}
       </div>
       <footer className="wf-team-dialog-actions">
+        {onOpenWorkspace && <button className="wf-button" disabled={busy} onClick={() => onOpenWorkspace(projectId)}><Icon name="external" size={15} />在 graph_horses 中管理</button>}
         <button className="wf-button wf-primary" disabled={busy || !project || !selected || (!existing && unavailable(selected))} onClick={() => void configure()}>{busy ? '配置中…' : installed ? '查看团队' : '确认配置'}</button>
       </footer>
     </div>

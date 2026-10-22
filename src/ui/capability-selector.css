@@ -1,0 +1,13 @@
+.wf-capability-selector { display: grid; gap: 16px; min-width: 0; }
+.wf-capability-selector h3 { font-size: 15px; }
+.wf-capability-selector details { border-top: 1px solid var(--wf-line-soft); padding-top: 12px; }
+.wf-capability-selector summary { cursor: pointer; font-weight: 600; margin-bottom: 12px; }
+.wf-capability-skills { max-height: 360px; overflow: auto; border: 1px solid var(--wf-line); border-radius: var(--wf-radius); }
+.wf-capability-skill, .wf-capability-tool { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-capability-skill:last-child, .wf-capability-tool:last-child { border-bottom: 0; }
+.wf-capability-skill > input, .wf-capability-tool > input { margin-top: 4px; }
+.wf-capability-skill > span, .wf-capability-tool > span:first-of-type { display: grid; gap: 4px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.wf-capability-skill small, .wf-capability-tool small { color: var(--wf-muted); font-size: 12px; }
+.wf-capability-tools > .wf-hint { display: block; margin-bottom: 8px; }
+.wf-capability-selector .wf-content-heading { align-items: flex-start; }
+@media (max-width: 600px) { .wf-capability-selector .wf-content-heading { flex-wrap: wrap; } }

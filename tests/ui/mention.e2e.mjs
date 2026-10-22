@@ -1,6 +1,8 @@
 /** Real native @ integration. Set WORKFORCE_LIVE_MODEL=1 to make one model request. */
 import { chromium, expect } from '@playwright/test';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { authenticateWeb } from '../../integration/web-auth.mjs';
 
 const base = process.env.WORKFORCE_URL || 'http://127.0.0.1:3080';
 const browser = await chromium.launch({ headless: true });
@@ -10,12 +12,16 @@ page.on('pageerror', error => errors.push(error.message));
 await mkdir('artifacts/ui', { recursive: true });
 
 try {
+  const auth = await authenticateWeb(await readFile(resolve(process.env.WORKFORCE_SERVICE_LOG || '.local/service/stdout.log'), 'utf8'), base);
+  const split = auth.cookie.indexOf('=');
+  await page.context().addCookies([{ name: auth.cookie.slice(0, split), value: auth.cookie.slice(split+1), url: base, httpOnly: true, sameSite: 'Strict' }]);
   await page.goto(base, { waitUntil: 'domcontentloaded' });
   await page.getByRole('button', { name: '数字员工模板', exact: true }).waitFor();
-  const input = page.locator('textarea');
-  await input.fill('@');
+  const input = page.locator('[data-composer-input]');
+  await input.click();
+  await input.pressSequentially('@');
   await page.getByText('技术负责人（架构师）', { exact: true }).first().click();
-  await expect(input).toHaveValue('@技术负责人（架构师） ');
+  await expect(page.locator('[data-composer-card]')).toContainText('技术负责人（架构师）');
   await page.screenshot({ path: 'artifacts/ui/native-mention.png' });
   if (process.env.WORKFORCE_LIVE_MODEL === '1') {
     await input.press('End');

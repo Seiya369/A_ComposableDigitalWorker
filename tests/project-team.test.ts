@@ -8,6 +8,7 @@ import { createBlankModules } from '../src/domain/seed.js';
 import { validateState } from '../src/domain/validation.js';
 import { WorkflowRepository } from '../src/workflow/repository.js';
 import { activeProjectTeams, projectEmployees } from '../src/domain/project-roster.js';
+import { projectTeamKnowledgeEnabled } from '../src/domain/project-team.js';
 
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const root = await mkdtemp(join(tmpdir(), 'workforce-team-'));
@@ -29,6 +30,46 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const input = { projectId: project.id, teamId: team.id, teamVersion: team.version, templateVersions: { [architect.id]: architect.version, [designer.id]: designer.version } };
   return { root, file, store, project, other, architect, designer, team, input };
 }
+
+test('librarian defaults on and each installed team keeps an independent persisted switch', async t => {
+  const f = await fixture(t);
+  assert.equal(f.team.knowledgeEnabled, true);
+  const beforeInvalid = f.store.snapshot();
+  await assert.rejects(f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: undefined as never, enabled: false, version: 1 }), /团队 ID/);
+  assert.deepEqual(f.store.snapshot(), beforeInvalid);
+  const disabled = await f.store.saveTeam({ ...f.team, knowledgeEnabled: false }, { expectedVersion: f.team.version });
+  const a = await f.store.configureProjectTeam({ ...f.input, teamVersion: disabled.version });
+  const b = await f.store.configureProjectTeam({ ...f.input, projectId: f.other.id, teamVersion: disabled.version });
+  assert.equal(a.knowledgeEnabled, false);
+  assert.equal(b.knowledgeEnabled, false);
+  const updated = await f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: a.id, enabled: true, version: a.version ?? 1 });
+  assert.equal(updated.knowledgeEnabled, true);
+  assert.equal(updated.version, (a.version ?? 1) + 1);
+  assert.equal(f.store.snapshot().projectTeams?.find(team => team.id === b.id)?.knowledgeEnabled, false);
+  assert.equal(f.store.snapshot().teams.find(team => team.id === f.team.id)?.knowledgeEnabled, false);
+  await assert.rejects(f.store.setProjectTeamKnowledge({ projectId: f.other.id, teamId: a.id, enabled: false, version: updated.version ?? 1 }), /当前项目/);
+  await assert.rejects(f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: a.id, enabled: false, version: a.version ?? 1 }), /更新/);
+  await assert.rejects(f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: a.id, enabled: 'false' as never, version: updated.version ?? 1 }), /布尔|开关/);
+  const renamed = await f.store.saveTeam({ id: disabled.id, name: '仍然关闭', members: disabled.members }, { expectedVersion: disabled.version });
+  assert.equal(renamed.knowledgeEnabled, false);
+  assert.equal((await WorkforceStore.open(f.file)).snapshot().projectTeams?.find(team => team.id === a.id)?.knowledgeEnabled, true);
+});
+
+test('legacy installations copy the template switch and retain independent group controls', async t => {
+  const f = await fixture(t);
+  const disabled = await f.store.saveTeam({ ...f.team, knowledgeEnabled: false }, { expectedVersion: f.team.version });
+  const members = await f.store.instantiateTeam(f.project.id, disabled.id);
+  const otherMembers = await f.store.instantiateTeam(f.project.id, disabled.id);
+  assert.ok(members.every(member => !projectTeamKnowledgeEnabled(f.store.snapshot(), member)));
+  const version = Math.max(...members.map(member => member.version));
+  const updated = await f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: members[0]!.teamInstanceId!, enabled: true, version });
+  assert.equal(updated.knowledgeEnabled, true);
+  assert.ok(members.every(member => projectTeamKnowledgeEnabled(f.store.snapshot(), member)));
+  assert.ok(otherMembers.every(member => !projectTeamKnowledgeEnabled(f.store.snapshot(), member)));
+  await assert.rejects(f.store.setProjectTeamKnowledge({ projectId: f.project.id, teamId: members[0]!.teamInstanceId!, enabled: false, version }), /更新/);
+  const reopened = await WorkforceStore.open(f.file);
+  assert.ok(members.every(member => projectTeamKnowledgeEnabled(reopened.snapshot(), member)));
+});
 
 test('one team transaction creates all members, forward reports and project workflow assignments', async t => {
   const { store, file, project, input, team, architect, designer } = await fixture(t);

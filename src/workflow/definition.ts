@@ -26,6 +26,9 @@ export function validateWorkflows(value: unknown, assigneeKey: 'memberId' | 'emp
       if (step.timeoutMs !== undefined) integer(step.timeoutMs, '步骤超时', 100, 3_600_000);
       for (const key of ['inputs', 'outputs', 'acceptanceCriteria']) if (step[key] !== undefined) { strings(step[key], key); invariant((step[key] as string[]).length <= 20 && (step[key] as string[]).every(item => item.length <= 2000), '步骤要求过长'); }
     }
-    if (assigneeKey === 'employeeId') textField(workflow.templateWorkflowId, '来源工作流');
+    if (assigneeKey === 'employeeId') {
+      textField(workflow.templateWorkflowId, '来源工作流');
+      if (workflow.templateWorkflowVersion !== undefined) integer(workflow.templateWorkflowVersion, '来源工作流版本', 1);
+    }
   }
 }

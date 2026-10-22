@@ -1,14 +1,24 @@
 # Third-party notices
 
-The integration patch contains changes and context derived from DeepSeek Harness.
-The following notice applies to that patch. The distributed browser plugin no
-longer embeds the host workspace UI or clsx. Original plugin code is covered by
-the root `LICENSE`.
+The distributed plugin uses DeepSeek Harness through public plugin contracts.
+It does not embed the host workspace UI, clsx, or a host source patch. Its
+runtime `yaml` dependency is distributed separately by npm under its own ISC
+license. Original plugin code is covered by the root `LICENSE`.
+
+Knowledge context retention calls the public DeepSeek Harness Session surface
+replacement protocol and imports the public token-meter estimate module as an
+external runtime peer. `@deepseek-ai/dsh-token-meter` and
+`@deepseek-ai/dsh-compaction` version `0.2.1-alpha.2` remain supplied by the host
+profile; their MIT-licensed implementation is not embedded or patched here.
+
+The notice below is retained for the historical integration patch in the source
+repository. That patch is excluded from the npm archive and must not be applied
+to prepare a current installation.
 
 ## DeepSeek Harness integration patch
 
 Source: <https://github.com/deepseek-ai/deepseek-harness>, commit
-`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, `packages/client/ui-workspace/src`.
+`d743267388641bc76f17c45ce8b4c231aed1d32c`, `packages/client/ui-workspace/src`.
 Modified to add generic, additive workspace header and menu extension slots.
 
 MIT License
