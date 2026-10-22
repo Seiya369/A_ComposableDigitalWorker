@@ -1,10 +1,28 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Context } from '@deepseek-ai/cordis';
-import type {} from '@deepseek-ai/dsh-skill';
+import { isModelInvocable, renderSkillContent, type SkillViewOptions } from '@deepseek-ai/dsh-skill';
 
 /** Bundled instructions are registered in Harness and included only for selected employees. */
 export interface EmployeeSkill { id: string; name: string; description: string; content: string; path: string }
+
+/** Resolve the official winning provider for the project; selecting a skill grants its body only. */
+export async function resolveEmployeeSkill(ctx: Context, bundled: ReadonlyMap<string, EmployeeSkill>, id: string, cwd: string, signal: AbortSignal, scope?: SkillViewOptions['scope']): Promise<string> {
+  signal.throwIfAborted();
+  const registry = ctx.get('skills');
+  if (registry) {
+    let skill;
+    try { skill = await registry.get(id, { cwd, signal, scope }); }
+    catch { signal.throwIfAborted(); throw new Error(`无法载入所选技能：${id}`); }
+    if (!skill || !isModelInvocable(skill)) throw new Error(`技能未安装或不允许模型调用：${id}`);
+    return renderSkillContent(skill);
+  }
+  // A service-less unit-test composition can still exercise package-owned instructions.
+  // Production declares skills as a mandatory official service dependency.
+  const skill = bundled.get(id);
+  if (!skill) throw new Error(`技能未安装：${id}`);
+  return `## 技能 ${skill.name}\n${skill.content}`;
+}
 
 const names: Record<string, string> = {
   'architecture-analysis': '架构分析',

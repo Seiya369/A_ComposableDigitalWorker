@@ -1,0 +1,98 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { WorkforceState } from '../domain/types.js';
+import type { ProjectBrief, ProjectWorkState, WorkDeliverable, WorkTask, WorkTaskStatus } from '../work/types.js';
+import type { WorkforceClient } from './client.js';
+import { Icon } from './icons.js';
+import { readUiDraft, writeUiDraft } from './drafts.js';
+import { RUN_STATUS, timeLabel } from './ProjectPanels.js';
+import { DeliverableEditor, ProjectBriefEditor, WorkTaskEditor } from './ProjectWorkEditors.js';
+import { DeliverableInspector, TaskInspector, WORK_STATUS, type SendWorkCommand } from './WorkInspectors.js';
+import { TaskGraph } from './TaskGraph.js';
+import { relatedTaskIds } from './task-graph.js';
+import { WorkDeliverables } from './WorkDeliverables.js';
+import './project-workbench.css';
+
+type Selection = { kind: 'task' | 'deliverable'; id: string };
+type Editor = { kind: 'brief'; brief?: ProjectBrief } | { kind: 'task'; task?: WorkTask } | { kind: 'deliverable'; item?: WorkDeliverable; taskId?: string };
+type Navigation = { page: 'overview' | 'tasks' | 'deliverables'; view: 'list' | 'board' | 'graph'; selection?: Selection; query: string; status: string; owner: string; focus: 'all' | 'upstream' | 'downstream'; editing?: Editor };
+const DEFAULT_NAV: Navigation = { page: 'overview', view: 'list', query: '', status: 'all', owner: 'all', focus: 'all' };
+const EMPTY_WORK: ProjectWorkState = { briefs: [], tasks: [], deliverables: [], events: [], receipts: [] };
+const PROJECT_STATUS = { draft: '尚未启动', running: '正在推进', paused: '已暂停派工', completed: '已完成' };
+const BOARD_GROUPS: Array<{ title: string; statuses: WorkTaskStatus[] }> = [{ title: '待执行', statuses: ['draft', 'ready'] }, { title: '执行中', statuses: ['running'] }, { title: '需要处理', statuses: ['blocked', 'needs-revalidation'] }, { title: '待验收', statuses: ['awaiting-review'] }, { title: '已结束', statuses: ['accepted', 'cancelled'] }];
+
+export function ProjectWorkbench({ state, projectId, client, onReload, onDirtyChange, onOpenSession, onLegacyRuns, onConfigureTeam }: { state: WorkforceState; projectId: string; client: WorkforceClient; onReload: () => Promise<WorkforceState>; onDirtyChange: (dirty: boolean) => void; onOpenSession?: (id: string) => void; onLegacyRuns: () => void; onConfigureTeam: () => void }) {
+  const navKey = `workbench-navigation:${projectId}`;
+  const [nav, setNav] = useState<Navigation>(() => readUiDraft<Navigation>(navKey) ?? DEFAULT_NAV);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const mounted = useRef(true);
+  const change = (patch: Partial<Navigation>) => setNav(value => ({ ...value, ...patch }));
+  const dirtyChange = useCallback((value: boolean) => { setDirty(value); onDirtyChange(value); }, [onDirtyChange]);
+  const work = (state as WorkforceState & { workState?: ProjectWorkState }).workState ?? EMPTY_WORK;
+  const project = state.projects.find(project => project.id === projectId);
+  const brief = work.briefs.find(brief => brief.projectId === projectId);
+  const tasks = work.tasks.filter(task => task.projectId === projectId);
+  const deliverables = work.deliverables.filter(item => item.projectId === projectId);
+  const runs = state.runs.filter(run => run.projectId === projectId).slice().sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const employees = state.employees.filter(employee => employee.projectId === projectId);
+  const selectedTask = nav.selection?.kind === 'task' ? tasks.find(task => task.id === nav.selection?.id) : undefined;
+  const selectedDeliverable = nav.selection?.kind === 'deliverable' ? deliverables.find(item => item.id === nav.selection?.id) : undefined;
+  const pending = tasks.filter(task => ['blocked', 'needs-revalidation', 'awaiting-review'].includes(task.status));
+  const accepted = tasks.filter(task => task.status === 'accepted');
+  const activeRuns = runs.some(run => ['queued', 'running'].includes(run.status));
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { writeUiDraft(navKey, nav); }, [navKey, nav]);
+  useEffect(() => { if (brief?.status !== 'running' && !activeRuns) return; const timer = window.setInterval(() => { void onReload().catch(error => { if (mounted.current) setError(error instanceof Error ? error.message : String(error)); }); }, 2500); return () => window.clearInterval(timer); }, [brief?.status, activeRuns, onReload]);
+  useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(''), 5000); return () => window.clearTimeout(timer); }, [notice]);
+  const send: SendWorkCommand = async (action, payload, message, options) => {
+    if (busy) return false;
+    setBusy(true); setError('');
+    try { await client.workCommand(action, payload, options); try { await onReload(); } catch (error) { setError(`操作已完成，刷新失败，请刷新查看结果：${error instanceof Error ? error.message : String(error)}`); } setNotice(message); return true; }
+    catch (error) { setError(error instanceof Error ? error.message : String(error)); try { await onReload(); } catch { /* Keep the command error and draft visible. */ } return false; }
+    finally { setBusy(false); }
+  };
+  const choose = (selection: Selection) => { if (nav.editing && dirty) return; change({ selection }); };
+  const edit = (editing: Editor) => { if (nav.editing && dirty) return; change({ editing }); };
+  const closeEditor = () => { dirtyChange(false); change({ editing: undefined }); };
+  const saved = async (operation: Promise<boolean>) => { const ok = await operation; if (ok) closeEditor(); return ok; };
+  const dependencies = tasks.map(task => ({ id: task.id, dependencyIds: task.dependencyTaskIds }));
+  const focusIds = nav.focus !== 'all' && selectedTask ? relatedTaskIds(dependencies, selectedTask.id, nav.focus) : undefined;
+  const visible = useMemo(() => tasks.filter(task => (!focusIds || focusIds.has(task.id)) && (nav.status === 'all' || task.status === nav.status) && (nav.owner === 'all' || task.employeeId === nav.owner) && `${task.title} ${task.goal}`.toLowerCase().includes(nav.query.toLowerCase())), [tasks, focusIds, nav.status, nav.owner, nav.query]);
+  const taskWaiting = (task: WorkTask) => task.dependencyTaskIds.some(id => tasks.find(item => item.id === id)?.status !== 'accepted');
+  const taskSelect = (id: string) => choose({ kind: 'task', id });
+  const deliverableSelect = (id: string) => choose({ kind: 'deliverable', id });
+  const statusFor = (task: WorkTask) => task.status === 'ready' && taskWaiting(task) ? '等待前置验收' : WORK_STATUS[task.status];
+  return <main className="wf-workbench" aria-label="项目工作台" data-testid="project-workbench">
+    <header className="wf-work-project"><div><span className="wf-work-eyebrow">{project?.name ?? '项目'}</span><h2>{brief?.goal || '明确目标，组织任务，验收成果'}</h2><p>{brief ? PROJECT_STATUS[brief.status] : '保存项目目标后，可以单独执行任务，或启动项目按依赖派工。'}</p></div><div className="wf-work-project-controls"><button className="wf-button" disabled={busy || !!nav.editing} onClick={() => edit({ kind: 'brief', brief })}>目标与标准</button>{brief && <><button className="wf-button wf-primary" disabled={busy || !!nav.editing || brief.status === 'completed'} onClick={() => void send(brief.status === 'running' ? 'work.pauseProject' : 'work.startProject', { projectId }, brief.status === 'running' ? '已暂停后续派工，正在执行的任务会继续' : '已按依赖启动项目派工', { expectedVersion: brief.version, requestId: crypto.randomUUID() })}>{brief.status === 'running' ? '暂停派工' : '启动项目'}</button><button className="wf-button" disabled={busy || brief.status === 'completed' || !!nav.editing} onClick={() => void send('work.completeProject', { projectId }, '项目已按完成标准确认结束', { expectedVersion: brief.version, requestId: crypto.randomUUID() })}>确认完成</button></>}</div></header>
+    <nav className="wf-work-pages" aria-label="工作台内容">{([{ id: 'overview', label: '工作总览' }, { id: 'tasks', label: '任务', count: tasks.length }, { id: 'deliverables', label: '成果', count: deliverables.length }] as const).map(item => <button key={item.id} className={nav.page === item.id ? 'is-active' : ''} aria-current={nav.page === item.id ? 'page' : undefined} onClick={() => change({ page: item.id })}>{item.label}{'count' in item && <span>{item.count}</span>}</button>)}</nav>
+    {error && <div className="wf-banner wf-banner-error" role="alert">{error}<button className="wf-icon-button" aria-label="关闭工作台错误" onClick={() => setError('')}><Icon name="close" size={15} /></button></div>}{notice && <div className="wf-toast" role="status">{notice}</div>}
+    <div className={`wf-work-layout ${(selectedTask || selectedDeliverable) && !nav.editing ? 'has-inspector' : ''}`}><div className="wf-work-main">
+      {nav.editing?.kind === 'brief' ? <ProjectBriefEditor key="brief" projectId={projectId} brief={nav.editing.brief} deliverables={deliverables} busy={busy} onDirty={dirtyChange} onCancel={closeEditor} onSave={(input, requestId) => saved(send('work.saveBrief', input, '项目目标已保存', { expectedVersion: nav.editing?.kind === 'brief' ? nav.editing.brief?.version ?? 0 : 0, requestId }))} /> : nav.editing?.kind === 'task' ? <WorkTaskEditor key={nav.editing.task?.id ?? 'new-task'} projectId={projectId} task={nav.editing.task} tasks={tasks} employees={employees} busy={busy} onDirty={dirtyChange} onCancel={closeEditor} onSave={(input, requestId) => saved(send('work.saveTask', input, '任务与依赖已保存', { expectedVersion: nav.editing?.kind === 'task' ? nav.editing.task?.version ?? 0 : 0, requestId }))} /> : nav.editing?.kind === 'deliverable' ? <DeliverableEditor key={nav.editing.item?.id ?? nav.editing.taskId ?? 'new-output'} projectId={projectId} item={nav.editing.item} tasks={tasks} initialTaskId={nav.editing.taskId} busy={busy} onDirty={dirtyChange} onCancel={closeEditor} onSave={(input, requestId) => saved(send('work.saveDeliverable', input, '成果版本已保存', { expectedVersion: nav.editing?.kind === 'deliverable' ? nav.editing.item?.version ?? 0 : 0, requestId }))} /> : <>
+        {nav.page === 'overview' && <><div className="wf-work-metrics">{[{ label: '已验收任务', value: `${accepted.length} / ${tasks.length}`, status: 'all' }, { label: '执行中', value: tasks.filter(task => task.status === 'running').length, status: 'running' }, { label: '待验收', value: tasks.filter(task => task.status === 'awaiting-review').length, status: 'awaiting-review' }, { label: '需处理或重验', value: tasks.filter(task => ['blocked', 'needs-revalidation'].includes(task.status)).length, status: 'blocked' }].map(metric => <button key={metric.label} onClick={() => change({ page: 'tasks', status: metric.status })}><strong>{metric.value}</strong><span>{metric.label}</span></button>)}</div>
+          {brief && <details className="wf-work-brief"><summary>项目范围与完成标准</summary>{brief.scope && <p>{brief.scope}</p>}<ul>{brief.completionCriteria.map((item, index) => <li key={index}>{item}</li>)}</ul>{brief.requiredDeliverableIds.length > 0 && <p className="wf-hint">必交成果：{brief.requiredDeliverableIds.map(id => deliverables.find(item => item.id === id)?.title ?? '成果缺失').join('、')}</p>}</details>}
+          <div className="wf-work-section-title"><h3>需要处理</h3><button className="wf-button" onClick={() => edit({ kind: 'task' })}><Icon name="plus" size={14} />新建任务</button></div>{pending.length ? <TaskList tasks={pending} selectedId={selectedTask?.id} employees={employees} statusFor={statusFor} onSelect={taskSelect} /> : <div className="wf-work-empty"><Icon name="check" size={24} /><h3>{tasks.length ? '目前没有待处理事项' : '从第一项任务开始'}</h3><p>{tasks.length ? '执行状态与验收结果会在这里更新。' : '配置负责人、输入、成果与验收标准，再按依赖推进。'}</p>{!employees.length && <button className="wf-button" onClick={onConfigureTeam}>先配置项目团队</button>}</div>}
+          <div className="wf-work-section-title"><h3>最近执行</h3><button className="wf-button" onClick={onLegacyRuns}>全部执行记录</button></div>{runs.length ? <div className="wf-work-recent-runs">{runs.slice(-6).reverse().map(run => <article key={run.id}><div><strong>{run.request}</strong><span>{run.employeeSnapshot.name} · {RUN_STATUS[run.status]} · {timeLabel(run.createdAt)}</span></div>{run.sessionId && onOpenSession && <button className="wf-icon-button" aria-label={`打开会话：${run.request}`} onClick={() => onOpenSession(run.sessionId!)}><Icon name="external" size={16} /></button>}</article>)}</div> : <p className="wf-hint">尚无执行记录。保存计划不会自动调用模型。</p>}
+          {work.events.some(event => event.projectId === projectId) && <section className="wf-work-events"><h3>项目动态</h3><ol>{work.events.filter(event => event.projectId === projectId).slice(-8).reverse().map(event => <li key={event.id}><time>{timeLabel(event.at)}</time><span>{event.message}</span></li>)}</ol></section>}
+        </>}
+        {nav.page === 'tasks' && <><div className="wf-work-toolbar"><div className="wf-segmented" role="group" aria-label="任务视图">{([{ id: 'list', label: '列表' }, { id: 'board', label: '看板' }, { id: 'graph', label: '依赖图' }] as const).map(item => <button key={item.id} aria-pressed={nav.view === item.id} className={nav.view === item.id ? 'is-active' : ''} onClick={() => change({ view: item.id })}>{item.label}</button>)}</div><button className="wf-button wf-primary" onClick={() => edit({ kind: 'task' })}><Icon name="plus" size={14} />新建任务</button></div><div className="wf-work-filters"><input aria-label="搜索项目任务" value={nav.query} onChange={event => change({ query: event.target.value })} placeholder="搜索任务" /><select aria-label="按负责人筛选任务" value={nav.owner} onChange={event => change({ owner: event.target.value })}><option value="all">所有人员</option>{employees.map(employee => <option key={employee.id} value={employee.id}>{employee.name}</option>)}</select><select aria-label="按状态筛选任务" value={nav.status} onChange={event => change({ status: event.target.value })}><option value="all">所有状态</option>{Object.entries(WORK_STATUS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+          {nav.view === 'graph' && <div className="wf-work-focus"><span>{selectedTask ? `聚焦：${selectedTask.title}` : '选择任务可聚焦依赖范围'}</span><select aria-label="依赖图聚焦范围" value={nav.focus} disabled={!selectedTask} onChange={event => change({ focus: event.target.value as Navigation['focus'] })}><option value="all">显示全部</option><option value="upstream">上游依赖</option><option value="downstream">下游影响</option></select></div>}
+          {!visible.length ? <div className="wf-work-empty"><h3>{tasks.length ? '没有匹配的任务' : '尚未创建任务'}</h3><p>{tasks.length ? '调整搜索、负责人、状态或聚焦范围。' : '新建任务，或从项目已有工作流生成初始计划。'}</p></div> : nav.view === 'graph' ? <><div className="wf-work-desktop-graph"><TaskGraph tasks={visible.map(task => ({ id: task.id, title: task.title, owner: employees.find(employee => employee.id === task.employeeId)?.name ?? '人员已移除', status: statusFor(task), dependencyIds: task.dependencyTaskIds, ...(task.status === 'needs-revalidation' ? { warning: '输入版本变化' } : {}) }))} selectedId={selectedTask?.id} onSelect={taskSelect} /></div><div className="wf-work-mobile-graph"><p className="wf-hint">窄屏以列表显示相同任务，依赖在详情中查看。</p><TaskList tasks={visible} selectedId={selectedTask?.id} employees={employees} statusFor={statusFor} onSelect={taskSelect} /></div></> : nav.view === 'board' ? <div className="wf-task-board">{BOARD_GROUPS.map(group => <section key={group.title}><h3>{group.title}<span>{visible.filter(task => group.statuses.includes(task.status)).length}</span></h3><TaskList tasks={visible.filter(task => group.statuses.includes(task.status))} selectedId={selectedTask?.id} employees={employees} statusFor={statusFor} onSelect={taskSelect} /></section>)}</div> : <TaskList tasks={visible} selectedId={selectedTask?.id} employees={employees} statusFor={statusFor} onSelect={taskSelect} />}
+          <WorkflowMaterializer state={state} projectId={projectId} busy={busy} send={send} />
+        </>}
+        {nav.page === 'deliverables' && <><div className="wf-work-toolbar"><div className="wf-segmented" role="group" aria-label="成果视图"><button className={nav.view !== 'graph' ? 'is-active' : ''} aria-pressed={nav.view !== 'graph'} onClick={() => change({ view: 'list' })}>成果列表</button><button className={nav.view === 'graph' ? 'is-active' : ''} aria-pressed={nav.view === 'graph'} onClick={() => change({ view: 'graph' })}>版本关系图</button></div><button className="wf-button" disabled={!tasks.length} onClick={() => edit({ kind: 'deliverable' })}>新增成果</button></div><WorkDeliverables items={deliverables} tasks={tasks} selectedId={selectedDeliverable?.id} graph={nav.view === 'graph'} onSelect={deliverableSelect} /></>}
+      </>}
+    </div>{!nav.editing && selectedTask && <TaskInspector task={selectedTask} tasks={tasks} deliverables={deliverables} runs={runs} employees={employees} busy={busy} send={send} onEdit={() => edit({ kind: 'task', task: selectedTask })} onAddDeliverable={() => edit({ kind: 'deliverable', taskId: selectedTask.id })} onSelectTask={taskSelect} onSelectDeliverable={deliverableSelect} onOpenSession={onOpenSession} onClose={() => change({ selection: undefined })} />}{!nav.editing && selectedDeliverable && <DeliverableInspector item={selectedDeliverable} deliverables={deliverables} tasks={tasks} busy={busy} send={send} runs={runs} onEdit={() => edit({ kind: 'deliverable', item: selectedDeliverable })} onSelectTask={taskSelect} onSelectDeliverable={deliverableSelect} onOpenSession={onOpenSession} onClose={() => change({ selection: undefined })} />}</div>
+  </main>;
+}
+
+function TaskList({ tasks, selectedId, employees, statusFor, onSelect }: { tasks: WorkTask[]; selectedId?: string; employees: WorkforceState['employees']; statusFor: (task: WorkTask) => string; onSelect: (id: string) => void }) { return <div className="wf-work-task-list">{tasks.map(task => <button key={task.id} className={`wf-work-task ${selectedId === task.id ? 'is-selected' : ''}`} aria-pressed={selectedId === task.id} onClick={() => onSelect(task.id)}><div><strong>{task.title}</strong><span>{employees.find(employee => employee.id === task.employeeId)?.name ?? '人员已移除'} · {task.dependencyTaskIds.length} 个前置任务 · {task.attemptRunIds.length} 次执行</span></div><span className={`wf-work-state is-${task.status}`}>{statusFor(task)}</span><Icon name="chevron" size={14} /></button>)}</div>; }
+
+function WorkflowMaterializer({ state, projectId, busy, send }: { state: WorkforceState; projectId: string; busy: boolean; send: SendWorkCommand }) {
+  const workflows = state.projectTeams?.filter(team => team.projectId === projectId && team.status !== 'cancelled').flatMap(team => team.workflows.map(workflow => ({ team, workflow }))) ?? [];
+  const [selectedId, setSelectedId] = useState('');
+  const selected = workflows.find(item => `${item.team.id}/${item.workflow.id}` === selectedId);
+  if (!workflows.length) return null;
+  return <details className="wf-work-materialize"><summary>从已有工作流生成任务计划</summary><p className="wf-hint">复制步骤、负责人和前置关系到工作台；生成计划后可调整，不会立即执行。</p><div><select aria-label="选择生成任务的工作流" value={selectedId} onChange={event => setSelectedId(event.target.value)}><option value="">选择项目工作流</option>{workflows.map(({ team, workflow }) => <option key={`${team.id}/${workflow.id}`} value={`${team.id}/${workflow.id}`}>{team.name} · {workflow.name} · v{workflow.version ?? 1}</option>)}</select><button className="wf-button" disabled={busy || !selected} onClick={() => { if (selected) void send('work.materializeWorkflow', { projectId, projectTeamId: selected.team.id, workflowId: selected.workflow.id, workflowVersion: selected.workflow.version ?? 1 }, '已生成独立任务与依赖，请检查后启动', { requestId: crypto.randomUUID() }); }}>生成任务计划</button></div></details>;
+}

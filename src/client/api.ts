@@ -1,6 +1,9 @@
 import type { WorkflowRun } from '../workflow/types.js';
 import type { WorkforceClient } from '../ui/client.js';
 import type { CreateRunInput, WorkforceRun, WorkforceState } from '../domain/types.js';
+import type { ImportPreview, ImportResult, TransferBundle } from '../domain/transfer-types.js';
+import type { EmployeeModelCatalog } from '../domain/model-catalog.js';
+import type { EmployeeCapabilityCatalog } from '../domain/capability-catalog.js';
 
 export const API_PREFIX = '/digital-workers/api';
 
@@ -27,14 +30,24 @@ export function createWorkforceClient(options: { onChange?: () => void; onRun?: 
     return result;
   };
   return {
+    workCommand: (action, payload, opts) => command(action, payload, opts),
+    listCapabilities: projectId => request<EmployeeCapabilityCatalog>(`/capabilities${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
     snapshot: () => request<WorkforceState>('/state'),
+    listModels: () => request<EmployeeModelCatalog>('/models'),
     saveTemplate: (input, opts) => command('template.save', input, opts),
     saveEmployeeConfiguration: (input, opts) => command('employee.configuration.save', input, opts),
     saveTeam: (input, opts) => command('team.save', input, opts),
+    saveWorkflowTemplate: (input, opts) => command('workflow.template.save', input, opts),
+    deleteWorkflowTemplate: (id, opts) => command('workflow.template.delete', { id }, opts),
+    bindTeamWorkflow: (teamId, workflowTemplateId, bindings, opts) => command('workflow.template.bind', { teamId, workflowTemplateId, bindings }, opts),
+    exportBundle: async input => (await command('bundle.export', input) as { result: TransferBundle }).result,
+    previewImport: async (document, target) => (await command('bundle.preview', { document, target }) as { result: ImportPreview }).result,
+    importBundle: async (document, target, opts) => (await command('bundle.import', { document, target }, opts) as { result: ImportResult }).result,
     createEmployee: (input, opts) => command('employee.create', input, opts),
     createProjectEmployees: (input, opts) => command('project.employees.create', input, opts),
     instantiateTeam: (projectId, teamId, opts) => command('team.instantiate', { projectId, teamId }, opts),
     configureProjectTeam: input => command('project.team.configure', input),
+    setProjectTeamKnowledge: input => command('project.team.knowledge', input),
     cancelProjectTeams: input => command('project.team.cancel', input),
     saveProjectWorkflow: input => command('workflow.save', input),
     startWorkflow: async input => { const response = await command('workflow.start', input) as { result: WorkflowRun }; return response.result; },
@@ -47,7 +60,7 @@ export function createWorkforceClient(options: { onChange?: () => void; onRun?: 
     deleteMemory: (id, opts) => command('memory.delete', { id }, opts),
     createRun: async (input) => {
       // A project panel can target a different project than the current chat.
-      // Panel runs inherit the deployment model; @ runs carry their verified source separately.
+      // Both entry points use the person's explicitly selected model.
       const { run } = await request<{ run: WorkforceRun }>('/run', input);
       options.onChange?.(); options.onRun?.(run); return run;
     },

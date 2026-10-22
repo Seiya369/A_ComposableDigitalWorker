@@ -4,19 +4,32 @@ import { fileURLToPath } from 'node:url';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-host-webserver';
+import type {} from '@deepseek-ai/dsh-client-connection';
+import type {} from '@deepseek-ai/dsh-api-session-controller';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { WorkforceStore } from '../domain/store.js';
 import { ARCHITECT_TEMPLATE_ID, SOFTWARE_TEAM_ID } from '../domain/seed.js';
 import type { CreateEmployeeInput, CreateProjectEmployeesInput, MutationOptions, ReviewRunInput, SaveEmployeeConfigurationInput, SaveMemoryInput, SaveTeamInput, SaveTemplateInput, UpdateEmployeeInput } from '../domain/types.js';
-import { WorkforceRuntime, type RunRequest, type RuntimeConfig } from './runtime.js';
+import { DEFAULT_RUNTIME_CONFIG, WorkforceRuntime, type RunRequest, type RuntimeConfig } from './runtime.js';
 import { loadEmployeeSkills, registerEmployeeSkills } from './skills.js';
-import type { CancelProjectTeamsInput, ConfigureProjectTeamInput } from '../domain/types.js';
+import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, SetProjectTeamKnowledgeInput } from '../domain/types.js';
 import { WorkflowRepository } from '../workflow/repository.js';
 import { WorkflowEngine } from '../workflow/engine.js';
 import type { SaveProjectWorkflowInput, StartWorkflowInput, WorkflowCommandInput } from '../workflow/types.js';
+import type { SaveWorkflowTemplateInput } from '../domain/types.js';
+import type { ExportSelection, ImportOptions, ImportTarget } from '../domain/transfer-types.js';
+import { listEmployeeModels } from './model-catalog.js';
+import { WorkService } from '../work/service.js';
+import { WorkEngine } from '../work/engine.js';
+import type { WorkCommandOptions } from '../work/types.js';
+import { listEmployeeCapabilities } from './capability-catalog.js';
+import { registerEmployeePreset } from './employee-preset.js';
+import { KnowledgeRepository, knowledgeRootFor } from '../knowledge/repository.js';
+import { KnowledgeEngine } from '../knowledge/engine.js';
+import { createKnowledgeCompiler } from './knowledge-compiler.js';
 
 export const name = 'composable-workforce';
-export const inject = ['webServer', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'agentDefaultModel'];
+export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
 export interface Config extends Partial<RuntimeConfig> {
   statePath?: string;
   skillsDirectory?: string;
@@ -71,18 +84,23 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   if (!/^\/[a-zA-Z0-9/_-]+$/.test(prefix) || prefix.endsWith('/')) throw new Error('apiPrefix 必须是不带末尾斜杠的绝对 URL 路径');
   const origins = [`http://127.0.0.1:${ctx.webServer.port}`, `http://localhost:${ctx.webServer.port}`, ...(config.allowedOrigins ?? [])];
   for (const origin of origins) if (new URL(origin).origin !== origin || !['http:', 'https:'].includes(new URL(origin).protocol)) throw new Error('allowedOrigins 必须是完整 HTTP(S) origin');
-  const bodyLimit = config.maxBodyBytes ?? 1_048_576;
+  // A portable document is limited separately; leave room for its command envelope.
+  const bodyLimit = config.maxBodyBytes ?? 2_097_152;
   if (!Number.isSafeInteger(bodyLimit) || bodyLimit <= 0) throw new Error('maxBodyBytes 必须是正整数');
   const store = await WorkforceStore.open(config.statePath ?? resolve(process.env.DSH_HOME || resolve(homedir(), '.dsh'), 'composable-workforce', 'state.json'));
   const skills = await loadEmployeeSkills(config.skillsDirectory ?? fileURLToPath(new URL('../skills/', import.meta.url)));
   registerEmployeeSkills(ctx, skills);
-  const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => ['maxSteps', 'maxRunMs', 'maxTreeRuns', 'maxTreeTokens', 'maxFileBytes'].includes(key))));
+  const disposeEmployeePreset = await registerEmployeePreset(ctx);
+  const knowledge = new KnowledgeEngine(store, new KnowledgeRepository(knowledgeRootFor(store.filePath)), createKnowledgeCompiler(ctx), error => ctx.logger.error(error));
+  const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => Object.hasOwn(DEFAULT_RUNTIME_CONFIG, key))), knowledge);
   const workflows = new WorkflowRepository(store);
   const workflowEngine = new WorkflowEngine(workflows, runtime, error => ctx.logger.error(error));
-  ctx.effect(() => async () => { await workflowEngine.dispose(); await runtime.dispose(); }, 'digital-workers.runtime');
+  const work = new WorkService(store);
+  const workEngine = new WorkEngine(work, runtime, error => ctx.logger.error(error));
+  ctx.effect(() => async () => { await workEngine.dispose(); await workflowEngine.dispose(); await runtime.dispose(); await knowledge.dispose(); await disposeEmployeePreset?.(); }, 'digital-workers.runtime');
 
   // An interrupted external write is not replayed automatically after a process restart.
-  for (const run of store.snapshot().runs) if (!run.workflow && (run.status === 'queued' || run.status === 'running')) await store.updateRun(run.id, { status: 'failed', error: '上次宿主运行中断；请检查交付文件后重新提交任务', finishedAt: new Date().toISOString() });
+  for (const run of store.snapshot().runs) if (!run.workflow && !run.workTaskId && (run.status === 'queued' || run.status === 'running')) await store.updateRun(run.id, { status: 'failed', error: '上次宿主运行中断；请检查交付文件后重新提交任务', finishedAt: new Date().toISOString() });
 
   const syncProjects = async (): Promise<void> => {
     for (const workspace of ctx.workspaceRegistry.list()) {
@@ -98,7 +116,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     // and restarting the local service must not silently add that employee back.
     if (firstSetup && !store.snapshot().employees.some(employee => employee.projectId === workspace.id && employee.templateId === ARCHITECT_TEMPLATE_ID)) await store.instantiateTeam(workspace.id, SOFTWARE_TEAM_ID);
   } else await syncProjects();
+  await knowledge.start();
   await workflowEngine.start();
+  await workEngine.start();
 
   const requireProject = async (projectId: string) => {
     await syncProjects();
@@ -106,6 +126,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   };
   const requireStandaloneRun = (id: string) => {
     if (store.snapshot().runs.find(run => run.id === id)?.workflow) throw new Error('请在项目工作流中验收或取消此步骤');
+    if (store.snapshot().runs.find(run => run.id === id)?.workTaskId) throw new Error('请在项目工作台中处理此任务');
     return id;
   };
 
@@ -122,12 +143,30 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     const action = string(body.action, '操作');
     const payload = record(body.payload ?? {});
     const options = record(body.options ?? {}) as MutationOptions;
+    if (action.startsWith('work.')) {
+      await requireProject(string(payload.projectId, '项目 ID'));
+      return work.command(action, payload, options as WorkCommandOptions);
+    }
     switch (action) {
       case 'template.save': return store.saveTemplate(payload as unknown as SaveTemplateInput, options);
       case 'employee.configuration.save': return store.saveEmployeeConfiguration(payload as unknown as SaveEmployeeConfigurationInput, options);
       case 'template.archive': return store.archiveTemplate(string(payload.id, '模板 ID'), options);
       case 'team.save': return store.saveTeam(payload as unknown as SaveTeamInput, options);
       case 'team.delete': return store.deleteTeam(string(payload.id, '团队 ID'), options);
+      case 'workflow.template.save': return store.saveWorkflowTemplate(payload as unknown as SaveWorkflowTemplateInput, options);
+      case 'workflow.template.delete': return store.deleteWorkflowTemplate(string(payload.id, '工作流模板 ID'), options);
+      case 'workflow.template.bind': return store.bindTeamWorkflow(string(payload.teamId, '团队 ID'), string(payload.workflowTemplateId, '工作流模板 ID'), record(payload.bindings) as Record<string, string>, options);
+      case 'bundle.export': return store.exportBundle(payload as unknown as ExportSelection);
+      case 'bundle.preview': {
+        const target = record(payload.target) as unknown as ImportTarget;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '目标项目 ID'));
+        return store.previewImport(payload.document, target);
+      }
+      case 'bundle.import': {
+        const target = record(payload.target) as unknown as ImportOptions;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '目标项目 ID'));
+        return store.importBundle(payload.document, target, options);
+      }
       case 'team.instantiate': return store.instantiateTeam(string(payload.projectId, '项目 ID'), string(payload.teamId, '团队 ID'), options);
       case 'employee.create': return store.createEmployee(payload as unknown as CreateEmployeeInput, options);
       case 'project.team.cancel': {
@@ -135,6 +174,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const result = await store.cancelProjectTeams(payload as unknown as CancelProjectTeamsInput);
         await Promise.all(result.runIds.map(id => runtime.cancel(id)));
         return { cancelled: true };
+      }
+      case 'project.team.knowledge': {
+        await requireProject(string(payload.projectId, '项目 ID'));
+        return store.setProjectTeamKnowledge(payload as unknown as SetProjectTeamKnowledgeInput);
       }
       case 'project.team.configure': {
         await syncProjects();
@@ -162,11 +205,20 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   };
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: prefix, handler: async (req, res) => {
+    const admission = ctx.connection.admit(req);
+    if ('rejection' in admission) { json(res, admission.rejection, { error: admission.rejection === 401 ? '请先登录 Harness。' : '请求来源未获允许。' }); return; }
     try { assertRequestOrigin(req, origins); } catch (error) { json(res, 403, { error: (error as Error).message }); return; }
     try {
       const url = new URL(req.url!, origins[0]);
       const route = url.pathname.slice(prefix.length);
       if (req.method === 'GET' && route === '/state') { await syncProjects(); json(res, 200, store.snapshot()); return; }
+      if (req.method === 'GET' && route === '/models') { json(res, 200, await listEmployeeModels(ctx)); return; }
+      if (req.method === 'GET' && route === '/capabilities') {
+        const projectId = url.searchParams.get('projectId');
+        if (projectId) await requireProject(projectId);
+        const cwd = projectId ? store.snapshot().projects.find(project => project.id === projectId)?.rootPath : undefined;
+        json(res, 200, await listEmployeeCapabilities(ctx, { cwd })); return;
+      }
       if (req.method === 'GET' && route === '/session-project') {
         await syncProjects();
         const sessionId = SessionId(string(url.searchParams.get('sessionId'), '会话 ID'));

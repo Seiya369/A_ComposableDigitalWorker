@@ -2,8 +2,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, open, readFile, realpath, rename, stat, unlink } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { createSeedState } from './seed.js';
+import { bindWorkflow } from './workflow-template.js';
+import { exportBundle, previewImport, importBundle, existingImportResult } from './transfer.js';
+import type { ExportSelection, ImportOptions, ImportTarget, ImportPreview, ImportResult, TransferBundle } from './transfer-types.js';
+import type { SaveWorkflowTemplateInput, WorkflowTemplate, TeamTemplate } from './types.js';
 import { cancelProjectTeams, installProjectTeam } from './project-team.js';
-import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, ProjectTeam } from './types.js';
+import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, ProjectTeam, SetProjectTeamKnowledgeInput } from './types.js';
 import { invariant, textField, validateRelativePath, validateState, WorkforceError } from './validation.js';
 import type { CreateEmployeeInput, CreateProjectEmployeesInput, CreateRunInput, EmployeeTemplate, MemoryRecord, MutationOptions, ProjectEmployee, ReviewRunInput, RunStatus, SaveEmployeeConfigurationInput, SaveMemoryInput, SaveProjectInput, SaveTeamInput, SaveTemplateInput, UpdateEmployeeInput, UpdateRunInput, WorkforceRun, WorkforceState } from './types.js';
 
@@ -48,16 +52,18 @@ export class WorkforceStore {
   snapshot(): WorkforceState { return clone(this.state); }
   subscribe(listener: () => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
   /** Trusted domain transactions share the same revision check and atomic disk commit. */
-  transaction<T>(operation: (state: WorkforceState) => T): Promise<T> { return this.mutate({}, operation); }
+  transaction<T>(operation: (state: WorkforceState) => T, options: Pick<MutationOptions, 'expectedRevision'> = {}, replay?: (state: WorkforceState) => T | undefined): Promise<T> { return this.mutate(options, operation, replay); }
   reload(): Promise<WorkforceState> {
     const job = this.pending.then(async () => { this.state = await loadState(this.filePath); return this.snapshot(); });
     this.pending = job.catch(() => undefined); return job;
   }
-  private mutate<T>(options: MutationOptions, operation: (next: WorkforceState) => T | Promise<T>): Promise<T> {
+  private mutate<T>(options: MutationOptions, operation: (next: WorkforceState) => T | Promise<T>, replay?: (state: WorkforceState) => T | undefined): Promise<T> {
     const checkedOptions = clone(options);
     const job = this.pending.then(() => withLock(this.filePath, async () => {
-      if (checkedOptions.expectedRevision !== undefined && checkedOptions.expectedRevision !== this.state.revision) throw new WorkforceError('CONFLICT', '工作区配置已更新，请刷新后重试');
       const disk = await loadState(this.filePath);
+      const previous = replay?.(disk);
+      if (previous !== undefined) { this.state = disk; return clone(previous); }
+      if (checkedOptions.expectedRevision !== undefined && checkedOptions.expectedRevision !== this.state.revision) throw new WorkforceError('CONFLICT', '工作区配置已更新，请刷新后重试');
       if (disk.revision !== this.state.revision) throw new WorkforceError('CONFLICT', '其他实例已写入配置，请重新载入后重试');
       const next = clone(this.state); const result = await operation(next); next.revision += 1; validateState(next); await atomicWrite(this.filePath, next); this.state = next;
       for (const listener of this.listeners) { try { listener(); } catch { /* A subscriber cannot undo a committed transaction. */ } }
@@ -143,10 +149,34 @@ export class WorkforceStore {
       const old = input.id ? state.teams.find(t => t.id === input.id) : undefined;
       if (!old && options.expectedVersion !== undefined) throw new WorkforceError('NOT_FOUND', '团队不存在或已被删除，请刷新后重新选择');
       if (old) checkVersion(old, options);
-      const date = now(); const entry = { id: old?.id ?? input.id ?? randomUUID(), name: input.name, description: input.description ?? old?.description ?? '', members: input.members, workflows: input.workflows ?? old?.workflows ?? [], version: (old?.version ?? 0) + 1, createdAt: old?.createdAt ?? date, updatedAt: date };
+      invariant(input.knowledgeEnabled === undefined || typeof input.knowledgeEnabled === 'boolean', '资料管理员开关必须为布尔值');
+      const date = now(); const entry = { id: old?.id ?? input.id ?? randomUUID(), name: input.name, description: input.description ?? old?.description ?? '', knowledgeEnabled: input.knowledgeEnabled ?? old?.knowledgeEnabled ?? true, members: input.members, workflows: input.workflows ?? old?.workflows ?? [], version: (old?.version ?? 0) + 1, createdAt: old?.createdAt ?? date, updatedAt: date };
       if (old) state.teams[state.teams.indexOf(old)] = entry; else state.teams.push(entry);
       return entry;
     });
+  }
+  saveWorkflowTemplate(input: SaveWorkflowTemplateInput, options: MutationOptions = {}): Promise<WorkflowTemplate> {
+    input = clone(input); options = clone(options);
+    return this.mutate(options, state => {
+      const old = input.id ? state.workflowTemplates?.find(workflow => workflow.id === input.id) : undefined;
+      if (!old && options.expectedVersion !== undefined) throw new WorkforceError('NOT_FOUND', '工作流模板不存在，请刷新后重试');
+      if (old) checkVersion(old, options);
+      const date = now();
+      const workflow: WorkflowTemplate = { id: old?.id ?? input.id ?? randomUUID(), name: input.name, description: input.description ?? old?.description ?? '', roles: input.roles, steps: input.steps, version: (old?.version ?? 0) + 1, createdAt: old?.createdAt ?? date, updatedAt: date, ...(input.maxAttempts !== undefined ? { maxAttempts: input.maxAttempts } : {}) };
+      const templates = state.workflowTemplates ??= []; if (old) templates[templates.indexOf(old)] = workflow; else templates.push(workflow); return workflow;
+    });
+  }
+  deleteWorkflowTemplate(id: string, options: MutationOptions = {}): Promise<void> {
+    return this.mutate(options, state => { const workflow = required(state.workflowTemplates ?? [], id, '工作流模板'); checkVersion(workflow, options); state.workflowTemplates = state.workflowTemplates!.filter(entry => entry.id !== id); });
+  }
+  bindTeamWorkflow(teamId: string, workflowTemplateId: string, bindings: Record<string, string>, options: MutationOptions = {}): Promise<TeamTemplate> {
+    bindings = clone(bindings); options = clone(options);
+    return this.mutate(options, state => { const team = required(state.teams, teamId, '团队'); checkVersion(team, options); const workflow = required(state.workflowTemplates ?? [], workflowTemplateId, '工作流模板'); bindWorkflow(team, workflow, bindings); team.version++; team.updatedAt = now(); return team; });
+  }
+  exportBundle(selection: ExportSelection): TransferBundle { return exportBundle(this.state, clone(selection)); }
+  previewImport(document: unknown, target: ImportTarget): ImportPreview { return previewImport(this.state, document, clone(target)); }
+  importBundle(document: unknown, input: ImportOptions, options: MutationOptions = {}): Promise<ImportResult> {
+    document = clone(document); input = clone(input); return this.mutate(options, state => importBundle(state, document, input), state => existingImportResult(state, document, input));
   }
   deleteTeam(id: string, options: MutationOptions = {}): Promise<void> { return this.mutate(options, state => { const team = required(state.teams, id, '团队'); checkVersion(team, options); state.teams = state.teams.filter(t => t.id !== id); }); }
   saveProject(input: SaveProjectInput, options: MutationOptions = {}) {
@@ -217,11 +247,45 @@ export class WorkforceStore {
     });
   }
   instantiateTeam(projectId: string, teamTemplateId: string, options: MutationOptions = {}): Promise<ProjectEmployee[]> {
-    return this.mutate(options, state => { const team = required(state.teams, teamTemplateId, '团队'); checkVersion(team, options); invariant(team.members.length > 0, '空团队没有可添加的员工'); const groupId = randomUUID(); const members = new Map<string, ProjectEmployee>(); for (const member of team.members) members.set(member.memberId, this.addEmployee(state, { projectId, templateId: member.templateId, ...(member.name ? { name: member.name } : {}) }, groupId)); for (const member of team.members) if (member.reportsTo) members.get(member.memberId)!.managerId = members.get(member.reportsTo)!.id; return [...members.values()]; });
+    return this.mutate(options, state => {
+      const team = required(state.teams, teamTemplateId, '团队'); checkVersion(team, options);
+      invariant(team.members.length > 0, '空团队没有可添加的员工');
+      const groupId = randomUUID(); const members = new Map<string, ProjectEmployee>();
+      for (const member of team.members) {
+        const employee = this.addEmployee(state, { projectId, templateId: member.templateId, ...(member.name ? { name: member.name } : {}) }, groupId);
+        employee.legacyTeamKnowledgeEnabled = team.knowledgeEnabled ?? true;
+        members.set(member.memberId, employee);
+      }
+      for (const member of team.members) if (member.reportsTo) members.get(member.memberId)!.managerId = members.get(member.reportsTo)!.id;
+      return [...members.values()];
+    });
   }
   configureProjectTeam(input: ConfigureProjectTeamInput, options: MutationOptions = {}): Promise<ProjectTeam> {
     input = clone(input);
     return this.mutate(options, state => installProjectTeam(state, input, (employee, teamId) => this.addEmployee(state, employee, teamId)));
+  }
+  setProjectTeamKnowledge(input: SetProjectTeamKnowledgeInput): Promise<Pick<ProjectTeam, 'id' | 'knowledgeEnabled' | 'version'>> {
+    input = clone(input);
+    return this.mutate({}, state => {
+      textField(input.projectId, '项目 ID'); textField(input.teamId, '项目团队 ID');
+      invariant(typeof input.enabled === 'boolean', '资料管理员开关必须为布尔值');
+      const team = state.projectTeams?.find(team => team.id === input.teamId && team.projectId === input.projectId);
+      if (!team) {
+        const members = state.employees.filter(employee => employee.projectId === input.projectId && employee.teamInstanceId === input.teamId);
+        invariant(members.length > 0 && !state.projectTeams?.some(team => team.id === input.teamId), '团队不属于当前项目');
+        const version = Math.max(...members.map(member => member.version));
+        if (!Number.isSafeInteger(input.version) || input.version !== version) throw new WorkforceError('CONFLICT', '项目团队已更新，请刷新后重试');
+        const at = now();
+        for (const member of members) { member.legacyTeamKnowledgeEnabled = input.enabled; member.version++; member.updatedAt = at; }
+        return { id: input.teamId, knowledgeEnabled: input.enabled, version: version + 1 };
+      }
+      invariant(team, '团队不属于当前项目');
+      invariant(team.status !== 'cancelled', '请先恢复已取消的团队');
+      if (!Number.isSafeInteger(input.version) || input.version !== (team.version ?? 1)) throw new WorkforceError('CONFLICT', '项目团队已更新，请刷新后重试');
+      team.knowledgeEnabled = input.enabled;
+      team.version = (team.version ?? 1) + 1; team.updatedAt = now();
+      return team;
+    });
   }
   cancelProjectTeams(input: CancelProjectTeamsInput): Promise<{ runIds: string[] }> {
     input = clone(input);
@@ -231,7 +295,7 @@ export class WorkforceStore {
     patch = clone(patch); options = clone(options);
     return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); if (patch.name !== undefined) e.name = patch.name; if (patch.modules !== undefined) e.modules = patch.modules; if (patch.status !== undefined) e.status = patch.status; if (patch.managerId === null) delete e.managerId; else if (patch.managerId !== undefined) e.managerId = patch.managerId; e.version++; e.updatedAt = now(); return e; });
   }
-  deleteEmployee(id: string, options: MutationOptions = {}): Promise<void> { return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); invariant(!state.projectTeams?.some(team => team.members.some(member => member.employeeId === id)), '该员工属于项目团队，请暂停员工以保留团队和工作流关系'); invariant(!state.employees.some(other => other.managerId === id), '请先调整下属的汇报关系'); invariant(!state.runs.some(r => r.employeeId === id) && !state.memories.some(m => m.employeeId === id), '该员工已有工作或记忆记录，请暂停员工以保留历史'); state.employees = state.employees.filter(other => other.id !== id); }); }
+  deleteEmployee(id: string, options: MutationOptions = {}): Promise<void> { return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); invariant(!state.projectTeams?.some(team => team.members.some(member => member.employeeId === id)), '该员工属于项目团队，请暂停员工以保留团队和工作流关系'); invariant(!state.employees.some(other => other.managerId === id), '请先调整下属的汇报关系'); invariant(!state.workState?.tasks.some(task => task.employeeId === id), '该员工已有项目任务，请保留员工并暂停以保护任务历史'); invariant(!state.runs.some(r => r.employeeId === id) && !state.memories.some(m => m.employeeId === id), '该员工已有工作或记忆记录，请暂停员工以保留历史'); state.employees = state.employees.filter(other => other.id !== id); }); }
   listMemories(projectId: string, employeeId?: string): MemoryRecord[] {
     required(this.state.projects, projectId, '项目'); if (employeeId) invariant(this.state.employees.some(e => e.id === employeeId && e.projectId === projectId), '不能读取其他项目员工的记忆');
     return clone(this.state.memories.filter(m => m.projectId === projectId && (m.scope === 'project' || (employeeId !== undefined && m.employeeId === employeeId))));
@@ -267,6 +331,6 @@ export class WorkforceStore {
   }
   reviewRun(id: string, input: ReviewRunInput, options: MutationOptions = {}): Promise<WorkforceRun> {
     input = clone(input); options = clone(options);
-    return this.mutate(options, state => { const run = required(state.runs, id, '工作'); checkVersion(run, options); invariant(!run.workflow, '工作流步骤必须通过工作流验收入口处理'); invariant(run.status === 'awaiting-review', '只有待验收工作可以验收'); invariant(input.decision === 'accepted' || input.decision === 'rejected', '验收决定无效'); textField(input.reviewer, '验收人'); if (input.decision === 'accepted') invariant(run.artifacts.length > 0 || Boolean(run.output?.trim()), '缺少可验收的交付内容'); run.acceptance = { decision: input.decision, reviewer: input.reviewer, note: input.note ?? '', at: now() }; run.status = input.decision === 'accepted' ? 'succeeded' : 'failed'; run.finishedAt = now(); run.version++; run.updatedAt = now(); return run; });
+    return this.mutate(options, state => { const run = required(state.runs, id, '工作'); checkVersion(run, options); invariant(!run.workflow, '工作流步骤必须通过工作流验收入口处理'); invariant(!run.workTaskId, '项目任务必须通过项目工作台验收入口处理'); invariant(run.status === 'awaiting-review', '只有待验收工作可以验收'); invariant(input.decision === 'accepted' || input.decision === 'rejected', '验收决定无效'); textField(input.reviewer, '验收人'); if (input.decision === 'accepted') invariant(run.artifacts.length > 0 || Boolean(run.output?.trim()), '缺少可验收的交付内容'); run.acceptance = { decision: input.decision, reviewer: input.reviewer, note: input.note ?? '', at: now() }; run.status = input.decision === 'accepted' ? 'succeeded' : 'failed'; run.finishedAt = now(); run.version++; run.updatedAt = now(); return run; });
   }
 }

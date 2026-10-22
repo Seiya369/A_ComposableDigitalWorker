@@ -29,9 +29,12 @@ export function createEmployeeMentionSource(deps: MentionDependencies): InputTri
   }
   function claim(alias: string, employee: ProjectEmployee, sessionId: string): PickOutcome {
     const command: CommandClaim = {
+      name: employee.name,
       token: `@${alias} `,
+      attachments: false,
       hint: `交给${employee.name}的任务…`,
-      async submit(args) {
+      async submit(args, _ctx, attachments) {
+        if (attachments.length > 0) return {kind:'error', text:'员工任务暂不支持附件，请先提供项目文件路径。'};
         if (!args.trim()) return {kind:'error', text:'请描述需要员工完成的任务。'};
         try {
           const run = await deps.run({projectId: employee.projectId, employeeId: employee.id, request: args.trim(), sourceSessionId: sessionId});
@@ -64,7 +67,7 @@ export function createEmployeeMentionSource(deps: MentionDependencies): InputTri
       const entries=[...employees].sort(([a],[b])=>b.length-a.length);
       const entry=entries.find(([alias])=>line===`@${alias}`||line.startsWith(`@${alias} `));
       if(!entry) return undefined;
-      if(envelope.images>0) throw new Error('员工任务暂不支持图片附件，请先提供项目文件路径。');
+      if(envelope.attachments>0) throw new Error('员工任务暂不支持附件，请先提供项目文件路径。');
       return claim(entry[0],entry[1],session.sessionId);
     },
     lexicon(session) { return [...(snapshots.get(session.sessionId)?.keys() || [])]; },

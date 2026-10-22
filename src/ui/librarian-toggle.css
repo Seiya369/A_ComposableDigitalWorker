@@ -1,0 +1,6 @@
+.wf-librarian { min-width: 0; padding: 16px; margin-bottom: 16px; border: 1px solid var(--wf-line); border-radius: 12px; background: var(--wf-panel); }
+.wf-librarian-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.wf-librarian-heading label { display: flex; flex: 1; align-items: center; gap: 8px; cursor: pointer; }
+.wf-librarian-heading label:has(input:disabled) { cursor: not-allowed; }
+.wf-librarian-heading strong { font-weight: 500; }
+.wf-librarian > p { margin-top: 8px; color: var(--wf-muted); font: var(--dsw-font-xs-13); overflow-wrap: anywhere; }

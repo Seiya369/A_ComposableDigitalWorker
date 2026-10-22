@@ -9,6 +9,7 @@ import { SelectField, TextField } from './fields.js';
 import { Icon } from './icons.js';
 import { WorkflowForm } from './TeamWorkflows.js';
 import './project-workflows.css';
+import { activateUiDraft, readUiDraft, removeUiDraft, writeUiDraft } from './drafts.js';
 
 const STATUS: Record<WorkflowStatus, string> = { running: '执行中', paused: '已暂停', 'awaiting-review': '待验收', blocked: '待处理', succeeded: '已完成', cancelled: '已取消' };
 const STEP_STATUS: Record<WorkflowStepStatus, string> = { pending: '待执行', running: '执行中', 'awaiting-review': '待验收', accepted: '已验收', blocked: '待处理', cancelled: '已取消' };
@@ -16,14 +17,17 @@ type Props = { state: WorkforceState; projectId: string; client: WorkforceClient
 
 export function ProjectWorkflows({ state, projectId, client, perform, busy, onDirty }: Props) {
   const teams = activeProjectTeams(state, projectId);
-  const [editing, setEditing] = useState<{ teamId: string; workflow?: ProjectWorkflow }>();
-  const [starting, setStarting] = useState<{ teamId: string; workflow: ProjectWorkflow }>();
+  const navigationKey = `project-flow-navigation:${projectId}`;
+  const previous = readUiDraft<{ editing?: { teamId: string; workflow?: ProjectWorkflow }; starting?: { teamId: string; workflow: ProjectWorkflow } }>(navigationKey);
+  const [editing, setEditing] = useState<{ teamId: string; workflow?: ProjectWorkflow } | undefined>(previous?.editing);
+  const [starting, setStarting] = useState<{ teamId: string; workflow: ProjectWorkflow } | undefined>(previous?.starting);
   const [selectedId, setSelectedId] = useState<string>();
   const [page, setPage] = useState(0);
   const runs = (state.workflowRuns ?? []).filter(flow => flow.projectId === projectId).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const selected = runs.find(flow => flow.id === selectedId);
-  const stopEditing = () => { setEditing(undefined); onDirty(false); };
-  const stopStarting = () => { setStarting(undefined); onDirty(false); };
+  useEffect(() => { writeUiDraft(navigationKey, { editing, starting }); }, [navigationKey, editing, starting]);
+  const stopEditing = () => { if (editing) removeUiDraft(`project-flow-draft:${editing.teamId}:${editing.workflow?.id ?? 'new'}`); setEditing(undefined); onDirty(false); };
+  const stopStarting = () => { if (starting) removeUiDraft(`project-flow-start:${starting.workflow.id}`); setStarting(undefined); onDirty(false); };
   return <main className="wf-aux-panel wf-project-workflows">
     <div className="wf-content-heading"><h2>项目工作流</h2><button className="wf-button" disabled={busy || !teams.length || !!editing || !!starting} onClick={() => setEditing({ teamId: teams[0]!.id })}><Icon name="plus" size={15} />添加工作流</button></div>
     {editing && <ProjectWorkflowEditor key={`${editing.teamId}/${editing.workflow?.id ?? 'new'}`} state={state} teams={teams} initialTeamId={editing.teamId} workflow={editing.workflow} busy={busy} onDirty={onDirty} onCancel={stopEditing} onSave={async (teamId, workflow, expectedVersion) => { const ok = await perform(() => client.saveProjectWorkflow({ projectId, projectTeamId: teamId, workflow, expectedVersion }), '项目工作流已保存'); if (ok) stopEditing(); }} />}
@@ -46,10 +50,13 @@ function ProjectWorkflowEditor({ state, teams, initialTeamId, workflow, busy, on
   state: WorkforceState; teams: ProjectTeam[]; initialTeamId: string; workflow?: ProjectWorkflow; busy: boolean; onDirty: (dirty: boolean) => void;
   onSave: (teamId: string, workflow: ProjectWorkflow, expectedVersion: number) => Promise<void>; onCancel: () => void;
 }) {
-  const [teamId, setTeamId] = useState(initialTeamId);
-  const [dirty, setDirty] = useState(false);
-  const [draft, setDraft] = useState<TeamWorkflow>(() => workflow ? { ...workflow, steps: workflow.steps.map(({ employeeId, ...step }) => ({ ...step, memberId: employeeId })) } : { id: crypto.randomUUID(), name: '', maxAttempts: 3, steps: [] });
+  const cacheKey = `project-flow-draft:${initialTeamId}:${workflow?.id ?? 'new'}`;
+  const restored = readUiDraft<{ teamId: string; draft: TeamWorkflow }>(cacheKey);
+  const [teamId, setTeamId] = useState(restored?.teamId ?? initialTeamId);
+  const [dirty, setDirty] = useState(!!restored);
+  const [draft, setDraft] = useState<TeamWorkflow>(() => restored?.draft ?? (workflow ? { ...workflow, steps: workflow.steps.map(({ employeeId, ...step }) => ({ ...step, memberId: employeeId })) } : { id: crypto.randomUUID(), name: '', maxAttempts: 3, steps: [] }));
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+  useEffect(() => { activateUiDraft(cacheKey); if (dirty) writeUiDraft(cacheKey, { teamId, draft }); else removeUiDraft(cacheKey); }, [cacheKey, dirty, teamId, draft]);
   const team = teams.find(team => team.id === teamId);
   const members = team?.members.map(member => ({ memberId: member.employeeId, templateId: '', name: state.employees.find(employee => employee.id === member.employeeId)?.name ?? '员工已移除' })) ?? [];
   let valid = true;
@@ -57,7 +64,7 @@ function ProjectWorkflowEditor({ state, teams, initialTeamId, workflow, busy, on
   return <fieldset className="wf-editor-card wf-project-flow-editor" disabled={busy}>
     <SelectField label="所属项目团队" value={teamId} onChange={id => { setTeamId(id); setDraft(value => ({ ...value, steps: value.steps.map(step => ({ ...step, memberId: '' })) })); setDirty(true); }}>{teams.filter(team => !workflow || team.id === initialTeamId).map(team => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>
     <WorkflowForm workflow={draft} members={members} templates={[]} onChange={patch => { setDraft(value => ({ ...value, ...patch })); setDirty(true); }} />
-    <div className="wf-form-actions"><button className="wf-button" onClick={onCancel}>取消</button><button className="wf-button wf-primary" disabled={!team || !valid || (!dirty && !!workflow)} onClick={() => void onSave(teamId, { id: draft.id, name: draft.name.trim(), templateWorkflowId: workflow?.templateWorkflowId ?? 'project-custom', maxAttempts: draft.maxAttempts, steps: draft.steps.map(({ memberId, ...step }) => ({ ...step, employeeId: memberId })) }, workflow ? workflow.version ?? 1 : 0)}>保存工作流</button></div>
+    <div className="wf-form-actions"><button className="wf-button" onClick={onCancel}>取消</button><button className="wf-button wf-primary" disabled={!team || !valid || (!dirty && !!workflow)} onClick={() => void onSave(teamId, { id: draft.id, name: draft.name.trim(), templateWorkflowId: workflow?.templateWorkflowId ?? 'project-custom', ...(workflow?.templateWorkflowVersion !== undefined ? { templateWorkflowVersion: workflow.templateWorkflowVersion } : {}), maxAttempts: draft.maxAttempts, steps: draft.steps.map(({ memberId, ...step }) => ({ ...step, employeeId: memberId })) }, workflow ? workflow.version ?? 1 : 0)}>保存工作流</button></div>
   </fieldset>;
 }
 
@@ -65,9 +72,12 @@ function WorkflowStartForm({ teamId, workflow, projectId, busy, onDirty, onCance
   teamId: string; workflow: ProjectWorkflow; projectId: string; busy: boolean; onDirty: (dirty: boolean) => void; onCancel: () => void;
   onStart: (input: Parameters<WorkforceClient['startWorkflow']>[0]) => Promise<void>;
 }) {
-  const [request, setRequest] = useState('');
-  const receipt = useRef({ request: '', id: crypto.randomUUID() });
+  const cacheKey = `project-flow-start:${workflow.id}`;
+  const restored = readUiDraft<{ request: string; receipt: { request: string; id: string } }>(cacheKey);
+  const [request, setRequest] = useState(restored?.request ?? '');
+  const receipt = useRef(restored?.receipt ?? { request: '', id: crypto.randomUUID() });
   useEffect(() => onDirty(!!request), [request, onDirty]);
+  useEffect(() => { activateUiDraft(cacheKey); if (request) writeUiDraft(cacheKey, { request, receipt: receipt.current }); else removeUiDraft(cacheKey); }, [cacheKey, request]);
   return <form className="wf-editor-card" onSubmit={event => { event.preventDefault(); const goal = request.trim(); if (receipt.current.request !== goal) receipt.current = { request: goal, id: crypto.randomUUID() }; void onStart({ projectId, projectTeamId: teamId, workflowId: workflow.id, workflowVersion: workflow.version ?? 1, request: goal, requestId: receipt.current.id }); }}>
     <h3>{workflow.name}</h3><fieldset className="wf-flow-start-fields" disabled={busy}><TextField label="本次目标" value={request} onChange={setRequest} multiline rows={3} /></fieldset>
     <div className="wf-form-actions"><button type="button" className="wf-button" disabled={busy} onClick={onCancel}>取消</button><button type="submit" className="wf-button wf-primary" disabled={busy || !request.trim()}>开始执行</button></div>
