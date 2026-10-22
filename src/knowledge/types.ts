@@ -1,4 +1,5 @@
 import type { ModelModule } from '../domain/types.js';
+import type { KnowledgeSourceCategory } from './categories.js';
 
 /** A template and each project installation own detached knowledge spaces. */
 export interface KnowledgeSpace {
@@ -14,8 +15,13 @@ export interface KnowledgeInput {
   content: string;
   provenance: string;
   verified: boolean;
+  /** One primary source category; older callers default to reference material. */
+  category?: KnowledgeSourceCategory;
+  /** Why the source was assigned this category, without asserting its truth. */
+  classificationReason?: string;
 }
 export interface KnowledgeSource extends KnowledgeInput {
+  category: KnowledgeSourceCategory;
   version: number;
   hash: string;
   text: string;
