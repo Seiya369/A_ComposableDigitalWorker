@@ -6,9 +6,12 @@ import type { ExportSelection, ImportOptions, ImportPreview, ImportResult, Impor
 import type { EmployeeModelCatalog } from '../domain/model-catalog.js';
 import type { WorkCommandOptions } from '../work/types.js';
 import type { EmployeeCapabilityCatalog } from '../domain/capability-catalog.js';
+import type { KnowledgeUploadFile, KnowledgeUploadResult, KnowledgeUploadTarget, KnowledgeUploadedSource } from '../knowledge/types.js';
 
 /** Transport contract. Every mutation is persisted by the host, then reloaded. */
 export interface WorkforceClient {
+  uploadKnowledge(target: KnowledgeUploadTarget, file: KnowledgeUploadFile): Promise<KnowledgeUploadResult>;
+  listUploadedKnowledge(target: KnowledgeUploadTarget): Promise<KnowledgeUploadedSource[]>;
   workCommand(action: string, payload: unknown, options?: WorkCommandOptions): Promise<unknown>;
   listCapabilities(projectId?: string): Promise<EmployeeCapabilityCatalog>;
   listModels(): Promise<EmployeeModelCatalog>;

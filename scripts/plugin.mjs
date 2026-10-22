@@ -35,7 +35,7 @@ if (action === 'install') {
   const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   const tarball = resolve(archive || resolve(root, `artifacts/${pluginName}-${manifest.version}.tgz`));
   await access(tarball);
-  run('add', tarball, '--config.auto-install-peers=false', '--config.strict-peer-dependencies=false', '--ignore-scripts');
+  run('add', tarball, '--ignore-scripts');
   console.log('插件已安装。重启目标 Harness 并刷新页面后生效。');
 } else {
   await access(resolve(home, 'profiles', profile, 'package.json'));
@@ -53,7 +53,7 @@ if (action === 'install') {
       }
     }
     const manifest = JSON.parse(await readFile(resolve(home, 'profiles', profile, 'package.json'), 'utf8'));
-    if (manifest.dependencies?.[pluginName] || manifest.dsh?.profile?.bundles?.includes(pluginName)) run('remove', pluginName, '--config.auto-install-peers=false');
+    if (manifest.dependencies?.[pluginName] || manifest.dsh?.profile?.bundles?.includes(pluginName)) run('remove', pluginName);
     if (plan) console.log(JSON.stringify(await applyPurge(plan), null, 2));
     console.log(action === 'purge' ? '本插件的依赖、bundle、专属配置、状态、知识库及指定的本地服务日志已清理。用户项目、成果及原生会话历史保留。重启 Harness 并刷新页面后生效。' : '插件已卸载，配置、员工、项目记忆与知识库已保留。重启 Harness 并刷新页面后生效。');
   }

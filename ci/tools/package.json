@@ -1,0 +1,8 @@
+{
+  "name": "workforce-ci-tools",
+  "version": "1.0.0",
+  "private": true,
+  "devDependencies": {
+    "pnpm": "10.34.7"
+  }
+}

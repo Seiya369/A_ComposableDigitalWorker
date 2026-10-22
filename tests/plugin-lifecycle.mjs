@@ -5,11 +5,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
@@ -21,12 +21,13 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const pkg=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 process.env.DSH_INSTALLATION_MANIFEST ||= resolve(root,'.local/official-validation/node_modules/@deepseek-ai/dsh/package.json');
 const cliInstallation=await resolveCliInstallation(root);
-const installationRoot=resolve(dirname(cliInstallation.manifest),'../..');
+const installationRoot=await realpath(resolve(dirname(await realpath(cliInstallation.manifest)),'../..'));
 if (basename(installationRoot)!=='node_modules') throw new Error('生命周期验收必须使用未修改的官方 npm 安装；设置 DSH_INSTALLATION_MANIFEST。');
 const tarball=resolve(process.argv[2]||resolve(root,`artifacts/dsh-plugin-composable-workforce-${pkg.version}.tgz`));
 await access(tarball);
 await checkHost(cliInstallation.manifest);
 const temp=await mkdtemp(resolve(tmpdir(),'workforce-plugin-lifecycle-'));
+const stagedTarball=resolve(temp,'package.tgz');
 const home=resolve(temp,'harness');
 const profile=resolve(home,'profiles/web');
 const statePath=resolve(home,'composable-workforce/state.json');
@@ -49,12 +50,18 @@ async function programDigest(directory) {
 const originalHost=await programDigest(installationRoot);
 const officialRequire=createRequire(cliInstallation.manifest);
 const runtimePeers={};
-for(const name of ['@deepseek-ai/dsh-working-directory','@deepseek-ai/dsh-agent-preset-registry','@deepseek-ai/dsh-token-meter','@deepseek-ai/dsh-compaction']) {
-  const manifest=JSON.parse(await readFile(officialRequire.resolve(`${name}/package.json`),'utf8'));
-  assert.equal(manifest.version,pkg.peerDependencies[name],`${name} must match the verified public runtime peer`);
+const runtimePeerPaths={};
+for(const [name,expectedVersion] of Object.entries(pkg.peerDependencies)) {
+  const path=await realpath(officialRequire.resolve(`${name}/package.json`));
+  const part=relative(installationRoot,path);
+  assert.ok(!isAbsolute(part)&&part!=='..'&&!part.startsWith('../')&&!part.startsWith('..\\'),`${name} escaped the independent official stock boundary`);
+  const manifest=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(manifest.name,name,`${name} must resolve its declared public package`);
+  assert.equal(manifest.version,expectedVersion,`${name} must match the verified public runtime peer`);
   runtimePeers[name]=manifest.version;
+  runtimePeerPaths[name]=path;
 }
-const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),host:await checkHost(cliInstallation.manifest),runtimePeers,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
+const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),stagedTarball,host:await checkHost(cliInstallation.manifest),runtimePeers,runtimePeerPaths,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
 const input=process.env.WORKFORCE_LIFECYCLE_UI==='1'?createInterface({input:process.stdin,output:process.stdout}):undefined;
 let child;
 let log='';
@@ -113,9 +120,13 @@ async function post(path,body) {
 const command=(action,payload,options)=>post('/digital-workers/api/command',{action,payload,...(options?{options}:{})});
 const snapshot=async()=>{const response=await fetch(`${base}/digital-workers/api/state`,{headers:{Cookie:cookie}});assert.ok(response.ok);return response.json()};
 const digest=async()=>createHash('sha256').update(await readFile(statePath)).digest('hex');
-const install=()=>cli('plugin','--profile','web','add',tarball,'--config.auto-install-peers=false','--config.strict-peer-dependencies=false','--ignore-scripts');
+const install=()=>cli('plugin','--profile','web','add',stagedTarball,'--ignore-scripts');
 
 try {
+  await copyFile(tarball,stagedTarball);
+  report.stagedTarballSha256=createHash('sha256').update(await readFile(stagedTarball)).digest('hex');
+  assert.equal(report.stagedTarballSha256,report.tarballSha256,'staged archive must match the source archive SHA-256');
+  report.checks.push('source archive is staged at a short isolated path with identical SHA-256 and retained through install/remove/reinstall/purge');
   await install();
   const packagePath=resolve(profile,'node_modules/dsh-plugin-composable-workforce');
   assert.notEqual(await realpath(packagePath),await realpath(root),'must install the archive, not link the checkout');
@@ -158,7 +169,15 @@ try {
   // Team librarians follow this same model; no fixture event may reach an external provider.
   const fixtureModules=structuredClone(source.modules);
   fixtureModules.model={mode:'override',provider:'lifecycle-unregistered-provider',model:'fixture'};
+  const sourceCategories=[
+    ['reference','01-reference'],['requirements-decisions','02-requirements-decisions'],
+    ['task-evidence','03-task-evidence'],['incidents-reflections','04-incidents-reflections'],
+    ['environment-constraints','05-environment-constraints'],['preferences-capabilities','06-preferences-capabilities'],
+  ];
+  fixtureModules.knowledge.sources=sourceCategories.map(([category],i)=>({id:`lifecycle-source-${i}`,title:`隔离资料 ${category}`,kind:'text',value:`合成原文 ${i}\n保留否定与版本边界。`,category}));
+  fixtureModules.knowledge.organization={version:1,profession:'支付接口与事务一致性',taskScope:'整理回执与幂等边界',conceptRules:'receipt_id 与 order_id 分开；保留否定、版本与未核验状态。',categories:[{id:'receipt-consistency',title:'回执与幂等',description:'区分实体、重试条件及未知状态'}]};
   source=(await command('template.save',{id:source.id,name:source.name,description:source.description,status:source.status,modules:fixtureModules},{expectedVersion:source.version})).result;
+  assert.deepEqual((await snapshot()).templates.find(item=>item.id===source.id).modules.knowledge,fixtureModules.knowledge,'public save/reload lost source categories or professional rules');
   const {result:employees}=await command('project.employees.create',{projectId:workspace.workspaceId,employees:[{key:'architect',templateId:source.id,templateVersion:source.version,name:'验收架构师'}]});
   await command('memory.save',{projectId:workspace.workspaceId,employeeId:employees[0].id,scope:'employee',title:'安装卸载验收记忆',content:'此项目采用模块化边界，重新安装后必须保留。',source:{kind:'user-confirmed',reference:'本地隔离验收数据'}});
   const modules=structuredClone(employees[0].modules);
@@ -167,6 +186,15 @@ try {
   await command('employee.update',{id:employees[0].id,input:{modules}});
   const {result:team}=await command('team.save',{name:'生命周期验收团队',members:[{memberId:'architect',templateId:source.id}],workflows:[{id:'review',name:'生命周期验收流程',steps:[{id:'plan',name:'方案',memberId:'architect',instruction:'验证运行记录保留',acceptanceCriteria:['保留项目记录']}]}]});
   const {result:projectTeam}=await command('project.team.configure',{projectId:workspace.workspaceId,teamId:team.id,teamVersion:team.version,templateVersions:{[source.id]:source.version}});
+  const installedMember=(await snapshot()).employees.find(item=>item.id===projectTeam.members[0].employeeId);
+  assert.deepEqual(installedMember.modules.knowledge,fixtureModules.knowledge,'team installation lost detached professional rules');
+  const renamedModules=structuredClone(source.modules);
+  renamedModules.knowledge.organization.categories[0].title='回执一致性与幂等';
+  await command('template.save',{id:source.id,name:source.name,description:source.description,status:source.status,modules:renamedModules},{expectedVersion:source.version});
+  const afterCategoryRename=await snapshot();
+  assert.equal(afterCategoryRename.templates.find(item=>item.id===source.id).modules.knowledge.organization.categories[0].id,'receipt-consistency','display rename changed the stable category ID');
+  assert.deepEqual(afterCategoryRename.employees.find(item=>item.id===installedMember.id).modules.knowledge,fixtureModules.knowledge,'template edit changed the installed employee snapshot');
+  report.checks.push('archive API persists all six source categories and professional organization; installed employee keeps a detached copy; category title rename preserves its ID');
   await command('workflow.start',{projectId:workspace.workspaceId,projectTeamId:projectTeam.id,workflowId:projectTeam.workflows[0].id,workflowVersion:1,request:'验证失败记录在卸载重装后保留',requestId:'lifecycle-flow'});
   for(let i=0;i<100;i++){ if((await snapshot()).workflowRuns?.[0]?.status==='blocked')break; await delay(50); }
   assert.equal((await snapshot()).workflowRuns[0].status,'blocked','unconfigured test provider must fail locally');
@@ -190,6 +218,34 @@ try {
   await command('work.reviewTask',{projectId,id:task.id,decision:'accepted',note:'当前成果符合验收要求'},{requestId:'lifecycle-task-review',expectedVersion:currentTask.version,expectedRevision:(await snapshot()).revision});
   const {result:readyBrief}=await command('work.saveBrief',{...briefInput,requiredDeliverableIds:[placeholder.id]},{requestId:'lifecycle-final-brief',expectedVersion:brief.version});
   await command('work.completeProject',{projectId},{requestId:'lifecycle-complete-project',expectedVersion:readyBrief.version});
+  const uploadTarget={kind:'project',projectId,employeeId:installedMember.id};
+  const uploadedMaterials=[];
+  const uploadFixtures=JSON.parse(await readFile(resolve(root,'tests/fixtures/feeding/manifest.json'),'utf8'));
+  const beforeFeeding=await digest();
+  for(const fixture of uploadFixtures.files){
+    const bytes=await readFile(resolve(root,'tests/fixtures/feeding',fixture.name));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),fixture.sha256,'synthetic fixture bytes changed');
+    if(fixture.expected==='accepted'){
+      const {result:receipt}=await command('knowledge.upload',{target:uploadTarget,file:{name:fixture.name,base64:bytes.toString('base64')}});
+      assert.equal(receipt.status,'archived');assert.equal(receipt.version,1);
+      const archivedPath=resolve(knowledgeRoot,'projects',projectId,'teams',projectTeam.id,'employees',installedMember.id,'A-sources','01-reference',encodeURIComponent(receipt.sourceId),'v1.json');
+      const archived=JSON.parse(await readFile(archivedPath,'utf8'));
+      assert.deepEqual(Buffer.from(archived.originalFile.data,'base64'),bytes,'archived original bytes changed');
+      assert.equal(archived.originalFile.sha256,fixture.sha256);
+      for(const text of fixture.textIncludes)assert.ok(archived.text.includes(text),`archive missed extracted text: ${text}`);
+      assert.equal(archived.verified,false);
+      uploadedMaterials.push(receipt);
+    }else{
+      const rejected=await fetch(`${base}/digital-workers/api/command`,{method:'POST',headers:{'Content-Type':'application/json',Origin:base,Cookie:cookie},body:JSON.stringify({action:'knowledge.upload',payload:{target:uploadTarget,file:{name:fixture.name,base64:bytes.toString('base64')}}})});
+      assert.equal(rejected.status,400,'unreadable synthetic document was accepted');
+      assert.ok((await rejected.json()).error.includes(fixture.errorIncludes));
+    }
+  }
+  const {result:uploadedList}=await command('knowledge.uploads.list',{target:uploadTarget});
+  assert.equal(uploadedList.length,uploadedMaterials.length);
+  assert.ok(uploadedList.every(item=>item.attachment&&!Object.hasOwn(item.attachment,'data')),'metadata list leaked original base64');
+  assert.equal(await digest(),beforeFeeding,'feeding wrote unrelated employee or project state');
+  report.checks.push('archive parses synthetic PDF/DOCX/UTF-8 uploads through authenticated command, retains exact original bytes and page/paragraph text in private A, rejects scan/encrypted PDF, lists metadata only and leaves configuration untouched');
   const workState=(await snapshot()).workState;
   assert.equal(workState.briefs.find(item=>item.id===brief.id).status,'completed');
   const preservedOutput=workState.deliverables.find(item=>item.id===placeholder.id);
@@ -207,14 +263,32 @@ try {
   assert.equal(afterKnowledgeSwitch.teams.find(item=>item.id===team.id).knowledgeEnabled,true,'instance switch must not change its template');
   assert.deepEqual(afterKnowledgeSwitch.employees,beforeKnowledgeSwitch.employees,'system role switch must not create or edit employees');
   assert.deepEqual(afterKnowledgeSwitch.memories,beforeKnowledgeSwitch.memories,'closing librarian must preserve existing memory');
+  const blockedFeeding=await fetch(`${base}/digital-workers/api/command`,{method:'POST',headers:{'Content-Type':'application/json',Origin:base,Cookie:cookie},body:JSON.stringify({action:'knowledge.upload',payload:{target:uploadTarget,file:{name:'disabled.md',base64:Buffer.from('不得在关闭管理员时入库').toString('base64')}}})});
+  assert.equal(blockedFeeding.status,400,'closing librarian did not block human uploads');
   report.checks.push('default-on librarian switch persists via authenticated official host route; project override leaves template, employees and memories unchanged and survives reinstall');
   const baseline=afterKnowledgeSwitch;const hash=await digest();
   report.checks.push('tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request');
   await pause('installed');
   await stop();
+  const memberSources=resolve(knowledgeRoot,'projects',workspace.workspaceId,'teams',projectTeam.id,'employees',installedMember.id,'A-sources');
+  for(const [category,folder] of sourceCategories){
+    const ids=await readdir(resolve(memberSources,folder));
+    assert.ok(ids.length>0,`six-category archive was empty: ${folder}`);
+    let found=false;
+    for(const id of ids)for(const version of await readdir(resolve(memberSources,folder,id))){
+      const record=JSON.parse(await readFile(resolve(memberSources,folder,id,version),'utf8'));
+      if(record.provenance===`configuration:text:lifecycle-source-${sourceCategories.findIndex(item=>item[0]===category)}`){
+        assert.equal(record.category,category);
+        assert.equal(record.content,fixtureModules.knowledge.sources.find(item=>item.category===category).value,'categorization changed the original text');
+        found=true;
+      }
+    }
+    assert.ok(found,`configured source did not reach its physical category: ${category}`);
+  }
+  report.checks.push('installed archive materializes every A category and places configured sources in their actual folders with unchanged original text');
   const knowledgeBefore=await programDigest(knowledgeRoot);
   assert.ok(knowledgeBefore.files>1,'librarian did not archive team/member knowledge');
-  await cli('plugin','--profile','web','remove','dsh-plugin-composable-workforce','--config.auto-install-peers=false');
+  await cli('plugin','--profile','web','remove','dsh-plugin-composable-workforce');
   const removed=JSON.parse(await readFile(resolve(profile,'package.json'),'utf8'));
   assert.ok(!removed.dsh.profile.bundles.includes('dsh-plugin-composable-workforce'));
   assert.equal(await digest(),hash,'uninstall modified employee data');

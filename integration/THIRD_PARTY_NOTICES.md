@@ -5,6 +5,14 @@ It does not embed the host workspace UI, clsx, or a host source patch. Its
 runtime `yaml` dependency is distributed separately by npm under its own ISC
 license. Original plugin code is covered by the root `LICENSE`.
 
+Uploaded-document text extraction uses separately installed, unmodified npm
+dependencies: `pdfjs-dist` 6.4.299 (Apache-2.0), `fflate` 0.8.3 (MIT), and
+`saxes` 6.0.0 (ISC). Their transitive packages retain their own notices, including
+`xmlchars` 2.2.0 (MIT) and optional `@napi-rs/canvas` 1.0.13/platform packages
+(MIT). These implementations are external dependencies, not bundled into the
+plugin JavaScript. Their license files are distributed in the respective npm
+packages; the lockfile records the exact dependency closure.
+
 Knowledge context retention calls the public DeepSeek Harness Session surface
 replacement protocol and imports the public token-meter estimate module as an
 external runtime peer. `@deepseek-ai/dsh-token-meter` and

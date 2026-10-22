@@ -1,17 +1,24 @@
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import { knowledgePolicyFingerprint } from './policy.js';
+import { validateOriginalFile } from './original-file.js';
+import type { KnowledgePolicy, KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import { KNOWLEDGE_SOURCE_CATEGORIES, KNOWLEDGE_SOURCE_CATEGORY_FOLDERS, type KnowledgeSourceCategory } from './categories.js';
 
 const PLUGIN = 'dsh-plugin-composable-workforce';
 const queues = new Map<string, Promise<unknown>>();
 const roots = new Map<string, Promise<void>>();
+const writer = new AsyncLocalStorage<{ rootPath: string; canWrite?: WriteGuard }>();
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 const notFound = (message: string) => Object.assign(new Error(message), { code: 'NOT_FOUND' });
 type WriteGuard = () => boolean;
 function assertWritable(canWrite?: WriteGuard): void {
+  const inherited = writer.getStore()?.canWrite;
+  if (inherited && !inherited()) throw Object.assign(new Error('Knowledge scope is disabled; write cancelled'), { code: 'KNOWLEDGE_WRITE_DISABLED' });
   if (canWrite && !canWrite()) throw Object.assign(new Error('Knowledge scope is disabled; write cancelled'), { code: 'KNOWLEDGE_WRITE_DISABLED' });
 }
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -23,8 +30,8 @@ const identifier = (value: unknown): string => {
   check(typeof value === 'string' && /^[\p{L}\p{N}][\p{L}\p{N}._:-]{0,199}$/u.test(value), 'Invalid knowledge path identifier');
   return value;
 };
-const sourceDirectory = (path: string, id: string) => join(path, 'A-sources', encodeURIComponent(identifier(id)));
-type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation> & { publishedVersions: number[] };
+const sourceDirectory = (path: string, id: string, category: KnowledgeSourceCategory) => join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category], encodeURIComponent(identifier(id)));
+type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation | 'policy'> & { publishedVersions: number[]; policyFingerprints?: Record<string, string> };
 type SeedMarker = { schemaVersion: 1; from: { teamId: string; version: number }; createdAt: string };
 const versionNumber = (value: unknown): number => {
   check(Number.isSafeInteger(value) && Number(value) > 0, 'Invalid knowledge version');
@@ -80,7 +87,9 @@ export class KnowledgeRepository {
   }
 
   private async directory(path: string): Promise<void> {
+    assertWritable();
     await this.safe(path);
+    assertWritable();
     await mkdir(path, { recursive: true, mode: 0o700 });
     // A concurrent initializer can create the same directory; validate again before using it.
     await this.safe(path);
@@ -88,23 +97,33 @@ export class KnowledgeRepository {
     let current = this.rootPath;
     for (const part of ['', ...(rel ? rel.split(sep) : [])]) {
       if (part) current = join(current, part);
+      assertWritable();
       await chmod(current, 0o700);
     }
   }
 
   private async json<T>(path: string): Promise<T | undefined> {
+    const bytes = await this.bytes(path);
+    return bytes === undefined ? undefined : JSON.parse(bytes) as T;
+  }
+
+  private async bytes(path: string): Promise<string | undefined> {
     await this.safe(path);
     let file;
     try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
     catch (error) { if (missing(error)) return undefined; throw error; }
     try {
       check((await file.stat()).size <= 12_000_000, 'Knowledge file is too large');
-      return JSON.parse(await file.readFile('utf8')) as T;
+      const bytes = await file.readFile();
+      const text = bytes.toString('utf8');
+      check(Buffer.from(text, 'utf8').equals(bytes), 'Knowledge file contains invalid UTF-8');
+      return text;
     } finally { await file.close(); }
   }
 
-  private async write(path: string, value: unknown, signal?: AbortSignal, canWrite?: WriteGuard): Promise<void> {
+  private async write(path: string, value: unknown, signal?: AbortSignal, canWrite?: WriteGuard, immutable = false): Promise<void> {
     assertWritable(canWrite);
+    if (immutable) { signal?.throwIfAborted(); return this.immutableSource(path, `${JSON.stringify(value, null, 2)}\n`); }
     await this.directory(dirname(path));
     await this.safe(path);
     const temporary = join(dirname(path), `.pending-${randomUUID()}`);
@@ -117,10 +136,11 @@ export class KnowledgeRepository {
     finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error; }); }
   }
 
-  private async root(): Promise<void> {
+  private async root(canWrite?: WriteGuard): Promise<void> {
     const previous = roots.get(this.rootPath) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       await this.safe(this.rootPath);
+      assertWritable(canWrite);
       await mkdir(this.rootPath, { recursive: true, mode: 0o700 });
       await this.safe(this.rootPath);
       check((await lstat(this.rootPath)).isDirectory(), 'Knowledge root must be a directory');
@@ -130,8 +150,9 @@ export class KnowledgeRepository {
       if (owner) check(owner.plugin === PLUGIN && owner.schemaVersion === 1 && owner.rootPath === this.rootPath, 'Knowledge root ownership does not match');
       else {
         check((await readdir(this.rootPath)).length === 0, 'Cannot claim a nonempty knowledge root without plugin ownership');
-        await this.write(ownerPath, expected);
+        await this.write(ownerPath, expected, undefined, canWrite);
       }
+      assertWritable(canWrite);
       await chmod(this.rootPath, 0o700);
     });
     roots.set(this.rootPath, current);
@@ -139,15 +160,107 @@ export class KnowledgeRepository {
     finally { if (roots.get(this.rootPath) === current) roots.delete(this.rootPath); }
   }
 
-  async ensure(space: KnowledgeSpace): Promise<void> {
+  async ensure(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<void> {
     const path = this.spacePath(space);
-    await this.root();
-    for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
+    await this.locked(async () => {
+      for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
+      for (const category of KNOWLEDGE_SOURCE_CATEGORIES) await this.directory(join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category]));
+      await this.migrateSources(path);
+    }, canWrite);
   }
 
-  private async seedMarker(space: KnowledgeSpace): Promise<SeedMarker | undefined> {
+  private sourceValue(value: KnowledgeSource | undefined, id: string, version: number): KnowledgeSource {
+    check(value && value.id === id && value.version === version && typeof value.content === 'string' && typeof value.text === 'string' && value.hash === sha(value.content), 'Knowledge source is missing or corrupt');
+    const category = value.category === undefined ? 'reference' : value.category;
+    check(KNOWLEDGE_SOURCE_CATEGORIES.includes(category), 'Invalid knowledge source category');
+    if (value.classificationReason !== undefined) check(typeof value.classificationReason === 'string' && value.classificationReason.length <= 2_000, 'Invalid source classification reason');
+    if (value.originalFile !== undefined) validateOriginalFile(value.originalFile);
+    return value.category === undefined ? { ...value, category, classificationReason: value.classificationReason ?? 'Legacy source defaulted to reference; original bytes retained.' } : value;
+  }
+
+  /** A completed immutable link may survive a crash before its temporary name is removed. */
+  private async recoverSourcePending(directory: string): Promise<void> {
+    await this.safe(directory);
+    const names = await readdir(directory);
+    for (const name of names.filter(name => /^\.pending-[0-9a-f-]{36}$/.test(name))) {
+      const pending = join(directory, name);
+      const info = await lstat(pending);
+      check(info.isFile() && !info.isSymbolicLink(), 'Invalid pending knowledge source');
+      if (info.nlink > 1) {
+        const peers = await Promise.all(names.filter(name => /^v[1-9]\d*\.json$/.test(name)).map(async name => ({ name, info: await lstat(join(directory, name)) })));
+        check(info.nlink === 2 && peers.filter(peer => peer.info.dev === info.dev && peer.info.ino === info.ino).length === 1, 'Hard links are forbidden in knowledge paths');
+      }
+      assertWritable();
+      await unlink(pending);
+    }
+  }
+
+  /** Exclusive publication cannot replace any previously written source bytes. */
+  private async immutableSource(path: string, bytes: string): Promise<void> {
+    await this.directory(dirname(path));
+    await this.recoverSourcePending(dirname(path));
+    const old = await this.bytes(path);
+    if (old !== undefined) { check(old === bytes, 'Conflicting immutable knowledge source bytes'); return; }
+    const temporary = join(dirname(path), `.pending-${randomUUID()}`);
+    const file = await open(temporary, 'wx', 0o600);
+    try { await file.writeFile(bytes, 'utf8'); await file.sync(); }
+    finally { await file.close(); }
+    try {
+      await this.safe(path); assertWritable();
+      try { await link(temporary, path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        check(await this.bytes(path) === bytes, 'Conflicting immutable knowledge source bytes');
+      }
+    } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error; }); }
+  }
+
+  /** Discover flat history from disk, not just the active index, and retain its exact bytes. */
+  private async migrateSources(path: string): Promise<void> {
+    const root = join(path, 'A-sources');
+    const folders = new Set(Object.values(KNOWLEDGE_SOURCE_CATEGORY_FOLDERS));
+    for (const name of await readdir(root)) {
+      if (name === 'index.json' || name.startsWith('.pending-')) continue;
+      const directory = join(root, name);
+      await this.safe(directory);
+      check((await lstat(directory)).isDirectory(), 'Invalid source directory');
+      const id = identifier(decodeURIComponent(name));
+      check(encodeURIComponent(id) === name, 'Invalid source directory identifier');
+      // A legacy source ID may itself equal one of the six category folder names.
+      const versions = (await readdir(directory)).filter(file => /^v[1-9]\d*\.json$/.test(file));
+      for (const file of versions) {
+        const original = join(directory, file);
+        const bytes = await this.bytes(original);
+        check(bytes !== undefined, 'Knowledge source is missing or corrupt');
+        const source = this.sourceValue(JSON.parse(bytes) as KnowledgeSource, id, Number(file.slice(1, -5)));
+        const destination = join(sourceDirectory(path, id, source.category), file);
+        await this.immutableSource(destination, bytes);
+        assertWritable(); await this.safe(original); await unlink(original);
+      }
+      if (!folders.has(name)) await rmdir(directory).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error; });
+    }
+    const identities = new Set<string>();
+    for (const category of KNOWLEDGE_SOURCE_CATEGORIES) {
+      const categoryPath = join(root, KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category]);
+      for (const name of await readdir(categoryPath)) {
+        if (name.startsWith('.pending-')) continue;
+        const directory = join(categoryPath, name);
+        await this.safe(directory);
+        check((await lstat(directory)).isDirectory(), 'Invalid categorized source directory');
+        check(encodeURIComponent(identifier(decodeURIComponent(name))) === name, 'Invalid source directory identifier');
+        await this.recoverSourcePending(directory);
+        for (const version of (await readdir(directory)).filter(name => /^v[1-9]\d*\.json$/.test(name))) {
+          const identity = `${name}/${version}`;
+          check(!identities.has(identity), 'Knowledge source version has duplicate category locations');
+          identities.add(identity);
+        }
+      }
+    }
+  }
+
+  private async seedMarker(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<SeedMarker | undefined> {
     check(space.kind === 'project', 'Template seeding is only available for project knowledge spaces');
-    await this.ensure(space);
+    await this.ensure(space, canWrite);
     const marker = await this.json<SeedMarker>(join(this.spacePath(space), 'seed.json'));
     if (marker) {
       check(marker.schemaVersion === 1 && marker.from && typeof marker.createdAt === 'string', 'Invalid knowledge seed marker');
@@ -156,7 +269,7 @@ export class KnowledgeRepository {
     return marker;
   }
 
-  async isSeeded(space: KnowledgeSpace): Promise<boolean> { return !!await this.seedMarker(space); }
+  async isSeeded(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<boolean> { return !!await this.seedMarker(space, canWrite); }
 
   /** Mark even an empty initial copy so later template edits cannot silently seed an existing project. */
   async markSeeded(space: KnowledgeSpace, from: { teamId: string; version: number }, canWrite?: WriteGuard): Promise<void> {
@@ -175,10 +288,11 @@ export class KnowledgeRepository {
   /** A root mutex also coordinates independent instances and CLI processes. No model work runs under it. */
   private async locked<T>(action: () => Promise<T>, canWrite?: WriteGuard): Promise<T> {
     assertWritable(canWrite);
+    if (writer.getStore()?.rootPath === this.rootPath) return action();
     const previous = queues.get(this.rootPath) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       assertWritable(canWrite);
-      await this.root();
+      await this.root(canWrite);
       const path = join(this.rootPath, '.write.lock');
       const token = randomUUID();
       let lock;
@@ -205,7 +319,7 @@ export class KnowledgeRepository {
         }
       }
       check(lock, 'Knowledge write lock is busy');
-      try { assertWritable(canWrite); return await action(); }
+      try { assertWritable(canWrite); return await writer.run({ rootPath: this.rootPath, canWrite }, action); }
       finally {
         await lock.close();
         const holder = await this.json<{ token: string }>(path);
@@ -230,6 +344,19 @@ export class KnowledgeRepository {
     return Math.max(current, 0, ...versions) + 1;
   }
 
+  private async nextSourceVersion(path: string, id: string, current = 0): Promise<number> {
+    let latest = current;
+    for (const category of KNOWLEDGE_SOURCE_CATEGORIES) {
+      const directory = sourceDirectory(path, id, category);
+      await this.safe(directory);
+      let names: string[];
+      try { names = await readdir(directory); }
+      catch (error) { if (missing(error)) continue; throw error; }
+      for (const name of names.filter(name => /^v[1-9]\d*\.json$/.test(name))) latest = Math.max(latest, versionNumber(Number(name.slice(1, -5))));
+    }
+    return versionNumber(latest + 1);
+  }
+
   async ingest(space: KnowledgeSpace, input: KnowledgeInput, canWrite?: WriteGuard): Promise<KnowledgeSource> {
     input = structuredClone(input);
     identifier(input.id);
@@ -237,14 +364,19 @@ export class KnowledgeRepository {
     bounded(input.content, 'Source content', 2_000_000, true);
     bounded(input.provenance, 'Source provenance', 8_000);
     check(typeof input.verified === 'boolean', 'Source verification state is required');
+    if (input.category === undefined) input.category = 'reference';
+    check(KNOWLEDGE_SOURCE_CATEGORIES.includes(input.category), 'Invalid knowledge source category');
+    if (input.classificationReason !== undefined) check(typeof input.classificationReason === 'string' && input.classificationReason.length <= 2_000, 'Source classification reason is too large');
+    if (input.originalFile !== undefined) validateOriginalFile(input.originalFile);
     const path = this.spacePath(space);
     return this.locked(async () => {
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const index = await this.index(path);
       const oldVersion = Object.hasOwn(index, input.id) ? index[input.id] : undefined;
       const old = oldVersion ? await this.source(path, input.id, oldVersion, true) : undefined;
       const hash = sha(input.content);
-      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title) return old;
+      const sameOriginal = old?.originalFile?.sha256 === input.originalFile?.sha256 && old?.originalFile?.name === input.originalFile?.name && old?.originalFile?.mediaType === input.originalFile?.mediaType;
+      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title && old.category === input.category && sameOriginal && (input.classificationReason === undefined || old.classificationReason === input.classificationReason)) return old;
       check(oldVersion !== undefined || Object.keys(index).length < 2_000, 'Knowledge source count is too large');
       const processing: string[] = [];
       let text = input.content;
@@ -252,8 +384,9 @@ export class KnowledgeRepository {
       if (text.includes('\r')) { text = text.replace(/\r\n?/g, '\n'); processing.push('Normalized line endings to LF in reading text.'); }
       if (text.includes('\0')) { text = text.replace(/\0/g, '[U+0000]'); processing.push('Marked NUL characters as [U+0000] in reading text.'); }
       if (!processing.length) processing.push('Original text retained without semantic edits.');
-      const source: KnowledgeSource = { ...input, version: await this.nextVersion(sourceDirectory(path, input.id), oldVersion), hash, text, processing, createdAt: new Date().toISOString() };
-      await this.write(join(sourceDirectory(path, input.id), `v${source.version}.json`), source, undefined, canWrite);
+      const version = await this.nextSourceVersion(path, input.id, oldVersion);
+      const source: KnowledgeSource = { ...input, category: input.category!, version, hash, text, processing, createdAt: new Date().toISOString() };
+      await this.write(join(sourceDirectory(path, input.id, source.category), `v${source.version}.json`), source, undefined, canWrite, true);
       Object.defineProperty(index, input.id, { value: source.version, enumerable: true, writable: true, configurable: true });
       await this.write(join(path, 'A-sources', 'index.json'), index, undefined, canWrite);
       return source;
@@ -265,7 +398,7 @@ export class KnowledgeRepository {
     identifier(id);
     const path = this.spacePath(space);
     return this.locked(async () => {
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const index = await this.index(path);
       if (!Object.hasOwn(index, id)) return;
       delete index[id];
@@ -274,53 +407,79 @@ export class KnowledgeRepository {
   }
 
   private async source(path: string, id: string, version: number, required = false): Promise<KnowledgeSource> {
-    const source = await this.json<KnowledgeSource>(join(sourceDirectory(path, id), `v${versionNumber(version)}.json`));
+    versionNumber(version);
+    const found = await Promise.all(KNOWLEDGE_SOURCE_CATEGORIES.map(async category => ({ category, value: await this.json<KnowledgeSource>(join(sourceDirectory(path, id, category), `v${version}.json`)) })));
+    const versions = found.filter((item): item is { category: KnowledgeSourceCategory; value: KnowledgeSource } => item.value !== undefined);
+    check(versions.length <= 1, 'Knowledge source version has duplicate category locations');
+    const source = versions[0]?.value;
     if (!source && !required) throw notFound('Knowledge source was not found');
-    check(source && source.id === id && source.version === version && typeof source.text === 'string' && source.hash === sha(source.content), 'Knowledge source is missing or corrupt');
-    return source;
+    const normalized = this.sourceValue(source, id, version);
+    check(normalized.category === versions[0]?.category, 'Knowledge source category does not match its directory');
+    return normalized;
   }
 
-  async sources(space: KnowledgeSpace): Promise<KnowledgeSource[]> {
-    await this.ensure(space);
+  async sources(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<KnowledgeSource[]> {
+    await this.ensure(space, canWrite);
     const path = this.spacePath(space);
     const index = await this.index(path);
     return Promise.all(Object.entries(index).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([id, version]) => this.source(path, id, version, true)));
   }
 
-  async fingerprint(space: KnowledgeSpace): Promise<string> {
-    const sources = await this.sources(space);
+  async fingerprint(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<string> {
+    const sources = await this.sources(space, canWrite);
     return sha(JSON.stringify(sources.map(source => [source.id, source.version, source.hash, source.verified])));
   }
 
-  private async manifest(space: KnowledgeSpace): Promise<SnapshotManifest | undefined> {
-    await this.ensure(space);
+  private async manifest(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<SnapshotManifest | undefined> {
+    await this.ensure(space, canWrite);
     const value = await this.json<SnapshotManifest>(join(this.spacePath(space), 'snapshot.json'));
     if (value) {
       versionNumber(value.version); check(value.status === 'candidate', 'Invalid knowledge snapshot status');
       check(Array.isArray(value.publishedVersions) && value.publishedVersions.includes(value.version), 'Knowledge snapshot publication history is incomplete');
       value.publishedVersions.forEach(versionNumber);
+      if (value.policyFingerprints) {
+        check(typeof value.policyFingerprints === 'object' && !Array.isArray(value.policyFingerprints), 'Knowledge policy publication history is invalid');
+        for (const [version, fingerprint] of Object.entries(value.policyFingerprints)) {
+          check(value.publishedVersions.includes(versionNumber(Number(version))) && /^[a-f0-9]{64}$/.test(fingerprint), 'Knowledge policy publication history is invalid');
+        }
+      }
     }
     return value;
   }
 
-  async snapshot(space: KnowledgeSpace): Promise<KnowledgeSnapshot | undefined> {
-    const manifest = await this.manifest(space);
+  async snapshot(space: KnowledgeSpace, requestedVersion?: number, canWrite?: WriteGuard): Promise<KnowledgeSnapshot | undefined> {
+    const manifest = await this.manifest(space, canWrite);
     if (!manifest) return undefined;
     const path = this.spacePath(space);
-    const entries = await this.json<KnowledgeCompilation['entries']>(join(path, 'B-knowledge', `v${manifest.version}.json`));
-    const overview = await this.json<KnowledgeCompilation['overview']>(join(path, 'C-overview', `v${manifest.version}.json`));
+    const version = requestedVersion === undefined ? manifest.version : versionNumber(requestedVersion);
+    if (!manifest.publishedVersions.includes(version)) throw notFound('Knowledge snapshot version was not published');
+    const identity = await this.json<{ sourceFingerprint: string; createdAt: string; policyFingerprint?: string; policy?: KnowledgePolicy }>(join(path, 'B-knowledge', `v${version}.policy.json`));
+    check(!identity?.policy || identity.policyFingerprint === knowledgePolicyFingerprint(identity.policy), 'Knowledge policy identity is corrupt');
+    const expectedPolicy = manifest.policyFingerprints?.[String(version)] ?? (version === manifest.version ? manifest.policyFingerprint : undefined);
+    check(!expectedPolicy || (identity?.policy && identity.policyFingerprint === expectedPolicy), 'Knowledge policy identity is missing or corrupt');
+    const entries = await this.json<KnowledgeCompilation['entries']>(join(path, 'B-knowledge', `v${version}.json`));
+    const overview = await this.json<KnowledgeCompilation['overview']>(join(path, 'C-overview', `v${version}.json`));
     check(Array.isArray(entries) && Array.isArray(overview), 'Knowledge snapshot is incomplete');
-    return { version: manifest.version, sourceFingerprint: manifest.sourceFingerprint, createdAt: manifest.createdAt, status: 'candidate', entries, overview };
+    return { version, sourceFingerprint: identity?.sourceFingerprint ?? (version === manifest.version ? manifest.sourceFingerprint : ''), createdAt: identity?.createdAt ?? (version === manifest.version ? manifest.createdAt : ''), ...(identity?.policy ? { policy: identity.policy, policyFingerprint: identity.policyFingerprint } : {}), status: 'candidate', entries, overview };
   }
 
-  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal): Promise<KnowledgeSnapshot> {
+  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal, policy?: KnowledgePolicy, canWrite?: WriteGuard): Promise<KnowledgeSnapshot> {
     signal?.throwIfAborted();
     compilation = structuredClone(compilation);
+    policy = policy === undefined ? undefined : structuredClone(policy);
+    if (policy) {
+      check(policy.version === 1 && policy.scope === (space.memberId ? 'employee' : 'team') && Array.isArray(policy.categories) && policy.categories.length > 0, 'Knowledge policy category declaration is invalid');
+      const ids = new Set<string>();
+      for (const category of policy.categories) {
+        check(typeof category.id === 'string' && /^[a-z][a-z0-9-]{0,99}$/.test(category.id) && !ids.has(category.id), 'Knowledge policy category ID is invalid or duplicate');
+        ids.add(category.id); bounded(category.title, 'Knowledge category title', 2_000); bounded(category.description, 'Knowledge category description', 8_000, true);
+      }
+    }
     check(compilation && Array.isArray(compilation.entries) && Array.isArray(compilation.overview), 'Knowledge compilation is incomplete');
     check(Buffer.byteLength(JSON.stringify(compilation)) <= 2_000_000 && compilation.entries.length <= 500 && compilation.overview.length <= 200, 'Knowledge compilation is too large');
     return this.locked(async () => {
       signal?.throwIfAborted();
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const path = this.spacePath(space);
       const actualFingerprint = await this.fingerprint(space);
       check(actualFingerprint === expectedSourceFingerprint, 'Knowledge sources changed; compilation conflict');
@@ -329,6 +488,7 @@ export class KnowledgeRepository {
       check(!sources.length || (compilation.entries.length > 0 && compilation.overview.length > 0), 'Knowledge compilation is incomplete');
       const entryIds = new Set<string>();
       for (const entry of compilation.entries) {
+        if (policy) check(typeof entry.categoryId === 'string' && policy.categories.some(category => category.id === entry.categoryId), 'Knowledge entry category is missing or not declared by its policy');
         identifier(entry.id); check(!entryIds.has(entry.id), 'Duplicate knowledge entry ID'); entryIds.add(entry.id);
         bounded(entry.title, 'Knowledge title', 1_600); bounded(entry.content, 'Knowledge content', 256_000);
         check(Array.isArray(entry.citations) && entry.citations.length > 0 && entry.citations.length <= 200, 'Each knowledge entry requires source references');
@@ -351,21 +511,24 @@ export class KnowledgeRepository {
       check([...entryIds].every(id => covered.has(id)), 'Knowledge compilation is incomplete: every entry needs an overview reference');
       const previous = await this.manifest(space);
       const version = Math.max(await this.nextVersion(join(path, 'B-knowledge'), previous?.version), await this.nextVersion(join(path, 'C-overview'), previous?.version));
-      const manifest = { version, sourceFingerprint: actualFingerprint, createdAt: new Date().toISOString(), status: 'candidate' as const };
+      const manifest = { version, sourceFingerprint: actualFingerprint, createdAt: new Date().toISOString(), status: 'candidate' as const, ...(policy ? { policyFingerprint: knowledgePolicyFingerprint(policy) } : {}) };
       // Immutable files become visible together only through this final atomic manifest replacement.
+      signal?.throwIfAborted();
+      await this.write(join(path, 'B-knowledge', `v${version}.policy.json`), { sourceFingerprint: actualFingerprint, createdAt: manifest.createdAt, ...(policy ? { policy, policyFingerprint: manifest.policyFingerprint } : {}) });
       signal?.throwIfAborted();
       await this.write(join(path, 'B-knowledge', `v${version}.json`), compilation.entries);
       signal?.throwIfAborted();
       await this.write(join(path, 'C-overview', `v${version}.json`), compilation.overview);
       signal?.throwIfAborted();
-      await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version] }, signal);
-      return { ...compilation, ...manifest };
-    });
+      await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version],
+        policyFingerprints: { ...(previous?.policyFingerprints ?? {}), ...(policy ? { [version]: manifest.policyFingerprint! } : {}) } }, signal);
+      return { ...compilation, ...manifest, ...(policy ? { policy } : {}) };
+    }, canWrite);
   }
 
-  async read(space: KnowledgeSpace, layer: 'A' | 'B', id: string, version?: number): Promise<unknown> {
+  async read(space: KnowledgeSpace, layer: 'A' | 'B', id: string, version?: number, canWrite?: WriteGuard): Promise<unknown> {
     identifier(id); if (version !== undefined) versionNumber(version);
-    await this.ensure(space);
+    await this.ensure(space, canWrite);
     const path = this.spacePath(space);
     if (layer === 'A') {
       const index = await this.index(path);
@@ -375,7 +538,7 @@ export class KnowledgeRepository {
       return this.source(path, id, sourceVersion, sourceVersion === currentVersion);
     }
     check(layer === 'B', 'Invalid knowledge layer');
-    const manifest = await this.manifest(space);
+    const manifest = await this.manifest(space, canWrite);
     const snapshotVersion = version ?? manifest?.version;
     if (snapshotVersion === undefined) throw notFound('Knowledge snapshot was not found');
     if (!manifest?.publishedVersions.includes(snapshotVersion)) throw notFound('Knowledge snapshot version was not published');
@@ -388,8 +551,8 @@ export class KnowledgeRepository {
     return entry;
   }
 
-  async overview(space: KnowledgeSpace): Promise<string> {
-    const snapshot = await this.snapshot(space);
+  async overview(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<string> {
+    const snapshot = await this.snapshot(space, undefined, canWrite);
     if (!snapshot) return '';
     const stale = await this.fingerprint(space) !== snapshot.sourceFingerprint;
     return [`Knowledge snapshot v${snapshot.version} (candidate; source fingerprint ${snapshot.sourceFingerprint})${stale ? '\nSources changed after this snapshot; relevant knowledge requires verification against current A sources.' : ''}`, ...snapshot.overview.map(item => `\n## ${item.title} [${item.id}]\n${item.summary}\nReferences: ${item.entryIds.map(id => `B:${id}@v${snapshot.version}`).join(', ')}`)].join('\n');

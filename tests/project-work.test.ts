@@ -8,12 +8,13 @@ import { WorkforceStore } from '../src/domain/store.js';
 import { ARCHITECT_TEMPLATE_ID } from '../src/domain/seed.js';
 import { WorkService } from '../src/work/service.js';
 import { WorkEngine } from '../src/work/engine.js';
+import type { ProjectEmployee } from '../src/domain/types.js';
 import type { ProjectBrief, WorkCommandOptions, WorkDeliverable, WorkTask } from '../src/work/types.js';
 
 async function fixture(t: TestContext, budget = 4) {
   const root = await mkdtemp(resolve(tmpdir(), 'workforce-project-work-')); t.after(() => rm(root, { recursive: true, force: true })); await mkdir(resolve(root, 'project'));
   const store = await WorkforceStore.open(resolve(root, 'state.json')); const project = await store.saveProject({ name: 'Project', rootPath: resolve(root, 'project') });
-  const employees = [];
+  const employees: ProjectEmployee[] = [];
   for (let i = 0; i < 3; i++) { const employee = await store.createEmployee({ projectId: project.id, templateId: ARCHITECT_TEMPLATE_ID, name: `Worker ${i}` }); employee.modules.model = { mode: 'override', provider: 'fixture', model: 'fixture-model' }; employees.push(await store.updateEmployee(employee.id, { modules: employee.modules, status: 'active' })); }
   const service = new WorkService(store, { maxConcurrent: budget }); const starts: string[] = []; const errors: unknown[] = [];
   const executor = { startReserved: async (id: string) => { const run = store.snapshot().runs.find(run => run.id === id)!; const task = store.snapshot().workState!.tasks.find(task => task.id === run.workTaskId)!; assert.equal(task.attemptRunIds.at(-1), id, 'attempt must be atomically registered before execution'); if (run.status === 'queued') { starts.push(id); return store.updateRun(id, { status: 'running' }); } return run; }, cancel: async (id: string) => { const run = store.snapshot().runs.find(run => run.id === id)!; if (['queued', 'running', 'blocked'].includes(run.status)) await store.updateRun(id, { status: 'cancelled' }); } };
@@ -37,7 +38,9 @@ test('task commands are atomic, idempotent before stale revision checks, and rej
   const f = await fixture(t); const revision = f.store.snapshot().revision; const requestId = randomUUID(); const input = { title: 'A', goal: 'Do A', employeeId: f.employees[0]!.id, acceptanceCriteria: ['Pass'] };
   const a = await f.command('saveTask', input, { requestId, expectedRevision: revision }) as WorkTask;
   const afterFirst = await readFile(f.store.filePath, 'utf8');
-  assert.equal((await f.command('saveTask', input, { requestId, expectedRevision: revision })).id, a.id); assert.equal(f.service.snapshot().tasks.length, 1); assert.equal(await readFile(f.store.filePath, 'utf8'), afterFirst, 'retry must not write or bump revision');
+  const replay = await f.command('saveTask', input, { requestId, expectedRevision: revision });
+  assert.ok(!Array.isArray(replay));
+  assert.equal(replay.id, a.id); assert.equal(f.service.snapshot().tasks.length, 1); assert.equal(await readFile(f.store.filePath, 'utf8'), afterFirst, 'retry must not write or bump revision');
   await assert.rejects(f.command('saveTask', { ...input, title: 'Changed' }, { requestId, expectedRevision: revision }), /不同/);
   const b = await f.create('B', [a.id]); const before = await readFile(f.store.filePath, 'utf8');
   await assert.rejects(f.command('saveTask', { ...a, dependencyTaskIds: [b.id] }), /循环/); assert.equal(await readFile(f.store.filePath, 'utf8'), before);
@@ -189,6 +192,7 @@ test('incomplete explicit employee models still prevent work reservation', async
     const service = new WorkService({
       snapshot: () => structuredClone(state),
       transaction: async operation => operation(structuredClone(state)),
+      subscribe: () => () => undefined,
     });
     await assert.rejects(service.command('work.startTask', { projectId: f.project.id, id: a.id }, { requestId: randomUUID() }), /模型 provider|模型名称/);
     assert.equal(service.snapshot().tasks.find(task => task.id === a.id)!.attemptRunIds.length, 0);

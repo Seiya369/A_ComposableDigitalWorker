@@ -6,9 +6,14 @@ import type { EmployeeModules, WorkforceState } from './types.js';
 import { validateWorkflowRuns } from '../workflow/validation.js';
 import { validateWorkflowTemplates } from './workflow-template.js';
 import { validateProjectWork } from '../work/validation.js';
+import { validateKnowledgeOrganization } from './knowledge-organization.js';
+import { KNOWLEDGE_SOURCE_CATEGORIES } from '../knowledge/categories.js';
 
 function object(value: unknown, label: string): asserts value is Record<string, unknown> {
   invariant(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} 必须为对象`);
+}
+function knownFields(value: Record<string, unknown>, allowed: readonly string[], label: string): void {
+  for (const key of Object.keys(value)) invariant(allowed.includes(key), `${label} 包含未支持的字段：${key}`);
 }
 function list(value: unknown, label: string): asserts value is unknown[] { invariant(Array.isArray(value), `${label} 必须为数组`); }
 function strings(value: unknown, label: string) { list(value, label); value.forEach(v => textField(v, label)); }
@@ -35,7 +40,9 @@ export function validateModules(value: unknown, ready = false): asserts value is
   if (m.mode === 'override') { textField(m.provider, '模型 provider'); textField(m.model, '模型名称'); }
   invariant(!('apiKey' in m) && !('token' in m), '模型配置不能保存密钥');
   const k = value.knowledge; object(k, '知识与记忆'); list(k.sources, '知识来源'); bool(k.projectMemory, '项目记忆'); bool(k.employeeMemory, '员工记忆'); oneOf(k.memoryWritePolicy, ['explicit-only'], '记忆写入策略');
-  for (const s of k.sources) { object(s, '知识来源'); textField(s.id, '知识 ID'); textField(s.title, '知识标题'); oneOf(s.kind, ['project-file', 'url', 'text'], '知识类型'); textField(s.value, '知识内容'); if (s.kind === 'project-file') validateRelativePath(s.value); if (s.kind === 'url') invariant(/^https?:\/\//.test(s.value as string), '知识链接必须使用 HTTP(S)'); }
+  knownFields(k, ['sources', 'organization', 'projectMemory', 'employeeMemory', 'memoryWritePolicy'], '知识与记忆');
+  if (k.organization !== undefined) validateKnowledgeOrganization(k.organization);
+  for (const s of k.sources) { object(s, '知识来源'); knownFields(s, ['id', 'title', 'kind', 'value', 'category'], '知识来源'); textField(s.id, '知识 ID'); textField(s.title, '知识标题'); oneOf(s.kind, ['project-file', 'url', 'text'], '知识类型'); textField(s.value, '知识内容'); if (s.category !== undefined) oneOf(s.category, KNOWLEDGE_SOURCE_CATEGORIES, '资料主类别'); if (s.kind === 'project-file') validateRelativePath(s.value); if (s.kind === 'url') invariant(/^https?:\/\//.test(s.value as string), '知识链接必须使用 HTTP(S)'); }
   const p = value.permissions; object(p, '权限'); strings(p.allowedTools, '工具白名单'); strings(p.readPaths, '读取路径'); strings(p.writePaths, '写入路径'); (p.readPaths as string[]).forEach(v => validateRelativePath(v)); (p.writePaths as string[]).forEach(v => validateRelativePath(v)); bool(p.allowShell, 'shell 权限'); bool(p.allowNetwork, '网络权限');
   const co = value.collaboration; object(co, '协作规则'); bool(co.canDelegate, '委派开关'); strings(co.allowedTemplateIds, '可委派模板'); integer(co.maxDepth, '委派深度', 0, 16); integer(co.maxConcurrent, '并发数', 1, 32); strings(co.escalationRules, '升级规则');
   const d = value.delivery; object(d, '交付标准'); strings(d.requiredArtifacts, '交付物'); strings(d.acceptanceCriteria, '验收标准'); bool(d.reviewRequired, '需要验收');

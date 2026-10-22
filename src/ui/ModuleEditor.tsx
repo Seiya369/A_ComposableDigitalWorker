@@ -1,9 +1,11 @@
-import type { EmployeeModules, EmployeeTemplate, KnowledgeSource } from '../domain/types.js';
-import { SelectField, StringList, TextField, Toggle } from './fields.js';
-import { Icon, type IconName } from './icons.js';
+import type { EmployeeModules, EmployeeTemplate } from '../domain/types.js';
+import type { ReactNode } from 'react';
+import { StringList, TextField, Toggle } from './fields.js';
+import type { IconName } from './icons.js';
 import type { WorkforceClient } from './client.js';
 import { ModelSelector } from './ModelSelector.js';
 import { CapabilitySelector } from './CapabilitySelector.js';
+import { KnowledgeEditor } from './KnowledgeEditor.js';
 
 export type ModuleKey = Exclude<keyof EmployeeModules, 'collaboration'>;
 export const MODULES: { key: ModuleKey; label: string; description: string; icon: IconName }[] = [
@@ -15,7 +17,24 @@ export const MODULES: { key: ModuleKey; label: string; description: string; icon
   { key: 'delivery', label: '交付标准', description: '约定成果形式和可检查的完成条件。', icon: 'delivery' },
 ];
 
-export function ModuleEditor({ activeModule, modules, onChange, templates, currentTemplateId, client, projectId }: { activeModule: ModuleKey; modules: EmployeeModules; onChange: (modules: EmployeeModules) => void; templates: EmployeeTemplate[]; currentTemplateId?: string; client: WorkforceClient; projectId?: string }) {
+interface ModuleEditorProps {
+  activeModule: ModuleKey;
+  modules: EmployeeModules;
+  onChange: (modules: EmployeeModules) => void;
+  templates: EmployeeTemplate[];
+  currentTemplateId?: string;
+  client: WorkforceClient;
+  projectId?: string;
+  onUploadKnowledge?: (files: File[]) => Promise<void>;
+  knowledgeUploadDisabled?: boolean;
+  knowledgeUploadAccept?: string;
+  knowledgeUploadTargetLabel?: string;
+  knowledgeUploadDisabledReason?: string;
+  knowledgeUploadedSources?: ReactNode;
+  knowledgeUploadKey?: string;
+}
+
+export function ModuleEditor({ activeModule, modules, onChange, templates, currentTemplateId, client, projectId, onUploadKnowledge, knowledgeUploadDisabled, knowledgeUploadAccept, knowledgeUploadTargetLabel, knowledgeUploadDisabledReason, knowledgeUploadedSources, knowledgeUploadKey }: ModuleEditorProps) {
   function update<K extends ModuleKey>(key: K, next: Partial<EmployeeModules[K]>) { onChange({ ...modules, [key]: { ...modules[key], ...next } }); }
   if (activeModule === 'responsibilities') return <div className="wf-module-form wf-role-definition">
     <TextField label="岗位角色" value={modules.responsibilities.mission} onChange={mission => update('responsibilities', { mission })} multiline rows={5} placeholder="描述员工的角色、专业定位与岗位目标" />
@@ -26,10 +45,7 @@ export function ModuleEditor({ activeModule, modules, onChange, templates, curre
   if (activeModule === 'model') return <div className="wf-module-form">
     <ModelSelector client={client} value={modules.model} onChange={model => onChange({ ...modules, model })} />
   </div>;
-  if (activeModule === 'knowledge') return <div className="wf-module-form">
-    <div className="wf-field"><div className="wf-field-label">知识来源<span className="wf-count">{modules.knowledge.sources.length}</span></div>{modules.knowledge.sources.map((source, i) => <div className="wf-record" key={source.id}><div className="wf-record-title"><Icon name="memory" size={15} /><strong>来源 {i + 1}</strong><button className="wf-icon-button" aria-label={`删除知识来源 ${i + 1}`} onClick={() => update('knowledge', { sources: modules.knowledge.sources.filter((_, n) => n !== i) })}><Icon name="trash" size={14} /></button></div><div className="wf-grid-two"><TextField label="标题" value={source.title} onChange={title => update('knowledge', { sources: modules.knowledge.sources.map((s, n) => n === i ? { ...s, title } : s) })} /><SelectField label="来源类型" value={source.kind} onChange={kind => update('knowledge', { sources: modules.knowledge.sources.map((s, n) => n === i ? { ...s, kind: kind as KnowledgeSource['kind'] } : s) })}><option value="project-file">项目文件</option><option value="url">网页地址</option><option value="text">内置知识</option></SelectField></div><TextField label={source.kind === 'project-file' ? '项目相对路径' : source.kind === 'url' ? 'URL' : '知识内容'} value={source.value} hint={source.kind === 'url' ? '仅保存引用，不自动读取网页。' : undefined} multiline={source.kind === 'text'} rows={5} onChange={value => update('knowledge', { sources: modules.knowledge.sources.map((s, n) => n === i ? { ...s, value } : s) })} /></div>)}<button className="wf-inline-add" onClick={() => update('knowledge', { sources: [...modules.knowledge.sources, { id: `knowledge-${crypto.randomUUID()}`, title: '', kind: 'text', value: '' }] })}><Icon name="plus" size={14} />添加知识来源</button></div>
-    <div className="wf-section-label">记忆范围</div><div className="wf-toggle-group"><Toggle label="使用项目共享记忆" checked={modules.knowledge.projectMemory} onChange={projectMemory => update('knowledge', { projectMemory })} /><Toggle label="使用员工项目记忆" checked={modules.knowledge.employeeMemory} onChange={employeeMemory => update('knowledge', { employeeMemory })} /></div><p className="wf-hint">长期记忆需在“项目记忆”中确认保存。</p>
-  </div>;
+  if (activeModule === 'knowledge') return <KnowledgeEditor key={knowledgeUploadKey} knowledge={modules.knowledge} onChange={knowledge => onChange({ ...modules, knowledge })} onUploadKnowledge={onUploadKnowledge} knowledgeUploadDisabled={knowledgeUploadDisabled} knowledgeUploadAccept={knowledgeUploadAccept} knowledgeUploadTargetLabel={knowledgeUploadTargetLabel} knowledgeUploadDisabledReason={knowledgeUploadDisabledReason} knowledgeUploadedSources={knowledgeUploadedSources} />;
   if (activeModule === 'permissions') return <div className="wf-module-form">
     <StringList label="允许调用的工具 ID" values={modules.permissions.allowedTools} onChange={allowedTools => update('permissions', { allowedTools })} hint="留空时无工具权限。" placeholder="worker_read_file" addLabel="授权工具" />
     <StringList label="允许读取的路径" values={modules.permissions.readPaths} onChange={readPaths => update('permissions', { readPaths })} placeholder="src/**" hint="项目相对路径或 glob；留空时不可读取。" addLabel="添加读取范围" />

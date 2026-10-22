@@ -15,7 +15,8 @@ async function fixture() {
   const ctx = new Context(); const scope = ctx.plugin(SessionStore); await scope;
   const events: SessionEvent[] = [];
   ctx.on('session/event', (_session, event) => { events.push(event); });
-  const session = ctx.sessions.create(SessionId('knowledge-surface-fixture'));
+  assert.ok(ctx.sessions instanceof SessionStore, 'fixture registers the local public SessionStore');
+  const session = SessionStore.prototype.create.call(ctx.sessions, SessionId('knowledge-surface-fixture'));
   let call = 0;
   const result = (value: unknown, name = 'worker_memory_search', extra?: Record<string, unknown>) => {
     const callId = ToolCallId(`knowledge-${++call}`);
