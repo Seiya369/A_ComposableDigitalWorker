@@ -4,6 +4,7 @@ import type { CreateRunInput, WorkforceRun, WorkforceState } from '../domain/typ
 import type { ImportPreview, ImportResult, TransferBundle } from '../domain/transfer-types.js';
 import type { EmployeeModelCatalog } from '../domain/model-catalog.js';
 import type { EmployeeCapabilityCatalog } from '../domain/capability-catalog.js';
+import type { KnowledgeUploadResult, KnowledgeUploadedSource } from '../knowledge/types.js';
 
 export const API_PREFIX = '/digital-workers/api';
 
@@ -30,6 +31,8 @@ export function createWorkforceClient(options: { onChange?: () => void; onRun?: 
     return result;
   };
   return {
+    uploadKnowledge: async (target, file) => (await command('knowledge.upload', { target, file }) as { result: KnowledgeUploadResult }).result,
+    listUploadedKnowledge: async target => (await command('knowledge.uploads.list', { target }) as { result: KnowledgeUploadedSource[] }).result,
     workCommand: (action, payload, opts) => command(action, payload, opts),
     listCapabilities: projectId => request<EmployeeCapabilityCatalog>(`/capabilities${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`),
     snapshot: () => request<WorkforceState>('/state'),

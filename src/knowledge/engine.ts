@@ -4,7 +4,8 @@ import type { WorkforceStore } from '../domain/store.js';
 import type { EmployeeModules, ModelModule, ProjectEmployee, WorkforceState } from '../domain/types.js';
 import { buildKnowledgePolicy, knowledgePolicyFingerprint } from './policy.js';
 import { KnowledgeRepository } from './repository.js';
-import type { KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import type { KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace, KnowledgeUploadTarget, KnowledgeUploadedDocument, KnowledgeUploadResult, KnowledgeUploadedSource } from './types.js';
+import { originalFileMetadata, validateOriginalFile } from './original-file.js';
 import type { ContextDocument } from './context.js';
 
 type Library = 'team' | 'employee';
@@ -214,7 +215,7 @@ export class KnowledgeEngine {
         // would revive withdrawn configuration under a different source identity.
         if (source.id.startsWith('configuration:') || source.id === 'team-description') continue;
         await this.repository.ingest(plan.space, { id: `template:${source.id}`, title: source.title, content: source.content, verified: source.verified,
-          provenance: `template-snapshot:${template.id}@${template.version}/${source.id}@${source.version}`, category: source.category, classificationReason: 'trusted:detached-template-source-category' }, () => this.spaceActive(plan.space) && this.spaceActive(sourceSpace));
+          provenance: `template-snapshot:${template.id}@${template.version}/${source.id}@${source.version}`, category: source.category, classificationReason: 'trusted:detached-template-source-category', ...(source.originalFile ? { originalFile: source.originalFile } : {}) }, () => this.spaceActive(plan.space) && this.spaceActive(sourceSpace));
       }
     }
     // Record even an empty/unavailable seed, so future template edits cannot follow an installation.
@@ -381,6 +382,55 @@ export class KnowledgeEngine {
     }));
   }
   spacesForEmployee(employee: ProjectEmployee): KnowledgeSpace[] { return this.employeeSpaces(employee); }
+  /** Human uploads resolve only persisted private membership, never UI draft state. */
+  private uploadSpace(target: KnowledgeUploadTarget): KnowledgeSpace {
+    if (this.closing || this.disposed) throw new Error('资料管理员已停止');
+    if (!target || typeof target !== 'object' || Array.isArray(target)) throw new Error('资料归属无效');
+    const allowed = target.kind === 'template' ? ['kind', 'teamId', 'memberId', 'templateId'] : target.kind === 'project' ? ['kind', 'projectId', 'employeeId'] : [];
+    if (!allowed.length || Object.keys(target).some(field => !allowed.includes(field)) || allowed.some(field => typeof (target as unknown as Record<string, unknown>)[field] !== 'string' || !(target as unknown as Record<string, string>)[field]!.trim())) throw new Error('资料归属无效');
+    const state = this.store.snapshot();
+    const available = groups(state);
+    if (target.kind === 'template') {
+      const template = state.templates.find(item => item.id === target.templateId && item.status !== 'archived');
+      const team = state.teams.find(item => item.id === target.teamId);
+      if (!template || !team?.members.some(item => item.memberId === target.memberId && item.templateId === template.id)) throw new Error('员工尚未保存、未分团或团队关系已变化');
+      if (team.knowledgeEnabled === false || !template.modules.knowledge.employeeMemory) throw new Error('请先启用资料管理员和员工记忆');
+      return { kind: 'template', teamId: team.id, memberId: target.memberId };
+    }
+    const employee = state.employees.find(item => item.id === target.employeeId && item.projectId === target.projectId);
+    const matching = available.filter(group => group.space.kind === 'project' && group.space.projectId === target.projectId && group.members.some(member => member.id === target.employeeId));
+    if (!employee || matching.length !== 1) throw new Error('员工尚未保存、未分团或团队关系不明确');
+    if (!matching[0]!.active || !employee.modules.knowledge.employeeMemory) throw new Error('请先启用资料管理员和员工记忆');
+    return { ...matching[0]!.space, memberId: employee.id };
+  }
+  private uploadGuard(target: KnowledgeUploadTarget, space: KnowledgeSpace): () => boolean {
+    return () => { try { return key(this.uploadSpace(target)) === key(space); } catch { return false; } };
+  }
+  async uploadedSourcesFor(target: KnowledgeUploadTarget): Promise<KnowledgeUploadedSource[]> {
+    target = structuredClone(target);
+    const space = this.uploadSpace(target), canWrite = this.uploadGuard(target, space);
+    const sources = await this.repository.sources(space, canWrite);
+    if (!canWrite()) throw new Error('资料归属或管理员状态已变化');
+    return sources.filter(source => /^(?:template:)?upload:/.test(source.id) && source.originalFile).map(source => ({ sourceId: source.id, title: source.title, version: source.version, category: source.category, attachment: originalFileMetadata(source.originalFile!) }));
+  }
+  async uploadFor(target: KnowledgeUploadTarget, document: KnowledgeUploadedDocument): Promise<KnowledgeUploadResult> {
+    target = structuredClone(target); document = structuredClone(document);
+    const space = this.uploadSpace(target), canWrite = this.uploadGuard(target, space);
+    validateOriginalFile(document.originalFile);
+    if (document.name !== document.originalFile.name || document.mediaType !== document.originalFile.mediaType || typeof document.parser !== 'string' || !document.parser.trim() || document.parser.length > 300 || typeof document.content !== 'string' || !document.content.trim()) throw new Error('上传资料解析结果无效');
+    const input: KnowledgeInput = { id: `upload:${document.originalFile.sha256}`, title: document.name, content: document.content, originalFile: document.originalFile, verified: false, category: 'reference', classificationReason: 'explicit:human-professional-upload', provenance: JSON.stringify({ kind: 'user-upload', name: document.name, sha256: document.originalFile.sha256, parser: document.parser }) };
+    this.active.get(key(space))?.controller.abort(new Error('新的投喂资料已录入'));
+    let stored: KnowledgeSource | undefined;
+    await this.enqueue(async () => {
+      if (!canWrite()) throw new Error('资料归属或管理员状态已变化');
+      stored = await this.repository.ingest(space, input, canWrite);
+      this.requested.add(key(space));
+    });
+    if (!stored) throw new Error('资料尚未入库');
+    // Model work is queued separately; the upload response confirms only durable A.
+    void this.enqueue(() => this.reconcile(true)).catch(error => this.report(error));
+    return { sourceId: stored.id, title: stored.title, version: stored.version, category: 'reference', status: 'archived', compilation: 'pending' };
+  }
   /** Files are supplied only after runtime authorization; batching ends at prepareFor. */
   async ingestFor(employee: ProjectEmployee, input: KnowledgeInput): Promise<void> {
     if (this.closing || this.disposed) return;
@@ -460,7 +510,10 @@ export class KnowledgeEngine {
         if (layer === 'A' && !this.fileVisible(employee, (hit as KnowledgeSource).id)) throw new Error('原始文件资料的读取权限已撤销');
         if (layer === 'B' && (hit as KnowledgeEntry).citations.some(citation => !this.fileVisible(employee, citation.sourceId))) throw new Error('此知识引用的原始文件资料未获读取授权');
         if (!this.spaceVisible(employee, space)) continue;
-        if (hit !== undefined) hits.push(layer === 'B' ? { ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team', policyFingerprint: snapshot?.policyFingerprint, policyStatus: currentPolicy ? 'current' : snapshot?.policyFingerprint ? 'outdated' : 'legacy', stale: !currentPolicy } : { ...hit as KnowledgeSource, library: space.memberId ? 'employee' : 'team' });
+        if (hit !== undefined) {
+          if (layer === 'B') hits.push({ ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team', policyFingerprint: snapshot?.policyFingerprint, policyStatus: currentPolicy ? 'current' : snapshot?.policyFingerprint ? 'outdated' : 'legacy', stale: !currentPolicy });
+          else { const { originalFile, ...source } = hit as KnowledgeSource; hits.push({ ...source, library: space.memberId ? 'employee' : 'team', ...(originalFile ? { attachment: originalFileMetadata(originalFile) } : {}) }); }
+        }
       }
       catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND')) throw error; }
     }

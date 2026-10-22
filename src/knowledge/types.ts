@@ -19,7 +19,17 @@ export interface KnowledgeInput {
   category?: KnowledgeSourceCategory;
   /** Why the source was assigned this category, without asserting its truth. */
   classificationReason?: string;
+  /** Uploaded original bytes remain in A and are never model context. */
+  originalFile?: KnowledgeOriginalFile;
 }
+export interface KnowledgeOriginalFile { name: string; mediaType: string; encoding: 'base64'; data: string; sha256: string }
+export type KnowledgeUploadTarget =
+  | { kind: 'template'; teamId: string; memberId: string; templateId: string }
+  | { kind: 'project'; projectId: string; employeeId: string };
+export interface KnowledgeUploadFile { name: string; mediaType?: string; base64: string }
+export interface KnowledgeUploadedDocument { name: string; mediaType: string; content: string; originalFile: KnowledgeOriginalFile; parser: string }
+export interface KnowledgeUploadResult { sourceId: string; title: string; version: number; category: 'reference'; status: 'archived'; compilation: 'pending' }
+export interface KnowledgeUploadedSource { sourceId: string; title: string; version: number; category: KnowledgeSourceCategory; attachment: { name: string; mediaType: string; sha256: string; bytes: number } }
 export interface KnowledgeSource extends KnowledgeInput {
   category: KnowledgeSourceCategory;
   version: number;

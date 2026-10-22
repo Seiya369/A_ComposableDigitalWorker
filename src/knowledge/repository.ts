@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { knowledgePolicyFingerprint } from './policy.js';
+import { validateOriginalFile } from './original-file.js';
 import type { KnowledgePolicy, KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 import { KNOWLEDGE_SOURCE_CATEGORIES, KNOWLEDGE_SOURCE_CATEGORY_FOLDERS, type KnowledgeSourceCategory } from './categories.js';
 
@@ -173,6 +174,7 @@ export class KnowledgeRepository {
     const category = value.category === undefined ? 'reference' : value.category;
     check(KNOWLEDGE_SOURCE_CATEGORIES.includes(category), 'Invalid knowledge source category');
     if (value.classificationReason !== undefined) check(typeof value.classificationReason === 'string' && value.classificationReason.length <= 2_000, 'Invalid source classification reason');
+    if (value.originalFile !== undefined) validateOriginalFile(value.originalFile);
     return value.category === undefined ? { ...value, category, classificationReason: value.classificationReason ?? 'Legacy source defaulted to reference; original bytes retained.' } : value;
   }
 
@@ -365,6 +367,7 @@ export class KnowledgeRepository {
     if (input.category === undefined) input.category = 'reference';
     check(KNOWLEDGE_SOURCE_CATEGORIES.includes(input.category), 'Invalid knowledge source category');
     if (input.classificationReason !== undefined) check(typeof input.classificationReason === 'string' && input.classificationReason.length <= 2_000, 'Source classification reason is too large');
+    if (input.originalFile !== undefined) validateOriginalFile(input.originalFile);
     const path = this.spacePath(space);
     return this.locked(async () => {
       await this.ensure(space, canWrite);
@@ -372,7 +375,8 @@ export class KnowledgeRepository {
       const oldVersion = Object.hasOwn(index, input.id) ? index[input.id] : undefined;
       const old = oldVersion ? await this.source(path, input.id, oldVersion, true) : undefined;
       const hash = sha(input.content);
-      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title && old.category === input.category && (input.classificationReason === undefined || old.classificationReason === input.classificationReason)) return old;
+      const sameOriginal = old?.originalFile?.sha256 === input.originalFile?.sha256 && old?.originalFile?.name === input.originalFile?.name && old?.originalFile?.mediaType === input.originalFile?.mediaType;
+      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title && old.category === input.category && sameOriginal && (input.classificationReason === undefined || old.classificationReason === input.classificationReason)) return old;
       check(oldVersion !== undefined || Object.keys(index).length < 2_000, 'Knowledge source count is too large');
       const processing: string[] = [];
       let text = input.content;
