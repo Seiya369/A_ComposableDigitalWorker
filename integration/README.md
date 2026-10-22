@@ -28,11 +28,13 @@
 先停止目标 Harness。使用你实际要管理的 `DSH_HOME` 与 profile，避免作用于另一套安装。正式使用者只需官方 DSH 和 `.tgz`，无须准备 Harness 源码仓库。
 
 ```sh
-DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.4.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
-DSH_HOME=/absolute/dsh-home dsh plugin --profile web remove dsh-plugin-composable-workforce --config.auto-install-peers=false
+DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.4.0.tgz --ignore-scripts
+DSH_HOME=/absolute/dsh-home dsh plugin --profile web remove dsh-plugin-composable-workforce
 ```
 
 安装、更新、卸载后重启 Harness，并刷新已打开的页面。普通 `remove` 撤销插件依赖和 bundle，但保留专属配置、职业人模板、团队、工作流、实例、项目记忆、执行记录、团队/员工知识库及工作台目标/任务/成果版本/验收历史，便于重装恢复。
+
+官方管理器保留本地归档的 `file:` 来源。将 `.tgz` 保存在稳定、较短的路径，安装后继续保留，以便日后修复或重建依赖；不能把临时副本删除后仍假定共享缓存总能恢复。若官方 pnpm 报 `ENAMETOOLONG`，将同一 SHA-256 的归档复制到较短路径再通过上述官方命令安装。插件不修改宿主或关闭依赖检查来绕过该限制。
 
 随包提供 `scripts/plugin.mjs`，可以在停止目标宿主后执行同等操作。`DSH_INSTALLATION_MANIFEST` 指向已安装的官方 `@deepseek-ai/dsh/package.json`，不要求源码路径。脚本未传 `--home` 时保留本仓库开发习惯，使用插件目录下 `.local/harness`；正式使用必须明确传目标 `--home`。
 
@@ -67,8 +69,10 @@ DSH_INSTALLATION_MANIFEST=/official/install/node_modules/@deepseek-ai/dsh/packag
 
 ## 开发与验收
 
-`npm run setup` 可在本插件 `node_modules` 建立开发用只读来源链接；不会写 Harness。`DSH_SOURCE_PATH` 只用于开发源码定位，不能成为正式用户的安装前提。`npm start` 第一次通过官方 CLI 初始化本仓库开发 profile，以后保留现有安装、移除和其他配置状态。
+常规开发执行 `npm ci --ignore-scripts`，再运行 `npm run setup` 校验本插件的公开发布依赖。默认不链接源码；显式外部开发链接的边界、归属和只读校验见[可复现检查](../ci/README.md)。正式用户无须源码。`npm start` 第一次通过官方 CLI 初始化本仓库开发 profile，以后保留现有安装、移除和其他配置状态。
 
 `npm run test:lifecycle` 默认使用 `.local/official-validation/node_modules/@deepseek-ai/dsh/package.json`，或显式 `DSH_INSTALLATION_MANIFEST`。测试要求 npm 安装目录，拒绝源码宿主。它在独立临时 `DSH_HOME` 和随机端口验证真实归档安装、模型目录、默认 preset 实际能力目录、项目目标/任务/成果版本与验收、普通卸载、宿主原生启动、重装完整保留、随包 purge 和宿主程序文件总哈希未变；不会操作现有 3081 profile，也不发送模型请求。`WORKFORCE_LIFECYCLE_UI=1` 允许暂停各阶段供浏览器检查。
+
+生命周期测试先将待验收归档逐字节复制至同一临时根的短路径，核对 SHA-256，保留到卸载/重装/完整清理全部结束才移除。报告同时记录原归档、暂存归档和两者哈希；这避免隔离 profile 与仓库路径相距过远时触发 pnpm 的本地文件名长度限制。
 
 发布包使用显式白名单，只含 Host/Client 构建、声明、技能、bundle、生命周期脚本、许可证与所需文档；不含宿主源码补丁、source map、本机数据、测试或完整 Harness。最终验收记录须重新绑定最终 `.tgz` 的 SHA-256，不能借用旧补丁宿主的结果。

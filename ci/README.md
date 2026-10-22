@@ -27,6 +27,8 @@ DSH_INSTALLATION_MANIFEST="$PWD/ci/official-host/node_modules/@deepseek-ai/dsh/p
 
 归档门两次运行真实 `npm pack`，比较压缩包 SHA-256；拒绝测试、源码、host patch、node_modules、本机数据、凭据形式文件及 source map，逐个比较归档文件与实际保存源文件。压缩包预算为 1 MiB，超出应审查并明确调整，不自动忽略。最终目录含 `.tgz`、`SHA256SUMS` 和 `report.json`。
 
+生命周期会将该归档复制到其临时 profile 旁的短路径，比较复制前后 SHA；原报告仍绑定输入归档，暂存来源保留到清理完成。这样处理官方 pnpm 的长路径限制，保持依赖检查和宿主程序不变。
+
 GitHub Actions 对所有 PR、main push 和手动运行生效，固定官方 action 完整 SHA，Node `22.19.0`、`24.21.0` 两个 Ubuntu 24.04 job 各自执行完整门禁。权限仅 `contents: read`，不读生产模型凭据，不自动发布、合并或部署。缓存仅包管理器缓存，包含两份 lock；证据保存 14 天。测试报告路径与历史验证资料隔离。
 
 安全审计使用 `npm audit --json --audit-level=high`，插件根与官方宿主分别保存完整 JSON。高危/严重项使 gate 失败，不自动运行 `audit fix`。中低危仍出现在报告中；上游依赖不能通过修改已安装宿主来修复。远端 gate 通过与分支保护是否可用是两件事；当前仓库保护配置不由本工作流更改。
