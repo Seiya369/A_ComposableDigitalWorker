@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { matchesPath } from '../domain/path-policy.js';
 import type { WorkforceStore } from '../domain/store.js';
 import type { EmployeeModules, ModelModule, ProjectEmployee, WorkforceState } from '../domain/types.js';
+import { buildKnowledgePolicy, knowledgePolicyFingerprint } from './policy.js';
 import { KnowledgeRepository } from './repository.js';
 import type { KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 import type { ContextDocument } from './context.js';
@@ -15,8 +16,8 @@ interface Group {
   templateId?: string;
   templateVersion?: number;
 }
-interface SpacePlan { space: KnowledgeSpace; group: Group; inputs: KnowledgeInput[] }
-interface CompilationJob { space: KnowledgeSpace; fingerprint: string; signature: string }
+interface SpacePlan { space: KnowledgeSpace; group: Group; inputs: KnowledgeInput[]; policy: import('./types.js').KnowledgePolicy }
+interface CompilationJob { space: KnowledgeSpace; fingerprint: string; policyFingerprint: string; signature: string }
 const key = (space: KnowledgeSpace) => JSON.stringify([space.kind, space.projectId ?? '', space.teamId, space.memberId ?? '']);
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const completed = new Set(['awaiting-review', 'succeeded', 'failed', 'cancelled']);
@@ -67,7 +68,9 @@ function groups(state: WorkforceState): Group[] {
 }
 function plans(state: WorkforceState): SpacePlan[] {
   return groups(state).flatMap(group => [group.space, ...group.members.map(member => ({ ...group.space, memberId: member.id }))]
-    .map(space => ({ space, group, inputs: inputsFor(state, group, space) })));
+    .map(space => ({ space, group, inputs: inputsFor(state, group, space), policy: buildKnowledgePolicy(group.members, space.memberId, group.description,
+      (state.workState?.tasks ?? []).filter(task => task.projectId === space.projectId && group.members.some(member => member.id === task.employeeId))
+        .map(task => ({ id: task.id, employeeId: task.employeeId, title: task.title, goal: task.goal, acceptanceCriteria: task.acceptanceCriteria }))) })));
 }
 function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): KnowledgeInput[] {
   const inputs: KnowledgeInput[] = [];
@@ -179,7 +182,7 @@ export class KnowledgeEngine {
   private spaceActive(space: KnowledgeSpace): boolean {
     return !this.disposed && groups(this.store.snapshot()).some(group => key(group.space) === key({ ...space, memberId: undefined }) && group.active);
   }
-  private signature(plan: SpacePlan): string { return digest({ active: plan.group.active, inputs: plan.inputs, model: selectedModel(plan.group), fileAccess: plan.space.memberId ? [...allowedFileIds(plan.group.members.find(member => member.id === plan.space.memberId)!.modules)].sort() : [] }); }
+  private signature(plan: SpacePlan): string { return digest({ active: plan.group.active, inputs: plan.inputs, policy: plan.policy, model: selectedModel(plan.group), fileAccess: plan.space.memberId ? [...allowedFileIds(plan.group.members.find(member => member.id === plan.space.memberId)!.modules)].sort() : [] }); }
   private cancelStaleCompilation(): void {
     const latestPlans = plans(this.store.snapshot());
     for (const spaceKey of this.observed.keys()) {
@@ -192,7 +195,7 @@ export class KnowledgeEngine {
     }
   }
   private async seedTemplate(plan: SpacePlan, state: WorkforceState): Promise<void> {
-    if (!this.spaceActive(plan.space) || plan.space.kind !== 'project' || !plan.group.templateId || await this.repository.isSeeded(plan.space)) return;
+    if (!this.spaceActive(plan.space) || plan.space.kind !== 'project' || !plan.group.templateId || await this.repository.isSeeded(plan.space, () => this.spaceActive(plan.space))) return;
     const from = { teamId: plan.group.templateId, version: plan.group.templateVersion! };
     const template = state.teams.find(team => team.id === from.teamId && team.version === from.version);
     const member = plan.space.memberId ? plan.group.members.find(item => item.id === plan.space.memberId) : undefined;
@@ -205,7 +208,7 @@ export class KnowledgeEngine {
     if (compatible && template) {
       const sourceSpace: KnowledgeSpace = { kind: 'template', teamId: template.id, ...(member ? { memberId: member.templateMemberId } : {}) };
       if (!this.spaceActive(plan.space) || !this.spaceActive(sourceSpace)) return;
-      for (const source of await this.repository.sources(sourceSpace)) {
+      for (const source of await this.repository.sources(sourceSpace, () => this.spaceActive(plan.space) && this.spaceActive(sourceSpace))) {
         if (!this.spaceActive(plan.space) || !this.spaceActive(sourceSpace)) return;
         // Detached project modules already preserve these settings; a second copy
         // would revive withdrawn configuration under a different source identity.
@@ -222,7 +225,7 @@ export class KnowledgeEngine {
     const activeIds = new Set(plan.inputs.map(input => input.id));
     const member = plan.space.memberId ? plan.group.members.find(item => item.id === plan.space.memberId) : undefined;
     if (member) for (const id of allowedFileIds(member.modules)) activeIds.add(id);
-    for (const source of await this.repository.sources(plan.space)) {
+    for (const source of await this.repository.sources(plan.space, () => this.spaceActive(plan.space))) {
       if (!this.spaceActive(plan.space)) return;
       const managed = /^(configuration:|memory:|run:|task-goal:|accepted-run:|work-task:|work-result:|file-)/.test(source.id) || (plan.space.kind === 'template' && source.id === 'team-description');
       if (managed && !activeIds.has(source.id)) await this.repository.retire(plan.space, source.id, () => this.spaceActive(plan.space));
@@ -233,14 +236,18 @@ export class KnowledgeEngine {
     const current = this.store.snapshot().employees.find(item => item.id === employee.id && item.projectId === employee.projectId);
     return !!current && allowedFileIds(current.modules).has(sourceId) && allowedFileIds(employee.modules).has(sourceId);
   }
+  private snapshotPolicyCurrent(space: KnowledgeSpace, snapshot: KnowledgeSnapshot | undefined): boolean {
+    const plan = plans(this.store.snapshot()).find(item => key(item.space) === key(space) && item.group.active);
+    return !!plan && !!snapshot?.policyFingerprint && snapshot.policyFingerprint === knowledgePolicyFingerprint(plan.policy);
+  }
   private async snapshotUnavailable(employee: ProjectEmployee, space: KnowledgeSpace, snapshot: KnowledgeSnapshot): Promise<boolean> {
-    if (!this.spaceVisible(employee, space)) return true;
-    const sources = new Set((await this.repository.sources(space)).map(source => source.id));
+    if (!this.spaceVisible(employee, space) || !this.snapshotPolicyCurrent(space, snapshot)) return true;
+    const sources = new Set((await this.repository.sources(space, () => this.spaceVisible(employee, space))).map(source => source.id));
     return !this.spaceVisible(employee, space) || snapshot.entries.some(entry => entry.citations.some(citation => !sources.has(citation.sourceId) || !this.fileVisible(employee, citation.sourceId)));
   }
   private async visibleSources(employee: ProjectEmployee, space: KnowledgeSpace): Promise<KnowledgeSource[]> {
     if (!this.spaceVisible(employee, space)) return [];
-    const sources = await this.repository.sources(space);
+    const sources = await this.repository.sources(space, () => this.spaceVisible(employee, space));
     return this.spaceVisible(employee, space) ? sources.filter(source => this.fileVisible(employee, source.id)) : [];
   }
   private async rawOverview(employee: ProjectEmployee, space: KnowledgeSpace): Promise<string> {
@@ -255,7 +262,7 @@ export class KnowledgeEngine {
         const spaceKey = key(plan.space);
         // Disabled groups skip archive work; guarded commits also recheck current state.
         if (!plan.group.active || !this.spaceActive(plan.space)) continue;
-        await this.repository.ensure(plan.space);
+        await this.repository.ensure(plan.space, () => this.spaceActive(plan.space));
         await this.seedTemplate(plan, state);
         await this.retireRemoved(plan);
         for (const input of plan.inputs) {
@@ -263,17 +270,19 @@ export class KnowledgeEngine {
           await this.repository.ingest(plan.space, input, () => this.spaceActive(plan.space));
         }
         if (!this.spaceActive(plan.space)) continue;
-        const fingerprint = await this.repository.fingerprint(plan.space);
+        const fingerprint = await this.repository.fingerprint(plan.space, () => this.spaceActive(plan.space));
         if (!this.spaceActive(plan.space)) continue;
-        const changed = this.observed.has(spaceKey) ? this.observed.get(spaceKey) !== fingerprint : allowCompile;
-        this.observed.set(spaceKey, fingerprint);
+        const policyFingerprint = knowledgePolicyFingerprint(plan.policy);
+        const identity = digest({ fingerprint, policyFingerprint });
+        const changed = this.observed.has(spaceKey) ? this.observed.get(spaceKey) !== identity : allowCompile;
+        this.observed.set(spaceKey, identity);
         if (!allowCompile || this.closing || !plan.group.active || (!changed && !this.retry.has(spaceKey) && !this.requested.has(spaceKey))) continue;
         this.requested.delete(spaceKey);
         const latest = plans(this.store.snapshot()).find(item => key(item.space) === spaceKey);
         if (!latest?.group.active || !selectedModel(latest.group)) { this.retry.delete(spaceKey); continue; }
         // Source changes during archive get their own next event; do not compile an obsolete A set.
-        if (digest(latest.inputs) !== digest(plan.inputs)) continue;
-        this.queueCompilation({ space: plan.space, fingerprint, signature: this.signature(latest) });
+        if (digest(latest.inputs) !== digest(plan.inputs) || knowledgePolicyFingerprint(latest.policy) !== policyFingerprint) continue;
+        this.queueCompilation({ space: plan.space, fingerprint, policyFingerprint, signature: this.signature(latest) });
       } catch (error) { if (!writeCancelled(error)) throw error; }
     }
   }
@@ -298,14 +307,14 @@ export class KnowledgeEngine {
     const latest = plans(this.store.snapshot()).find(item => key(item.space) === spaceKey);
     const model = latest?.group.active ? selectedModel(latest.group) : undefined;
     if (!latest || !model || this.signature(latest) !== request.signature) return;
-    const sources = await this.repository.sources(request.space);
+    const sources = await this.repository.sources(request.space, () => this.spaceActive(request.space));
     if (!this.spaceActive(request.space)) return;
     if (!sources.length) { this.retry.delete(spaceKey); return; }
-    const fingerprint = await this.repository.fingerprint(request.space);
+    const fingerprint = await this.repository.fingerprint(request.space, () => this.spaceActive(request.space));
     if (!this.spaceActive(request.space)) return;
     if (fingerprint !== request.fingerprint) return;
-    const previous = await this.repository.snapshot(request.space);
-    if (previous?.sourceFingerprint === fingerprint) { this.retry.delete(spaceKey); return; }
+    const previous = await this.repository.snapshot(request.space, undefined, () => this.spaceActive(request.space));
+    if (previous?.sourceFingerprint === fingerprint && previous.policyFingerprint === request.policyFingerprint) { this.retry.delete(spaceKey); return; }
     if (this.closing || this.disposed) return;
     const controller = new AbortController();
     const active = { signature: request.signature, controller };
@@ -313,10 +322,10 @@ export class KnowledgeEngine {
     this.cancelStaleCompilation();
     if (controller.signal.aborted) { this.active.delete(spaceKey); return; }
     try {
-      const compilation = await abortable(this.compiler({ space: request.space, sources, previous, model, signal: controller.signal }), controller.signal);
+      const compilation = await abortable(this.compiler({ space: request.space, policy: latest.policy, sources, previous, model, signal: controller.signal }), controller.signal);
       this.cancelStaleCompilation();
       if (this.disposed || this.closing || controller.signal.aborted) return;
-      await this.repository.publish(request.space, compilation, fingerprint, controller.signal);
+      await this.repository.publish(request.space, compilation, fingerprint, controller.signal, latest.policy, () => this.spaceActive(request.space));
       this.retry.delete(spaceKey);
     } catch (error) {
       if (!controller.signal.aborted && !this.disposed) { this.retry.add(spaceKey); this.report(error); }
@@ -363,6 +372,14 @@ export class KnowledgeEngine {
     return spaces;
   }
   private spaceVisible(employee: ProjectEmployee, space: KnowledgeSpace): boolean { return this.employeeSpaces(employee).some(item => key(item) === key(space)); }
+  /** Hash-only identity for the currently authorized policies, with no private policy text. */
+  policyIdentityFor(employee: ProjectEmployee): string {
+    const available = plans(this.store.snapshot());
+    return digest(this.employeeSpaces(employee).map(space => {
+      const plan = available.find(item => key(item.space) === key(space));
+      return [key(space), plan ? knowledgePolicyFingerprint({ ...plan.policy, tasks: [] }) : 'unavailable'];
+    }));
+  }
   spacesForEmployee(employee: ProjectEmployee): KnowledgeSpace[] { return this.employeeSpaces(employee); }
   /** Files are supplied only after runtime authorization; batching ends at prepareFor. */
   async ingestFor(employee: ProjectEmployee, input: KnowledgeInput): Promise<void> {
@@ -383,9 +400,9 @@ export class KnowledgeEngine {
     if (this.closing || this.disposed) return;
     await this.enqueue(async () => {
       for (const space of this.employeeSpaces(employee)) {
-        const snapshot = await this.repository.snapshot(space);
+        const snapshot = await this.repository.snapshot(space, undefined, () => this.spaceVisible(employee, space));
         if (!this.spaceVisible(employee, space)) continue;
-        if (snapshot?.sourceFingerprint !== await this.repository.fingerprint(space)) this.requested.add(key(space));
+        if (snapshot?.sourceFingerprint !== await this.repository.fingerprint(space, () => this.spaceVisible(employee, space)) || !this.snapshotPolicyCurrent(space, snapshot)) this.requested.add(key(space));
       }
       await this.reconcile(true);
     });
@@ -401,7 +418,7 @@ export class KnowledgeEngine {
     const result: ContextDocument[] = [];
     for (const space of this.employeeSpaces(employee)) {
       const library: Library = space.memberId ? 'employee' : 'team';
-      const snapshot = await this.repository.snapshot(space);
+      const snapshot = await this.repository.snapshot(space, undefined, () => this.spaceVisible(employee, space));
       if (!snapshot || await this.snapshotUnavailable(employee, space, snapshot)) {
         for (const source of await this.visibleSources(employee, space)) result.push({
           layer: 'C', id: `pending:${source.id}`, library, version: source.version, title: source.title,
@@ -409,7 +426,7 @@ export class KnowledgeEngine {
           verified: false,
         });
       } else {
-        const stale = snapshot.sourceFingerprint !== await this.repository.fingerprint(space);
+        const stale = snapshot.sourceFingerprint !== await this.repository.fingerprint(space, () => this.spaceVisible(employee, space));
         for (const item of snapshot.overview) result.push({ layer: 'C', id: item.id, library, version: snapshot.version,
           title: item.title, content: `${stale ? '来源已更新，以下知识待核验。\n' : ''}候选知识。${item.summary}`, entryIds: item.entryIds, verified: false });
       }
@@ -420,10 +437,10 @@ export class KnowledgeEngine {
     const result: string[] = [];
     for (const space of this.employeeSpaces(employee)) {
       const library: Library = space.memberId ? 'employee' : 'team';
-      const snapshot = await this.repository.snapshot(space);
+      const snapshot = await this.repository.snapshot(space, undefined, () => this.spaceVisible(employee, space));
       if (!snapshot) { result.push(`library=${library}：${await this.rawOverview(employee, space)}`); continue; }
       if (await this.snapshotUnavailable(employee, space, snapshot)) { result.push(`library=${library}：来源已撤回待重编或读取权限已撤销，旧 C/B 暂不可用。\n${await this.rawOverview(employee, space)}`); continue; }
-      const stale = snapshot.sourceFingerprint !== await this.repository.fingerprint(space);
+      const stale = snapshot.sourceFingerprint !== await this.repository.fingerprint(space, () => this.spaceVisible(employee, space));
       result.push(`library=${library}；C 版本=${snapshot.version}；状态=候选知识${stale ? '，新资料待更新' : ''}`);
       for (const overview of snapshot.overview) result.push(`${overview.title}\n${overview.summary}\nB entryIds (version=${snapshot.version}): ${overview.entryIds.join(', ')}`);
     }
@@ -435,12 +452,15 @@ export class KnowledgeEngine {
     for (const space of this.employeeSpaces(employee)) {
       if (library && library !== (space.memberId ? 'employee' : 'team')) continue;
       try {
-        const resolvedVersion = layer === 'B' ? version ?? (await this.repository.snapshot(space))?.version : version;
-        const hit = await this.repository.read(space, layer, id, resolvedVersion);
+        const snapshot = layer === 'B' ? await this.repository.snapshot(space, version, () => this.spaceVisible(employee, space)) : undefined;
+        const currentPolicy = layer !== 'B' || this.snapshotPolicyCurrent(space, snapshot);
+        const resolvedVersion = layer === 'B' ? snapshot?.version : version;
+        const hit = await this.repository.read(space, layer, id, resolvedVersion, () => this.spaceVisible(employee, space));
+        if (layer === 'B' && version === undefined && !currentPolicy) throw new Error('知识编纂政策已变化或缺失；B 待重编，请先读取 A 元数据和原文');
         if (layer === 'A' && !this.fileVisible(employee, (hit as KnowledgeSource).id)) throw new Error('原始文件资料的读取权限已撤销');
         if (layer === 'B' && (hit as KnowledgeEntry).citations.some(citation => !this.fileVisible(employee, citation.sourceId))) throw new Error('此知识引用的原始文件资料未获读取授权');
         if (!this.spaceVisible(employee, space)) continue;
-        if (hit !== undefined) hits.push(layer === 'B' ? { ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team' } : { ...hit as KnowledgeSource, library: space.memberId ? 'employee' : 'team' });
+        if (hit !== undefined) hits.push(layer === 'B' ? { ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team', policyFingerprint: snapshot?.policyFingerprint, policyStatus: currentPolicy ? 'current' : snapshot?.policyFingerprint ? 'outdated' : 'legacy', stale: !currentPolicy } : { ...hit as KnowledgeSource, library: space.memberId ? 'employee' : 'team' });
       }
       catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND')) throw error; }
     }
@@ -453,7 +473,7 @@ export class KnowledgeEngine {
     const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
     for (const space of this.employeeSpaces(employee)) {
       const library: Library = space.memberId ? 'employee' : 'team';
-      const snapshot = await this.repository.snapshot(space);
+      const snapshot = await this.repository.snapshot(space, undefined, () => this.spaceVisible(employee, space));
       const unavailable = !snapshot || await this.snapshotUnavailable(employee, space, snapshot);
       if (layer !== 'B') {
         for (const source of await this.visibleSources(employee, space)) {

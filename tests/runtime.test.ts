@@ -730,3 +730,86 @@ test('cancelling a workflow aborts its active Harness attempt and does not dispa
   assert.equal(result.status, 'cancelled'); assert.equal(f.current().status, 'cancelled');
   assert.equal(f.current().steps[1]!.attempts.length, 0); assert.deepEqual(f.errors, []);
 });
+
+test('authorized project file ingestion preserves the configured primary source category', async t => {
+  const inputs: import('../src/knowledge/types.js').KnowledgeInput[] = [];
+  const knowledge = {
+    spacesForEmployee: () => [{ kind: 'project' as const, projectId: 'workspace-fixture', teamId: 'team', memberId: 'member' }],
+    overviewFor: async () => '合成资料入口', prepareFor: async () => undefined,
+    ingestFor: async (_employee: unknown, input: import('../src/knowledge/types.js').KnowledgeInput) => { inputs.push(input); },
+    searchFor: async () => [], readFor: async () => undefined,
+  };
+  const f = await fixture(new ScriptedAdapter([() => text('读取完成')]), {}, knowledge);
+  t.after(async () => { await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const modules = structuredClone(f.employee.modules);
+  modules.knowledge.sources = [{ id: 'environment', title: '环境版本', kind: 'project-file', value: 'README.md', category: 'environment-constraints' }];
+  await f.store.updateEmployee(f.employee.id, { modules });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '核验环境资料' });
+  assert.equal((await f.runtime.wait(run.id)).status, 'awaiting-review');
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0]!.category, 'environment-constraints');
+  assert.match(inputs[0]!.classificationReason ?? '', /authorized|configuration/);
+});
+
+test('explicit historical B reads retain policy obsolescence in the model-visible knowledge packet', async t => {
+  const adapter = new ScriptedAdapter([
+    () => call('worker_memory_search', { knowledgeId: 'entry', layer: 'B', library: 'employee', version: 1 }),
+    request => {
+      const serialized = JSON.stringify(request);
+      assert.match(serialized, /政策已过期/);
+      assert.match(serialized, /old-policy-fixture/);
+      return text('仅作历史核验，不作为当前规则');
+    },
+  ]);
+  const knowledge = {
+    spacesForEmployee: () => [{ kind: 'project' as const, projectId: 'workspace-fixture', teamId: 'team', memberId: 'member' }],
+    overviewFor: async () => '当前概念入口', prepareFor: async () => undefined, ingestFor: async () => undefined, searchFor: async () => [],
+    readFor: async () => ({ id: 'entry', title: '历史知识', content: '过去的候选方法。', library: 'employee', version: 1, policyStatus: 'outdated', policyFingerprint: 'old-policy-fixture', stale: true }),
+  };
+  const f = await fixture(adapter, {}, knowledge);
+  t.after(async () => { await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '核对旧版方法' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'awaiting-review', result.error);
+});
+
+test('a professional policy changed after C injection stops subsequent model requests until a new work order', async t => {
+  let policy = 'original-policy'; let f: Awaited<ReturnType<typeof fixture>>;
+  const adapter = new ScriptedAdapter([
+    async () => {
+      const modules = structuredClone(f.employee.modules);
+      modules.knowledge.organization = { version: 1, profession: '新专业', taskScope: '', conceptRules: '新提取规则', categories: [] };
+      await f.store.updateEmployee(f.employee.id, { modules }); policy = 'new-policy';
+      return call('worker_list_files', {});
+    },
+    () => text('旧政策继续工作'),
+  ]);
+  const knowledge = {
+    spacesForEmployee: () => [{ kind: 'project' as const, projectId: 'workspace-fixture', teamId: 'team', memberId: 'member' }],
+    policyIdentityFor: () => policy,
+    overviewFor: async () => '旧政策知识入口', prepareFor: async () => undefined, ingestFor: async () => undefined, searchFor: async () => [], readFor: async () => undefined,
+  };
+  f = await fixture(adapter, {}, knowledge);
+  t.after(async () => { await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '依照当前知识工作' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error ?? '', /政策.*变更|政策.*变化/);
+  assert.equal(adapter.requests.length, 1);
+});
+
+test('policy changes while C is being loaded are rejected before the first model call', async t => {
+  let policy = 'original-policy';
+  const adapter = new ScriptedAdapter([() => text('不应发出请求')]);
+  const knowledge = {
+    spacesForEmployee: () => [{ kind: 'project' as const, projectId: 'workspace-fixture', teamId: 'team', memberId: 'member' }], policyIdentityFor: () => policy,
+    overviewFor: async () => { policy = 'new-policy'; return '旧政策 C'; }, prepareFor: async () => undefined, ingestFor: async () => undefined, searchFor: async () => [], readFor: async () => undefined,
+  };
+  const f = await fixture(adapter, {}, knowledge);
+  t.after(async () => { await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
+  const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '启动政策核验' });
+  const result = await f.runtime.wait(run.id);
+  assert.equal(result.status, 'failed');
+  assert.match(result.error ?? '', /政策.*变化/);
+  assert.equal(adapter.requests.length, 0);
+});

@@ -13,7 +13,7 @@ import { KnowledgeEngine } from '../src/knowledge/engine.js';
 import type { KnowledgeCompilation, KnowledgeCompileRequest, KnowledgeCompiler, KnowledgeInput, KnowledgeSpace } from '../src/knowledge/types.js';
 
 function compilation(request: KnowledgeCompileRequest): KnowledgeCompilation {
-  return { entries: [{ id: 'detail', title: 'Detailed knowledge', content: request.sources.map(item => item.text).join('\n'), citations: request.sources.map(source => ({ sourceId: source.id, sourceVersion: source.version, startLine: 1, endLine: 1 })) }], overview: [{ id: 'map', title: 'Concept map', summary: 'Read the details before making a decision.', entryIds: ['detail'] }] };
+  return { entries: [{ categoryId: request.policy?.categories[0]?.id, id: 'detail', title: 'Detailed knowledge', content: request.sources.map(item => item.text).join('\n'), citations: request.sources.map(source => ({ sourceId: source.id, sourceVersion: source.version, startLine: 1, endLine: 1 })) }], overview: [{ id: 'map', title: 'Concept map', summary: 'Read the details before making a decision.', entryIds: ['detail'] }] };
 }
 const knowledgeDirectory = (repository: KnowledgeRepository, space: KnowledgeSpace) => join(repository.rootPath,
   ...(space.kind === 'template' ? ['templates', space.teamId] : ['projects', space.projectId!, 'teams', space.teamId]),
