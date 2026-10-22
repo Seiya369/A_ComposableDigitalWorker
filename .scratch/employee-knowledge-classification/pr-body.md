@@ -11,7 +11,7 @@
 
 “投喂马料”独立上传 PDF、DOCX、UTF-8 文本至已保存团队成员的私库，原件留 A；上传不保存岗位草稿或扩大共享范围，关闭管理员时阻止入库。原件/文本各限 1 MiB，解析边界和未支持格式见团队知识库文档。32/48/64K 保持离线候选。
 
-本 PR 的审查基线为本地 `8c549f5bb724ff5b07af48e2871115e06ac0f450`，增量候选 `c069c8cedbdf040500311475d48f5d3fbd7b4a95`。远端 main 仅有初始化提交，ABC 基础实现来自独立保存的历史工作区，未自动归入本次增量或合入 main。远端发布前需明确基础分支与增量分支范围；此文件目前是本地 PR 草稿。
+本 PR 以历史基线分支 `codex/employee-knowledge-baseline-20261022` 为 base（`8c549f5bb724ff5b07af48e2871115e06ac0f450`），代码候选 `c069c8cedbdf040500311475d48f5d3fbd7b4a95`；其后的提交仅整理交付记录。历史基础代码另有面向 main 的草稿 PR [#1](https://github.com/Seiya369/A_ComposableDigitalWorker/pull/1)，本 PR 仅显示知识分类、专业编纂、资料上传与交付门增量。用户已授权两条分支分别推送、创建草稿 PR 和运行 CI；尚未授权合并 main 或升级当前 profile。
 
 ## Evidence
 
