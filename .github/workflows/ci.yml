@@ -75,7 +75,9 @@ jobs:
       - name: Verify lifecycle package manager
         run: |
           pnpm --version | tee "$REPORT_DIR/lifecycle-pnpm-version.log"
-          test "$(pnpm --version)" = "10.33.0"
+          test "$(pnpm --version)" = "10.34.7"
+      - name: Audit lifecycle package manager
+        run: npm audit --prefix ci/tools --json --audit-level=high > "$REPORT_DIR/lifecycle-tools-audit.json"
       - name: Official install, core use, uninstall, reinstall and complete cleanup
         env:
           DSH_INSTALLATION_MANIFEST: ${{ github.workspace }}/ci/official-host/node_modules/@deepseek-ai/dsh/package.json
