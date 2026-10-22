@@ -1,17 +1,22 @@
 import { constants } from 'node:fs';
-import { chmod, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
+import { chmod, link, lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import { KNOWLEDGE_SOURCE_CATEGORIES, KNOWLEDGE_SOURCE_CATEGORY_FOLDERS, type KnowledgeSourceCategory } from './categories.js';
 
 const PLUGIN = 'dsh-plugin-composable-workforce';
 const queues = new Map<string, Promise<unknown>>();
 const roots = new Map<string, Promise<void>>();
+const writer = new AsyncLocalStorage<{ rootPath: string; canWrite?: WriteGuard }>();
 const sha = (value: string) => createHash('sha256').update(value).digest('hex');
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === 'ENOENT';
 const notFound = (message: string) => Object.assign(new Error(message), { code: 'NOT_FOUND' });
 type WriteGuard = () => boolean;
 function assertWritable(canWrite?: WriteGuard): void {
+  const inherited = writer.getStore()?.canWrite;
+  if (inherited && !inherited()) throw Object.assign(new Error('Knowledge scope is disabled; write cancelled'), { code: 'KNOWLEDGE_WRITE_DISABLED' });
   if (canWrite && !canWrite()) throw Object.assign(new Error('Knowledge scope is disabled; write cancelled'), { code: 'KNOWLEDGE_WRITE_DISABLED' });
 }
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -23,7 +28,7 @@ const identifier = (value: unknown): string => {
   check(typeof value === 'string' && /^[\p{L}\p{N}][\p{L}\p{N}._:-]{0,199}$/u.test(value), 'Invalid knowledge path identifier');
   return value;
 };
-const sourceDirectory = (path: string, id: string) => join(path, 'A-sources', encodeURIComponent(identifier(id)));
+const sourceDirectory = (path: string, id: string, category: KnowledgeSourceCategory) => join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category], encodeURIComponent(identifier(id)));
 type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation> & { publishedVersions: number[] };
 type SeedMarker = { schemaVersion: 1; from: { teamId: string; version: number }; createdAt: string };
 const versionNumber = (value: unknown): number => {
@@ -80,6 +85,7 @@ export class KnowledgeRepository {
   }
 
   private async directory(path: string): Promise<void> {
+    assertWritable();
     await this.safe(path);
     await mkdir(path, { recursive: true, mode: 0o700 });
     // A concurrent initializer can create the same directory; validate again before using it.
@@ -93,18 +99,27 @@ export class KnowledgeRepository {
   }
 
   private async json<T>(path: string): Promise<T | undefined> {
+    const bytes = await this.bytes(path);
+    return bytes === undefined ? undefined : JSON.parse(bytes) as T;
+  }
+
+  private async bytes(path: string): Promise<string | undefined> {
     await this.safe(path);
     let file;
     try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
     catch (error) { if (missing(error)) return undefined; throw error; }
     try {
       check((await file.stat()).size <= 12_000_000, 'Knowledge file is too large');
-      return JSON.parse(await file.readFile('utf8')) as T;
+      const bytes = await file.readFile();
+      const text = bytes.toString('utf8');
+      check(Buffer.from(text, 'utf8').equals(bytes), 'Knowledge file contains invalid UTF-8');
+      return text;
     } finally { await file.close(); }
   }
 
-  private async write(path: string, value: unknown, signal?: AbortSignal, canWrite?: WriteGuard): Promise<void> {
+  private async write(path: string, value: unknown, signal?: AbortSignal, canWrite?: WriteGuard, immutable = false): Promise<void> {
     assertWritable(canWrite);
+    if (immutable) { signal?.throwIfAborted(); return this.immutableSource(path, `${JSON.stringify(value, null, 2)}\n`); }
     await this.directory(dirname(path));
     await this.safe(path);
     const temporary = join(dirname(path), `.pending-${randomUUID()}`);
@@ -141,8 +156,99 @@ export class KnowledgeRepository {
 
   async ensure(space: KnowledgeSpace): Promise<void> {
     const path = this.spacePath(space);
-    await this.root();
-    for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
+    await this.locked(async () => {
+      for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
+      for (const category of KNOWLEDGE_SOURCE_CATEGORIES) await this.directory(join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category]));
+      await this.migrateSources(path);
+    });
+  }
+
+  private sourceValue(value: KnowledgeSource | undefined, id: string, version: number): KnowledgeSource {
+    check(value && value.id === id && value.version === version && typeof value.content === 'string' && typeof value.text === 'string' && value.hash === sha(value.content), 'Knowledge source is missing or corrupt');
+    const category = value.category === undefined ? 'reference' : value.category;
+    check(KNOWLEDGE_SOURCE_CATEGORIES.includes(category), 'Invalid knowledge source category');
+    if (value.classificationReason !== undefined) check(typeof value.classificationReason === 'string' && value.classificationReason.length <= 2_000, 'Invalid source classification reason');
+    return value.category === undefined ? { ...value, category, classificationReason: value.classificationReason ?? 'Legacy source defaulted to reference; original bytes retained.' } : value;
+  }
+
+  /** A completed immutable link may survive a crash before its temporary name is removed. */
+  private async recoverSourcePending(directory: string): Promise<void> {
+    await this.safe(directory);
+    const names = await readdir(directory);
+    for (const name of names.filter(name => /^\.pending-[0-9a-f-]{36}$/.test(name))) {
+      const pending = join(directory, name);
+      const info = await lstat(pending);
+      check(info.isFile() && !info.isSymbolicLink(), 'Invalid pending knowledge source');
+      if (info.nlink > 1) {
+        const peers = await Promise.all(names.filter(name => /^v[1-9]\d*\.json$/.test(name)).map(async name => ({ name, info: await lstat(join(directory, name)) })));
+        check(info.nlink === 2 && peers.filter(peer => peer.info.dev === info.dev && peer.info.ino === info.ino).length === 1, 'Hard links are forbidden in knowledge paths');
+      }
+      assertWritable();
+      await unlink(pending);
+    }
+  }
+
+  /** Exclusive publication cannot replace any previously written source bytes. */
+  private async immutableSource(path: string, bytes: string): Promise<void> {
+    await this.directory(dirname(path));
+    await this.recoverSourcePending(dirname(path));
+    const old = await this.bytes(path);
+    if (old !== undefined) { check(old === bytes, 'Conflicting immutable knowledge source bytes'); return; }
+    const temporary = join(dirname(path), `.pending-${randomUUID()}`);
+    const file = await open(temporary, 'wx', 0o600);
+    try { await file.writeFile(bytes, 'utf8'); await file.sync(); }
+    finally { await file.close(); }
+    try {
+      await this.safe(path); assertWritable();
+      try { await link(temporary, path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        check(await this.bytes(path) === bytes, 'Conflicting immutable knowledge source bytes');
+      }
+    } finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error; }); }
+  }
+
+  /** Discover flat history from disk, not just the active index, and retain its exact bytes. */
+  private async migrateSources(path: string): Promise<void> {
+    const root = join(path, 'A-sources');
+    const folders = new Set(Object.values(KNOWLEDGE_SOURCE_CATEGORY_FOLDERS));
+    for (const name of await readdir(root)) {
+      if (name === 'index.json' || name.startsWith('.pending-')) continue;
+      const directory = join(root, name);
+      await this.safe(directory);
+      check((await lstat(directory)).isDirectory(), 'Invalid source directory');
+      const id = identifier(decodeURIComponent(name));
+      check(encodeURIComponent(id) === name, 'Invalid source directory identifier');
+      // A legacy source ID may itself equal one of the six category folder names.
+      const versions = (await readdir(directory)).filter(file => /^v[1-9]\d*\.json$/.test(file));
+      for (const file of versions) {
+        const original = join(directory, file);
+        const bytes = await this.bytes(original);
+        check(bytes !== undefined, 'Knowledge source is missing or corrupt');
+        const source = this.sourceValue(JSON.parse(bytes) as KnowledgeSource, id, Number(file.slice(1, -5)));
+        const destination = join(sourceDirectory(path, id, source.category), file);
+        await this.immutableSource(destination, bytes);
+        assertWritable(); await this.safe(original); await unlink(original);
+      }
+      if (!folders.has(name)) await rmdir(directory).catch(error => { if ((error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error; });
+    }
+    const identities = new Set<string>();
+    for (const category of KNOWLEDGE_SOURCE_CATEGORIES) {
+      const categoryPath = join(root, KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category]);
+      for (const name of await readdir(categoryPath)) {
+        if (name.startsWith('.pending-')) continue;
+        const directory = join(categoryPath, name);
+        await this.safe(directory);
+        check((await lstat(directory)).isDirectory(), 'Invalid categorized source directory');
+        check(encodeURIComponent(identifier(decodeURIComponent(name))) === name, 'Invalid source directory identifier');
+        await this.recoverSourcePending(directory);
+        for (const version of (await readdir(directory)).filter(name => /^v[1-9]\d*\.json$/.test(name))) {
+          const identity = `${name}/${version}`;
+          check(!identities.has(identity), 'Knowledge source version has duplicate category locations');
+          identities.add(identity);
+        }
+      }
+    }
   }
 
   private async seedMarker(space: KnowledgeSpace): Promise<SeedMarker | undefined> {
@@ -175,6 +281,7 @@ export class KnowledgeRepository {
   /** A root mutex also coordinates independent instances and CLI processes. No model work runs under it. */
   private async locked<T>(action: () => Promise<T>, canWrite?: WriteGuard): Promise<T> {
     assertWritable(canWrite);
+    if (writer.getStore()?.rootPath === this.rootPath) return action();
     const previous = queues.get(this.rootPath) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       assertWritable(canWrite);
@@ -205,7 +312,7 @@ export class KnowledgeRepository {
         }
       }
       check(lock, 'Knowledge write lock is busy');
-      try { assertWritable(canWrite); return await action(); }
+      try { assertWritable(canWrite); return await writer.run({ rootPath: this.rootPath, canWrite }, action); }
       finally {
         await lock.close();
         const holder = await this.json<{ token: string }>(path);
@@ -230,6 +337,19 @@ export class KnowledgeRepository {
     return Math.max(current, 0, ...versions) + 1;
   }
 
+  private async nextSourceVersion(path: string, id: string, current = 0): Promise<number> {
+    let latest = current;
+    for (const category of KNOWLEDGE_SOURCE_CATEGORIES) {
+      const directory = sourceDirectory(path, id, category);
+      await this.safe(directory);
+      let names: string[];
+      try { names = await readdir(directory); }
+      catch (error) { if (missing(error)) continue; throw error; }
+      for (const name of names.filter(name => /^v[1-9]\d*\.json$/.test(name))) latest = Math.max(latest, versionNumber(Number(name.slice(1, -5))));
+    }
+    return versionNumber(latest + 1);
+  }
+
   async ingest(space: KnowledgeSpace, input: KnowledgeInput, canWrite?: WriteGuard): Promise<KnowledgeSource> {
     input = structuredClone(input);
     identifier(input.id);
@@ -237,6 +357,9 @@ export class KnowledgeRepository {
     bounded(input.content, 'Source content', 2_000_000, true);
     bounded(input.provenance, 'Source provenance', 8_000);
     check(typeof input.verified === 'boolean', 'Source verification state is required');
+    if (input.category === undefined) input.category = 'reference';
+    check(KNOWLEDGE_SOURCE_CATEGORIES.includes(input.category), 'Invalid knowledge source category');
+    if (input.classificationReason !== undefined) check(typeof input.classificationReason === 'string' && input.classificationReason.length <= 2_000, 'Source classification reason is too large');
     const path = this.spacePath(space);
     return this.locked(async () => {
       await this.ensure(space);
@@ -244,7 +367,7 @@ export class KnowledgeRepository {
       const oldVersion = Object.hasOwn(index, input.id) ? index[input.id] : undefined;
       const old = oldVersion ? await this.source(path, input.id, oldVersion, true) : undefined;
       const hash = sha(input.content);
-      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title) return old;
+      if (old?.hash === hash && old.verified === input.verified && old.provenance === input.provenance && old.title === input.title && old.category === input.category && (input.classificationReason === undefined || old.classificationReason === input.classificationReason)) return old;
       check(oldVersion !== undefined || Object.keys(index).length < 2_000, 'Knowledge source count is too large');
       const processing: string[] = [];
       let text = input.content;
@@ -252,8 +375,9 @@ export class KnowledgeRepository {
       if (text.includes('\r')) { text = text.replace(/\r\n?/g, '\n'); processing.push('Normalized line endings to LF in reading text.'); }
       if (text.includes('\0')) { text = text.replace(/\0/g, '[U+0000]'); processing.push('Marked NUL characters as [U+0000] in reading text.'); }
       if (!processing.length) processing.push('Original text retained without semantic edits.');
-      const source: KnowledgeSource = { ...input, version: await this.nextVersion(sourceDirectory(path, input.id), oldVersion), hash, text, processing, createdAt: new Date().toISOString() };
-      await this.write(join(sourceDirectory(path, input.id), `v${source.version}.json`), source, undefined, canWrite);
+      const version = await this.nextSourceVersion(path, input.id, oldVersion);
+      const source: KnowledgeSource = { ...input, category: input.category!, version, hash, text, processing, createdAt: new Date().toISOString() };
+      await this.write(join(sourceDirectory(path, input.id, source.category), `v${source.version}.json`), source, undefined, canWrite, true);
       Object.defineProperty(index, input.id, { value: source.version, enumerable: true, writable: true, configurable: true });
       await this.write(join(path, 'A-sources', 'index.json'), index, undefined, canWrite);
       return source;
@@ -274,10 +398,15 @@ export class KnowledgeRepository {
   }
 
   private async source(path: string, id: string, version: number, required = false): Promise<KnowledgeSource> {
-    const source = await this.json<KnowledgeSource>(join(sourceDirectory(path, id), `v${versionNumber(version)}.json`));
+    versionNumber(version);
+    const found = await Promise.all(KNOWLEDGE_SOURCE_CATEGORIES.map(async category => ({ category, value: await this.json<KnowledgeSource>(join(sourceDirectory(path, id, category), `v${version}.json`)) })));
+    const versions = found.filter((item): item is { category: KnowledgeSourceCategory; value: KnowledgeSource } => item.value !== undefined);
+    check(versions.length <= 1, 'Knowledge source version has duplicate category locations');
+    const source = versions[0]?.value;
     if (!source && !required) throw notFound('Knowledge source was not found');
-    check(source && source.id === id && source.version === version && typeof source.text === 'string' && source.hash === sha(source.content), 'Knowledge source is missing or corrupt');
-    return source;
+    const normalized = this.sourceValue(source, id, version);
+    check(normalized.category === versions[0]?.category, 'Knowledge source category does not match its directory');
+    return normalized;
   }
 
   async sources(space: KnowledgeSpace): Promise<KnowledgeSource[]> {

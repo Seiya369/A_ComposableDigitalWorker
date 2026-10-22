@@ -78,7 +78,7 @@ test('source namespace IDs are encoded and uncommitted snapshot files stay invis
   const namespaced = { ...input, id: 'run:task-1' };
   const source = await repo.ingest(team, namespaced);
   assert.equal((await repo.read(team, 'A', namespaced.id) as typeof source).id, namespaced.id);
-  assert.ok((await readdir(join(repo.rootPath, 'templates/research/team/A-sources'))).includes('run%3Atask-1'));
+  assert.ok((await readdir(join(repo.rootPath, 'templates/research/team/A-sources/01-reference'))).includes('run%3Atask-1'));
   const next = compilation();
   next.entries[0]!.citations[0]!.sourceId = namespaced.id;
   await repo.publish(team, next, await repo.fingerprint(team));
@@ -138,7 +138,7 @@ test('a scope disabled after its immutable source write cannot commit a new acti
   const write = internals.write.bind(repo);
   internals.write = async (path, value, signal, canWrite) => {
     await write(path, value, signal, canWrite);
-    if (path.endsWith('A-sources/meeting/v2.json')) enabled = false;
+    if (path.endsWith('A-sources/01-reference/meeting/v2.json')) enabled = false;
   };
   await assert.rejects(repo.ingest(team, { ...input, content: 'Completed immutable write' }, () => enabled), { code: 'KNOWLEDGE_WRITE_DISABLED' });
   assert.equal((await repo.sources(team))[0]!.version, 1);
@@ -178,7 +178,7 @@ test('distinguishes absent knowledge from corrupt or hard-linked storage', async
   await assert.rejects(repo.read(team, 'A', 'constructor'), absent);
   await assert.rejects(repo.read(team, 'B', 'missing'), absent);
   await repo.ingest(team, input);
-  await link(join(repo.rootPath, 'templates/research/team/A-sources/meeting/v1.json'), join(repo.rootPath, 'alias.json'));
+  await link(join(repo.rootPath, 'templates/research/team/A-sources/01-reference/meeting/v1.json'), join(repo.rootPath, 'alias.json'));
   await assert.rejects(repo.read(team, 'A', 'meeting'), error => !absent(error) && /Hard links/.test(String(error)));
 });
 
