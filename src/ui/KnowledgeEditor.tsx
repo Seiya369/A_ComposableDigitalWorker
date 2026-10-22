@@ -9,9 +9,9 @@ const SOURCE_GROUPS: Record<KnowledgeSourceCategory, { title: string; hint: stri
   reference: { title: '投喂马料', hint: '上传岗位资料，供资料管理员整理。' },
   'requirements-decisions': { title: '需求决策', hint: '保留目标、验收条件与决策依据。' },
   'task-evidence': { title: '任务证据', hint: '收集任务过程、结果与核验记录。' },
-  'incidents-reflections': { title: '失败反思', hint: '记录失败原因、教训与改进。' },
+  'incidents-reflections': { title: '失败反思', hint: '记录失败观察、原因假设与改进。' },
   'environment-constraints': { title: '环境约束', hint: '说明运行环境、限制与适用条件。' },
-  'preferences-capabilities': { title: '偏好能力', hint: '记录工作偏好与能力边界。' },
+  'preferences-capabilities': { title: '偏好能力', hint: '保留明确偏好与能力验证。' },
 };
 
 interface KnowledgeEditorProps {
