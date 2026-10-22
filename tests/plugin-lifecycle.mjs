@@ -164,7 +164,15 @@ try {
   // Team librarians follow this same model; no fixture event may reach an external provider.
   const fixtureModules=structuredClone(source.modules);
   fixtureModules.model={mode:'override',provider:'lifecycle-unregistered-provider',model:'fixture'};
+  const sourceCategories=[
+    ['reference','01-reference'],['requirements-decisions','02-requirements-decisions'],
+    ['task-evidence','03-task-evidence'],['incidents-reflections','04-incidents-reflections'],
+    ['environment-constraints','05-environment-constraints'],['preferences-capabilities','06-preferences-capabilities'],
+  ];
+  fixtureModules.knowledge.sources=sourceCategories.map(([category],i)=>({id:`lifecycle-source-${i}`,title:`隔离资料 ${category}`,kind:'text',value:`合成原文 ${i}\n保留否定与版本边界。`,category}));
+  fixtureModules.knowledge.organization={version:1,profession:'支付接口与事务一致性',taskScope:'整理回执与幂等边界',conceptRules:'receipt_id 与 order_id 分开；保留否定、版本与未核验状态。',categories:[{id:'receipt-consistency',title:'回执与幂等',description:'区分实体、重试条件及未知状态'}]};
   source=(await command('template.save',{id:source.id,name:source.name,description:source.description,status:source.status,modules:fixtureModules},{expectedVersion:source.version})).result;
+  assert.deepEqual((await snapshot()).templates.find(item=>item.id===source.id).modules.knowledge,fixtureModules.knowledge,'public save/reload lost source categories or professional rules');
   const {result:employees}=await command('project.employees.create',{projectId:workspace.workspaceId,employees:[{key:'architect',templateId:source.id,templateVersion:source.version,name:'验收架构师'}]});
   await command('memory.save',{projectId:workspace.workspaceId,employeeId:employees[0].id,scope:'employee',title:'安装卸载验收记忆',content:'此项目采用模块化边界，重新安装后必须保留。',source:{kind:'user-confirmed',reference:'本地隔离验收数据'}});
   const modules=structuredClone(employees[0].modules);
@@ -173,6 +181,15 @@ try {
   await command('employee.update',{id:employees[0].id,input:{modules}});
   const {result:team}=await command('team.save',{name:'生命周期验收团队',members:[{memberId:'architect',templateId:source.id}],workflows:[{id:'review',name:'生命周期验收流程',steps:[{id:'plan',name:'方案',memberId:'architect',instruction:'验证运行记录保留',acceptanceCriteria:['保留项目记录']}]}]});
   const {result:projectTeam}=await command('project.team.configure',{projectId:workspace.workspaceId,teamId:team.id,teamVersion:team.version,templateVersions:{[source.id]:source.version}});
+  const installedMember=(await snapshot()).employees.find(item=>item.id===projectTeam.members[0].employeeId);
+  assert.deepEqual(installedMember.modules.knowledge,fixtureModules.knowledge,'team installation lost detached professional rules');
+  const renamedModules=structuredClone(source.modules);
+  renamedModules.knowledge.organization.categories[0].title='回执一致性与幂等';
+  await command('template.save',{id:source.id,name:source.name,description:source.description,status:source.status,modules:renamedModules},{expectedVersion:source.version});
+  const afterCategoryRename=await snapshot();
+  assert.equal(afterCategoryRename.templates.find(item=>item.id===source.id).modules.knowledge.organization.categories[0].id,'receipt-consistency','display rename changed the stable category ID');
+  assert.deepEqual(afterCategoryRename.employees.find(item=>item.id===installedMember.id).modules.knowledge,fixtureModules.knowledge,'template edit changed the installed employee snapshot');
+  report.checks.push('archive API persists all six source categories and professional organization; installed employee keeps a detached copy; category title rename preserves its ID');
   await command('workflow.start',{projectId:workspace.workspaceId,projectTeamId:projectTeam.id,workflowId:projectTeam.workflows[0].id,workflowVersion:1,request:'验证失败记录在卸载重装后保留',requestId:'lifecycle-flow'});
   for(let i=0;i<100;i++){ if((await snapshot()).workflowRuns?.[0]?.status==='blocked')break; await delay(50); }
   assert.equal((await snapshot()).workflowRuns[0].status,'blocked','unconfigured test provider must fail locally');
@@ -218,6 +235,22 @@ try {
   report.checks.push('tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request');
   await pause('installed');
   await stop();
+  const memberSources=resolve(knowledgeRoot,'projects',workspace.workspaceId,'teams',projectTeam.id,'employees',installedMember.id,'A-sources');
+  for(const [category,folder] of sourceCategories){
+    const ids=await readdir(resolve(memberSources,folder));
+    assert.ok(ids.length>0,`six-category archive was empty: ${folder}`);
+    let found=false;
+    for(const id of ids)for(const version of await readdir(resolve(memberSources,folder,id))){
+      const record=JSON.parse(await readFile(resolve(memberSources,folder,id,version),'utf8'));
+      if(record.provenance===`configuration:text:lifecycle-source-${sourceCategories.findIndex(item=>item[0]===category)}`){
+        assert.equal(record.category,category);
+        assert.equal(record.content,fixtureModules.knowledge.sources.find(item=>item.category===category).value,'categorization changed the original text');
+        found=true;
+      }
+    }
+    assert.ok(found,`configured source did not reach its physical category: ${category}`);
+  }
+  report.checks.push('installed archive materializes every A category and places configured sources in their actual folders with unchanged original text');
   const knowledgeBefore=await programDigest(knowledgeRoot);
   assert.ok(knowledgeBefore.files>1,'librarian did not archive team/member knowledge');
   await cli('plugin','--profile','web','remove','dsh-plugin-composable-workforce');
