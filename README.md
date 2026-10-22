@@ -63,15 +63,19 @@ JSON 交换范围仍是职业人、团队和工作流配置，不包含工作台
 兼容目标为官方 **DSH 0.2.1-alpha.2**、Node.js `^22.19.0 || >=24`；其他 DSH 版本需另行验证。插件通过官方 `sidebar.panellist` + `main` 提供同级入口，不要求修改或重建宿主。安装、普通卸载和完整清理见 [integration/README.md](integration/README.md)。
 
 ```sh
-npm ci --legacy-peer-deps
+npm ci --ignore-scripts
 npm run setup
+npm run check:scripts
 npm run typecheck
+npm run typecheck:checks
 npm test
 npm run build
-npm pack --pack-destination artifacts
+npm run package:check
 ```
 
-开发依赖链接只修改本项目的 `node_modules`。支持 `DSH_INSTALLATION_MANIFEST` 指向官方 npm 安装的 `@deepseek-ai/dsh/package.json`；源码位置仅为开发回退，不作为正式安装前提。
+开发依赖直接来自提交的 npm 锁，不需要兄弟 Harness 源码目录，也不使用 `legacy-peer-deps` 或 `force`。`setup` 校验公开包的精确版本、声明入口与真实路径，默认不写文件。`typecheck:checks` 还检查测试和评测脚本；`check:scripts` 检查可执行 JavaScript 语法，不冒充 ESLint。`package:check` 两次打包并核对可重复性、全部归档文件与源文件、白名单及 SHA-256，产物在 `artifacts/ci/package/`。
+
+官方原版验收使用另一份独立、不可修改的测试安装。先在 `ci/official-host` 执行 `npm ci --ignore-scripts`，再将 `DSH_INSTALLATION_MANIFEST` 显式指向该目录下 `node_modules/@deepseek-ai/dsh/package.json`。设置该变量后可运行 `node scripts/link-harness.mjs --verify-only` 核对全部公开依赖，拒绝祖先目录回落；不向宿主安装目录写入。确需外部开发链接时，`setup` 仅在本项目 `node_modules` 创建有归属记录的链接，拒绝共享目录或覆盖非自有依赖；独立开发 fixture 用 `DSH_DEVELOPMENT_MANIFEST` 指定，不能冒称官方 CLI。完整命令与 CI 门禁见 [ci/README.md](ci/README.md)。
 
 本地演示：`npm run service:start`、`npm run service:open`。`WORKFORCE_PORT` 指定端口，`WORKFORCE_HOME` 指定独立 profile。`service:status` 查看状态、`service:stop` 停止。启动脚本保留已有安装/移除状态；更新插件后需要重启宿主并刷新页面。凭据由 Harness 管理，不进入插件包。
 
@@ -80,7 +84,7 @@ npm pack --pack-destination artifacts
 node tests/ui/graph-horses.fixture.mjs
 
 # 真实归档安装、卸载、重装、完整清理和宿主程序哈希验证
-npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.4.0.tgz
+DSH_INSTALLATION_MANIFEST="$PWD/ci/official-host/node_modules/@deepseek-ai/dsh/package.json" npm run test:lifecycle -- artifacts/ci/package/dsh-plugin-composable-workforce-0.4.0.tgz
 ```
 
 页面夹具使用本仓库构建并等待手动/CUA操作；退出清理其临时项目。旧 `tests/ui/*e2e.mjs` 保留历史场景，其中工作区菜单选择器属于旧入口，不能用作本版验收证明。当前验收结果及归档哈希见 [integration/verification.md](integration/verification.md) 和 `artifacts/lifecycle/report.json`。

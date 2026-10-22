@@ -9,9 +9,9 @@ const state={employees:[alice,bob]} as WorkforceState;
 
 test('@ roster only exposes active employees in the selected project',async()=>{
   const source=createEmployeeMentionSource({snapshot:async()=>state,projectForSession:async()=> 'project-a',run:async()=>{throw new Error('must not run while listing')},onStarted:()=>{}});
-  const candidates=await source.candidates({sessionId:'s' as never},{query:'',position:'leading',signal:new AbortController().signal});
+  const candidates=await source.candidates({sessionId:'s' as never},{query:'',position:'leading',drilled:false,signal:new AbortController().signal});
   assert.equal(candidates.length,1);assert.equal(candidates[0]?.value,alice.id);
-  assert.deepEqual(await source.candidates({sessionId:'s' as never},{query:'',position:'inline',signal:new AbortController().signal}),[]);
+  assert.deepEqual(await source.candidates({sessionId:'s' as never},{query:'',position:'inline',drilled:false,signal:new AbortController().signal}),[]);
 });
 
 test('@ pick captures instance identity and preserves failed submissions',async()=>{
@@ -35,7 +35,7 @@ test('duplicate employee names get independent aliases and attachment payloads a
 test('a picked employee command rejects attachments before dispatch',async()=>{
   let calls=0;
   const source=createEmployeeMentionSource({snapshot:async()=>state,projectForSession:async()=> 'project-a',run:async()=>{calls++;throw new Error('must not dispatch')},onStarted:()=>{}});
-  const candidates=await source.candidates({sessionId:'s' as never},{query:'',position:'leading',signal:new AbortController().signal});
+  const candidates=await source.candidates({sessionId:'s' as never},{query:'',position:'leading',drilled:false,signal:new AbortController().signal});
   const picked=source.onPick!({session:{sessionId:'s' as never},position:'leading',candidate:candidates[0]} as never);
   assert.ok(picked&&typeof picked==='object'&&'claim' in picked);
   assert.equal(picked.claim.name,alice.name);

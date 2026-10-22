@@ -33,7 +33,9 @@ test('employee model options project only safe native catalog fields and match t
   ] });
   assert.doesNotMatch(JSON.stringify(result), /secret|endpoint|account-chat.*credentials/);
   result.models[2]!.reasoningEfforts![0]!.name = 'changed';
-  assert.equal(catalog.groups[0]!.models[0]!.reasoning!.efforts[0]!.name, '高');
+  const original = catalog.groups[0]!.models[0]!;
+  assert.ok('reasoning' in original);
+  assert.equal(original.reasoning.efforts[0]!.name, '高');
 });
 
 test('employee model reads use the live native directory every time and keep custom provider order', async () => {

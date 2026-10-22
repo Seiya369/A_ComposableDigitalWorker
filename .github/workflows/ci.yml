@@ -1,0 +1,87 @@
+name: Plugin quality
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: plugin-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  quality:
+    name: Node ${{ matrix.node }} / Host + Web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.19.0', '24.21.0']
+    env:
+      REPORT_DIR: ${{ github.workspace }}/artifacts/ci/node-${{ matrix.node }}
+      KNOWLEDGE_CONTEXT_REPORT_DIR: ${{ github.workspace }}/artifacts/ci/node-${{ matrix.node }}/small-context
+      KNOWLEDGE_LARGE_REPORT_DIR: ${{ github.workspace }}/artifacts/ci/node-${{ matrix.node }}/large-context
+      WORKFORCE_LIFECYCLE_REPORT_DIR: ${{ github.workspace }}/artifacts/ci/node-${{ matrix.node }}/lifecycle
+      DSH_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ci/official-host/package-lock.json
+      - name: Install locked plugin development dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify published package boundaries
+        run: |
+          mkdir -p "$REPORT_DIR"
+          npm run setup > "$REPORT_DIR/development-dependencies.log"
+          npm ls --all --json > "$REPORT_DIR/development-tree.json"
+      - name: Static checks and all TypeScript sources
+        run: |
+          npm run check:scripts 2>&1 | tee "$REPORT_DIR/script-syntax.log"
+          npm run typecheck 2>&1 | tee "$REPORT_DIR/typecheck.log"
+          npm run typecheck:checks 2>&1 | tee "$REPORT_DIR/strict-checks.log"
+          git show --format= --check HEAD
+      - name: Tests
+        run: npm test 2>&1 | tee "$REPORT_DIR/tests.log"
+      - name: Host and Web build
+        run: npm run build 2>&1 | tee "$REPORT_DIR/build.log"
+      - name: Reproducible archive, whitelist, every source byte and checksum
+        run: npm run package:check -- --output "$REPORT_DIR/package"
+      - name: Install independent unmodified official stock host
+        working-directory: ci/official-host
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify independent official host tree
+        env:
+          DSH_INSTALLATION_MANIFEST: ${{ github.workspace }}/ci/official-host/node_modules/@deepseek-ai/dsh/package.json
+        run: |
+          node scripts/link-harness.mjs --verify-only > "$REPORT_DIR/official-dependencies.json"
+          npm ls --prefix ci/official-host --all --json > "$REPORT_DIR/official-tree.json"
+      - name: Official install, core use, uninstall, reinstall and complete cleanup
+        env:
+          DSH_INSTALLATION_MANIFEST: ${{ github.workspace }}/ci/official-host/node_modules/@deepseek-ai/dsh/package.json
+        run: |
+          package_file=$(node -p "require('./package.json').name + '-' + require('./package.json').version + '.tgz'")
+          npm run test:lifecycle -- "$REPORT_DIR/package/$package_file" 2>&1 | tee "$REPORT_DIR/lifecycle.log"
+      - name: Audit plugin dependencies
+        run: npm audit --json --audit-level=high > "$REPORT_DIR/plugin-audit.json"
+      - name: Audit independent official host dependencies
+        working-directory: ci/official-host
+        run: npm audit --json --audit-level=high > "$REPORT_DIR/official-audit.json"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        if: always()
+        with:
+          name: plugin-evidence-node-${{ matrix.node }}
+          path: artifacts/ci/node-${{ matrix.node }}/
+          if-no-files-found: error
+          retention-days: 14

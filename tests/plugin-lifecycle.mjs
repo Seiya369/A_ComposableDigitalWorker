@@ -9,7 +9,7 @@ import { access, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writ
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { parseDocument } from 'yaml';
@@ -21,7 +21,7 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const pkg=JSON.parse(await readFile(resolve(root,'package.json'),'utf8'));
 process.env.DSH_INSTALLATION_MANIFEST ||= resolve(root,'.local/official-validation/node_modules/@deepseek-ai/dsh/package.json');
 const cliInstallation=await resolveCliInstallation(root);
-const installationRoot=resolve(dirname(cliInstallation.manifest),'../..');
+const installationRoot=await realpath(resolve(dirname(await realpath(cliInstallation.manifest)),'../..'));
 if (basename(installationRoot)!=='node_modules') throw new Error('生命周期验收必须使用未修改的官方 npm 安装；设置 DSH_INSTALLATION_MANIFEST。');
 const tarball=resolve(process.argv[2]||resolve(root,`artifacts/dsh-plugin-composable-workforce-${pkg.version}.tgz`));
 await access(tarball);
@@ -49,12 +49,18 @@ async function programDigest(directory) {
 const originalHost=await programDigest(installationRoot);
 const officialRequire=createRequire(cliInstallation.manifest);
 const runtimePeers={};
-for(const name of ['@deepseek-ai/dsh-working-directory','@deepseek-ai/dsh-agent-preset-registry','@deepseek-ai/dsh-token-meter','@deepseek-ai/dsh-compaction']) {
-  const manifest=JSON.parse(await readFile(officialRequire.resolve(`${name}/package.json`),'utf8'));
-  assert.equal(manifest.version,pkg.peerDependencies[name],`${name} must match the verified public runtime peer`);
+const runtimePeerPaths={};
+for(const [name,expectedVersion] of Object.entries(pkg.peerDependencies)) {
+  const path=await realpath(officialRequire.resolve(`${name}/package.json`));
+  const part=relative(installationRoot,path);
+  assert.ok(!isAbsolute(part)&&part!=='..'&&!part.startsWith('../')&&!part.startsWith('..\\'),`${name} escaped the independent official stock boundary`);
+  const manifest=JSON.parse(await readFile(path,'utf8'));
+  assert.equal(manifest.name,name,`${name} must resolve its declared public package`);
+  assert.equal(manifest.version,expectedVersion,`${name} must match the verified public runtime peer`);
   runtimePeers[name]=manifest.version;
+  runtimePeerPaths[name]=path;
 }
-const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),host:await checkHost(cliInstallation.manifest),runtimePeers,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
+const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),host:await checkHost(cliInstallation.manifest),runtimePeers,runtimePeerPaths,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
 const input=process.env.WORKFORCE_LIFECYCLE_UI==='1'?createInterface({input:process.stdin,output:process.stdout}):undefined;
 let child;
 let log='';
@@ -113,7 +119,7 @@ async function post(path,body) {
 const command=(action,payload,options)=>post('/digital-workers/api/command',{action,payload,...(options?{options}:{})});
 const snapshot=async()=>{const response=await fetch(`${base}/digital-workers/api/state`,{headers:{Cookie:cookie}});assert.ok(response.ok);return response.json()};
 const digest=async()=>createHash('sha256').update(await readFile(statePath)).digest('hex');
-const install=()=>cli('plugin','--profile','web','add',tarball,'--config.auto-install-peers=false','--config.strict-peer-dependencies=false','--ignore-scripts');
+const install=()=>cli('plugin','--profile','web','add',tarball,'--ignore-scripts');
 
 try {
   await install();
@@ -214,7 +220,7 @@ try {
   await stop();
   const knowledgeBefore=await programDigest(knowledgeRoot);
   assert.ok(knowledgeBefore.files>1,'librarian did not archive team/member knowledge');
-  await cli('plugin','--profile','web','remove','dsh-plugin-composable-workforce','--config.auto-install-peers=false');
+  await cli('plugin','--profile','web','remove','dsh-plugin-composable-workforce');
   const removed=JSON.parse(await readFile(resolve(profile,'package.json'),'utf8'));
   assert.ok(!removed.dsh.profile.bundles.includes('dsh-plugin-composable-workforce'));
   assert.equal(await digest(),hash,'uninstall modified employee data');
