@@ -98,14 +98,28 @@ test('scanned or blank PDFs and empty DOCX documents cannot masquerade as readab
   await assert.rejects(parseUploadedDocument(upload('empty.docx', docx('<w:p/>'))), /文字|文本|空/);
 });
 
-test('DOCX rejects DTDs, custom entities, external relationships and malformed XML', async () => {
+test('DOCX rejects DTDs, custom entities and malformed XML', async () => {
   const validBody = '<w:p><w:r><w:t>Safe paragraph</w:t></w:r></w:p>';
   const files = [
     docx(validBody, { 'word/document.xml': strToU8(`<!DOCTYPE w:document [<!ENTITY leak SYSTEM "https://example.invalid/private">]><w:document xmlns:w="${wordNamespace}"><w:body><w:p><w:r><w:t>&leak;</w:t></w:r></w:p></w:body></w:document>`) }),
-    docx(validBody, { 'word/_rels/document.xml.rels': strToU8(`<Relationships xmlns="${relationNamespace}"><Relationship Id="x" Target="https://example.invalid/private" TargetMode="External"/></Relationships>`) }),
+    docx(validBody, { 'word/_rels/document.xml.rels': strToU8(`<!DOCTYPE Relationships SYSTEM "https://example.invalid/relations.dtd"><Relationships xmlns="${relationNamespace}"/>`) }),
     docx(validBody, { 'word/document.xml': strToU8(`<w:document xmlns:w="${wordNamespace}"><w:body><w:p>broken</w:body></w:document>`) }),
   ];
-  for (const bytes of files) await assert.rejects(parseUploadedDocument(upload('unsafe.docx', bytes)), /DTD|实体|外部|XML/);
+  for (const bytes of files) await assert.rejects(parseUploadedDocument(upload('unsafe.docx', bytes)), /DTD|实体|XML/);
+});
+
+test('DOCX keeps hyperlink labels without embedding or fetching external targets', async t => {
+  let fetchCalls = 0;
+  t.mock.method(globalThis, 'fetch', async () => { fetchCalls++; throw new Error('External fetching is forbidden during extraction'); });
+  const target = 'https://example.invalid/private-reference';
+  const bytes = docx('<w:p><w:r><w:t>普通正文：先核对</w:t></w:r><w:hyperlink xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:id="reference"><w:r><w:t>供应商文档</w:t></w:r></w:hyperlink><w:r><w:t>的适用版本。</w:t></w:r></w:p>', {
+    'word/_rels/document.xml.rels': strToU8(`<Relationships xmlns="${relationNamespace}"><Relationship Id="reference" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="${target}" TargetMode="External"/></Relationships>`),
+  });
+  const result = await parseUploadedDocument(upload('linked-reference.docx', bytes));
+  assert.match(result.content, /普通正文：先核对供应商文档的适用版本。/);
+  assert.ok(!result.content.includes(target));
+  assert.equal(fetchCalls, 0);
+  assert.deepEqual(Buffer.from(result.originalFile.data, 'base64'), Buffer.from(bytes));
 });
 
 test('DOCX rejects unsafe archive paths, excessive file counts and decompression expansion', async () => {

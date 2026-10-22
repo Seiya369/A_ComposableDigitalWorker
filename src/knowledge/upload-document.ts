@@ -19,7 +19,6 @@ export interface ParsedUploadedDocument {
 const MiB = 1_048_576;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 const WORD = new Set(['http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'http://purl.oclc.org/ooxml/wordprocessingml/main']);
-const RELATIONS = 'http://schemas.openxmlformats.org/package/2006/relationships';
 const CONTENT_TYPES = 'http://schemas.openxmlformats.org/package/2006/content-types';
 const textExtensions = new Set(['.txt', '.md', '.markdown', '.csv', '.tsv', '.json', '.jsonl', '.yaml', '.yml', '.log', '.xml', '.html', '.htm', '.css', '.scss', '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx', '.py', '.sh', '.bash', '.zsh', '.sql', '.toml', '.ini', '.cfg', '.conf', '.c', '.h', '.cpp', '.hpp', '.java', '.go', '.rs', '.rb', '.php', '.r', '.swift', '.kt', '.vue', '.svelte']);
 function check(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -118,11 +117,8 @@ function docxText(bytes: Buffer): string {
     }
   });
   check(validType, 'DOCX 主文档类型无效，不支持宏或旧 Word 格式');
-  for (const [name, value] of files) if (name.endsWith('.rels')) xml(value, tag => {
-    if (tag.uri !== RELATIONS || tag.local !== 'Relationship') return;
-    const mode = tag.attributes.TargetMode?.value, target = tag.attributes.Target?.value ?? '';
-    check((!mode || mode.toLowerCase() === 'internal') && !/^(?:[a-z][a-z\d+.-]*:|[\\/]{2})/i.test(target.trim()), 'DOCX 不允许外部关系或外部 URL');
-  });
+  // Validate relationship XML, but never resolve targets. Hyperlink labels remain ordinary w:t text.
+  for (const [name, value] of files) if (name.endsWith('.rels')) xml(value, () => {});
   let depth = 0, bodyDepth = 0, paragraphDepth = 0, paragraphNumber = 0, textDepth = 0, ignored = 0, hasDocument = false;
   let paragraph = '', content = '', byteCount = 0;
   const append = (text: string) => { byteCount += Buffer.byteLength(text); check(byteCount <= MiB, '提取文本超过 1 MiB 大小限制'); paragraph += text; };
