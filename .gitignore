@@ -15,3 +15,8 @@ artifacts/
 *.pfx
 *.log
 coverage/
+
+# Developer worktree dependency/artifact links follow the same ownership boundary.
+/node_modules
+/.local
+/artifacts
