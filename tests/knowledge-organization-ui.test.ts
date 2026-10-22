@@ -13,7 +13,7 @@ test('knowledge editor presents six source categories and organization without c
   const html = renderToStaticMarkup(createElement(ModuleEditor, {
     activeModule: 'knowledge', modules, onChange() { changes++; }, templates: [], client: {} as WorkforceClient,
   }));
-  for (const label of ['专业资料', '需求与决策', '任务证据', '失败与反思', '环境与约束', '偏好与能力', '专业说明', '任务范围', '概念提取规则', '知识分类']) assert.ok(html.includes(label), label);
+  for (const label of ['投喂马料', '需求决策', '任务证据', '失败反思', '环境约束', '偏好能力', '编纂规则', '专业说明', '任务范围', '概念提取规则', '知识分类']) assert.ok(html.includes(label), label);
   assert.equal(changes, 0);
   assert.equal(modules.knowledge.organization, undefined);
   assert.equal(modules.knowledge.sources[0]!.category, undefined);

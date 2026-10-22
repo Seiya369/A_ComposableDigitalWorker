@@ -61,7 +61,7 @@ try {
   await page.getByLabel('显示名称',{exact:true}).fill('架构审查');
   await page.getByLabel('使用说明',{exact:true}).fill('审查模块边界');
   await page.getByRole('tab',{name:'知识与记忆',exact:true}).click();
-  await page.getByRole('button',{name:'添加知识来源',exact:true}).click();
+  await page.getByRole('region',{name:'投喂马料',exact:true}).getByRole('button',{name:'为投喂马料添加知识来源',exact:true}).click();
   await page.getByLabel('标题',{exact:true}).fill('测试知识');
   await page.getByLabel('知识内容',{exact:true}).fill('仅为界面集成验证使用。');
   await page.getByRole('tab',{name:'交付标准',exact:true}).click();

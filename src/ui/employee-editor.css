@@ -67,3 +67,30 @@
 .wf-model-option small { font-size: 12px; color: var(--wf-dim); }
 .wf-model-option.is-unavailable { cursor: default; border-color: var(--wf-line); }
 .wf-model-options:disabled .wf-model-option { cursor: wait; opacity: .65; }
+.wf-knowledge-editor { min-width: 0; }
+.wf-knowledge-editor p { margin: 0; }
+.wf-knowledge-groups { display: flex; flex-direction: column; min-width: 0; }
+.wf-knowledge-group { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 16px 0; border-bottom: 1px solid var(--wf-line); }
+.wf-knowledge-group:first-child { padding-top: 0; }
+.wf-knowledge-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; min-width: 0; flex-wrap: wrap; }
+.wf-knowledge-heading > div:first-child { min-width: 0; }
+.wf-knowledge-editor h3 { margin: 0; color: var(--wf-text); font: var(--wf-font-label); }
+.wf-knowledge-heading h3 { margin-bottom: 4px; }
+.wf-knowledge-heading .wf-hint { line-height: 1.5; }
+.wf-knowledge-upload { flex: 0 0 auto; }
+.wf-knowledge-upload-status:empty { display: none; }
+.wf-knowledge-sources, .wf-knowledge-rules { min-width: 0; }
+.wf-knowledge-sources > summary, .wf-knowledge-rules > summary { cursor: pointer; color: var(--wf-muted); font: var(--wf-font-control); }
+.wf-knowledge-sources > summary { padding-block: 4px; }
+.wf-knowledge-sources > summary:focus-visible, .wf-knowledge-rules > summary:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 4px; border-radius: 4px; }
+.wf-knowledge-source-list { display: flex; flex-direction: column; gap: 12px; padding-top: 8px; }
+.wf-knowledge-source-list .wf-record-title strong { min-width: 0; overflow-wrap: anywhere; }
+.wf-knowledge-source-list .wf-record-title > svg, .wf-knowledge-source-list .wf-record-title > button { flex-shrink: 0; }
+.wf-knowledge-rules > summary h3 { display: inline; }
+.wf-knowledge-rules > summary .wf-hint { margin-top: 4px; }
+.wf-knowledge-rules-content { display: flex; flex-direction: column; gap: 16px; padding-top: 16px; min-width: 0; }
+.wf-knowledge-editor .wf-error-box { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .wf-knowledge-editor .wf-grid-two { grid-template-columns: minmax(0, 1fr); }
+  .wf-knowledge-source-list .wf-record { padding: 12px; }
+}
