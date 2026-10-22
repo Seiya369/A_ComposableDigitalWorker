@@ -30,7 +30,7 @@ const identifier = (value: unknown): string => {
   return value;
 };
 const sourceDirectory = (path: string, id: string, category: KnowledgeSourceCategory) => join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category], encodeURIComponent(identifier(id)));
-type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation | 'policy'> & { publishedVersions: number[] };
+type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation | 'policy'> & { publishedVersions: number[]; policyFingerprints?: Record<string, string> };
 type SeedMarker = { schemaVersion: 1; from: { teamId: string; version: number }; createdAt: string };
 const versionNumber = (value: unknown): number => {
   check(Number.isSafeInteger(value) && Number(value) > 0, 'Invalid knowledge version');
@@ -88,6 +88,7 @@ export class KnowledgeRepository {
   private async directory(path: string): Promise<void> {
     assertWritable();
     await this.safe(path);
+    assertWritable();
     await mkdir(path, { recursive: true, mode: 0o700 });
     // A concurrent initializer can create the same directory; validate again before using it.
     await this.safe(path);
@@ -95,6 +96,7 @@ export class KnowledgeRepository {
     let current = this.rootPath;
     for (const part of ['', ...(rel ? rel.split(sep) : [])]) {
       if (part) current = join(current, part);
+      assertWritable();
       await chmod(current, 0o700);
     }
   }
@@ -133,10 +135,11 @@ export class KnowledgeRepository {
     finally { await unlink(temporary).catch(error => { if (!missing(error)) throw error; }); }
   }
 
-  private async root(): Promise<void> {
+  private async root(canWrite?: WriteGuard): Promise<void> {
     const previous = roots.get(this.rootPath) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       await this.safe(this.rootPath);
+      assertWritable(canWrite);
       await mkdir(this.rootPath, { recursive: true, mode: 0o700 });
       await this.safe(this.rootPath);
       check((await lstat(this.rootPath)).isDirectory(), 'Knowledge root must be a directory');
@@ -146,8 +149,9 @@ export class KnowledgeRepository {
       if (owner) check(owner.plugin === PLUGIN && owner.schemaVersion === 1 && owner.rootPath === this.rootPath, 'Knowledge root ownership does not match');
       else {
         check((await readdir(this.rootPath)).length === 0, 'Cannot claim a nonempty knowledge root without plugin ownership');
-        await this.write(ownerPath, expected);
+        await this.write(ownerPath, expected, undefined, canWrite);
       }
+      assertWritable(canWrite);
       await chmod(this.rootPath, 0o700);
     });
     roots.set(this.rootPath, current);
@@ -155,13 +159,13 @@ export class KnowledgeRepository {
     finally { if (roots.get(this.rootPath) === current) roots.delete(this.rootPath); }
   }
 
-  async ensure(space: KnowledgeSpace): Promise<void> {
+  async ensure(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<void> {
     const path = this.spacePath(space);
     await this.locked(async () => {
       for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
       for (const category of KNOWLEDGE_SOURCE_CATEGORIES) await this.directory(join(path, 'A-sources', KNOWLEDGE_SOURCE_CATEGORY_FOLDERS[category]));
       await this.migrateSources(path);
-    });
+    }, canWrite);
   }
 
   private sourceValue(value: KnowledgeSource | undefined, id: string, version: number): KnowledgeSource {
@@ -252,9 +256,9 @@ export class KnowledgeRepository {
     }
   }
 
-  private async seedMarker(space: KnowledgeSpace): Promise<SeedMarker | undefined> {
+  private async seedMarker(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<SeedMarker | undefined> {
     check(space.kind === 'project', 'Template seeding is only available for project knowledge spaces');
-    await this.ensure(space);
+    await this.ensure(space, canWrite);
     const marker = await this.json<SeedMarker>(join(this.spacePath(space), 'seed.json'));
     if (marker) {
       check(marker.schemaVersion === 1 && marker.from && typeof marker.createdAt === 'string', 'Invalid knowledge seed marker');
@@ -263,7 +267,7 @@ export class KnowledgeRepository {
     return marker;
   }
 
-  async isSeeded(space: KnowledgeSpace): Promise<boolean> { return !!await this.seedMarker(space); }
+  async isSeeded(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<boolean> { return !!await this.seedMarker(space, canWrite); }
 
   /** Mark even an empty initial copy so later template edits cannot silently seed an existing project. */
   async markSeeded(space: KnowledgeSpace, from: { teamId: string; version: number }, canWrite?: WriteGuard): Promise<void> {
@@ -286,7 +290,7 @@ export class KnowledgeRepository {
     const previous = queues.get(this.rootPath) ?? Promise.resolve();
     const current = previous.catch(() => undefined).then(async () => {
       assertWritable(canWrite);
-      await this.root();
+      await this.root(canWrite);
       const path = join(this.rootPath, '.write.lock');
       const token = randomUUID();
       let lock;
@@ -363,7 +367,7 @@ export class KnowledgeRepository {
     if (input.classificationReason !== undefined) check(typeof input.classificationReason === 'string' && input.classificationReason.length <= 2_000, 'Source classification reason is too large');
     const path = this.spacePath(space);
     return this.locked(async () => {
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const index = await this.index(path);
       const oldVersion = Object.hasOwn(index, input.id) ? index[input.id] : undefined;
       const old = oldVersion ? await this.source(path, input.id, oldVersion, true) : undefined;
@@ -390,7 +394,7 @@ export class KnowledgeRepository {
     identifier(id);
     const path = this.spacePath(space);
     return this.locked(async () => {
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const index = await this.index(path);
       if (!Object.hasOwn(index, id)) return;
       delete index[id];
@@ -410,45 +414,52 @@ export class KnowledgeRepository {
     return normalized;
   }
 
-  async sources(space: KnowledgeSpace): Promise<KnowledgeSource[]> {
-    await this.ensure(space);
+  async sources(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<KnowledgeSource[]> {
+    await this.ensure(space, canWrite);
     const path = this.spacePath(space);
     const index = await this.index(path);
     return Promise.all(Object.entries(index).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([id, version]) => this.source(path, id, version, true)));
   }
 
-  async fingerprint(space: KnowledgeSpace): Promise<string> {
-    const sources = await this.sources(space);
+  async fingerprint(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<string> {
+    const sources = await this.sources(space, canWrite);
     return sha(JSON.stringify(sources.map(source => [source.id, source.version, source.hash, source.verified])));
   }
 
-  private async manifest(space: KnowledgeSpace): Promise<SnapshotManifest | undefined> {
-    await this.ensure(space);
+  private async manifest(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<SnapshotManifest | undefined> {
+    await this.ensure(space, canWrite);
     const value = await this.json<SnapshotManifest>(join(this.spacePath(space), 'snapshot.json'));
     if (value) {
       versionNumber(value.version); check(value.status === 'candidate', 'Invalid knowledge snapshot status');
       check(Array.isArray(value.publishedVersions) && value.publishedVersions.includes(value.version), 'Knowledge snapshot publication history is incomplete');
       value.publishedVersions.forEach(versionNumber);
+      if (value.policyFingerprints) {
+        check(typeof value.policyFingerprints === 'object' && !Array.isArray(value.policyFingerprints), 'Knowledge policy publication history is invalid');
+        for (const [version, fingerprint] of Object.entries(value.policyFingerprints)) {
+          check(value.publishedVersions.includes(versionNumber(Number(version))) && /^[a-f0-9]{64}$/.test(fingerprint), 'Knowledge policy publication history is invalid');
+        }
+      }
     }
     return value;
   }
 
-  async snapshot(space: KnowledgeSpace, requestedVersion?: number): Promise<KnowledgeSnapshot | undefined> {
-    const manifest = await this.manifest(space);
+  async snapshot(space: KnowledgeSpace, requestedVersion?: number, canWrite?: WriteGuard): Promise<KnowledgeSnapshot | undefined> {
+    const manifest = await this.manifest(space, canWrite);
     if (!manifest) return undefined;
     const path = this.spacePath(space);
     const version = requestedVersion === undefined ? manifest.version : versionNumber(requestedVersion);
     if (!manifest.publishedVersions.includes(version)) throw notFound('Knowledge snapshot version was not published');
     const identity = await this.json<{ sourceFingerprint: string; createdAt: string; policyFingerprint?: string; policy?: KnowledgePolicy }>(join(path, 'B-knowledge', `v${version}.policy.json`));
     check(!identity?.policy || identity.policyFingerprint === knowledgePolicyFingerprint(identity.policy), 'Knowledge policy identity is corrupt');
-    check(requestedVersion !== undefined || !manifest.policyFingerprint || identity?.policyFingerprint === manifest.policyFingerprint, 'Knowledge policy identity is missing or corrupt');
+    const expectedPolicy = manifest.policyFingerprints?.[String(version)] ?? (version === manifest.version ? manifest.policyFingerprint : undefined);
+    check(!expectedPolicy || (identity?.policy && identity.policyFingerprint === expectedPolicy), 'Knowledge policy identity is missing or corrupt');
     const entries = await this.json<KnowledgeCompilation['entries']>(join(path, 'B-knowledge', `v${version}.json`));
     const overview = await this.json<KnowledgeCompilation['overview']>(join(path, 'C-overview', `v${version}.json`));
     check(Array.isArray(entries) && Array.isArray(overview), 'Knowledge snapshot is incomplete');
     return { version, sourceFingerprint: identity?.sourceFingerprint ?? (version === manifest.version ? manifest.sourceFingerprint : ''), createdAt: identity?.createdAt ?? (version === manifest.version ? manifest.createdAt : ''), ...(identity?.policy ? { policy: identity.policy, policyFingerprint: identity.policyFingerprint } : {}), status: 'candidate', entries, overview };
   }
 
-  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal, policy?: KnowledgePolicy): Promise<KnowledgeSnapshot> {
+  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal, policy?: KnowledgePolicy, canWrite?: WriteGuard): Promise<KnowledgeSnapshot> {
     signal?.throwIfAborted();
     compilation = structuredClone(compilation);
     policy = policy === undefined ? undefined : structuredClone(policy);
@@ -464,7 +475,7 @@ export class KnowledgeRepository {
     check(Buffer.byteLength(JSON.stringify(compilation)) <= 2_000_000 && compilation.entries.length <= 500 && compilation.overview.length <= 200, 'Knowledge compilation is too large');
     return this.locked(async () => {
       signal?.throwIfAborted();
-      await this.ensure(space);
+      await this.ensure(space, canWrite);
       const path = this.spacePath(space);
       const actualFingerprint = await this.fingerprint(space);
       check(actualFingerprint === expectedSourceFingerprint, 'Knowledge sources changed; compilation conflict');
@@ -505,14 +516,15 @@ export class KnowledgeRepository {
       signal?.throwIfAborted();
       await this.write(join(path, 'C-overview', `v${version}.json`), compilation.overview);
       signal?.throwIfAborted();
-      await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version] }, signal);
+      await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version],
+        policyFingerprints: { ...(previous?.policyFingerprints ?? {}), ...(policy ? { [version]: manifest.policyFingerprint! } : {}) } }, signal);
       return { ...compilation, ...manifest, ...(policy ? { policy } : {}) };
-    });
+    }, canWrite);
   }
 
-  async read(space: KnowledgeSpace, layer: 'A' | 'B', id: string, version?: number): Promise<unknown> {
+  async read(space: KnowledgeSpace, layer: 'A' | 'B', id: string, version?: number, canWrite?: WriteGuard): Promise<unknown> {
     identifier(id); if (version !== undefined) versionNumber(version);
-    await this.ensure(space);
+    await this.ensure(space, canWrite);
     const path = this.spacePath(space);
     if (layer === 'A') {
       const index = await this.index(path);
@@ -522,7 +534,7 @@ export class KnowledgeRepository {
       return this.source(path, id, sourceVersion, sourceVersion === currentVersion);
     }
     check(layer === 'B', 'Invalid knowledge layer');
-    const manifest = await this.manifest(space);
+    const manifest = await this.manifest(space, canWrite);
     const snapshotVersion = version ?? manifest?.version;
     if (snapshotVersion === undefined) throw notFound('Knowledge snapshot was not found');
     if (!manifest?.publishedVersions.includes(snapshotVersion)) throw notFound('Knowledge snapshot version was not published');
@@ -535,8 +547,8 @@ export class KnowledgeRepository {
     return entry;
   }
 
-  async overview(space: KnowledgeSpace): Promise<string> {
-    const snapshot = await this.snapshot(space);
+  async overview(space: KnowledgeSpace, canWrite?: WriteGuard): Promise<string> {
+    const snapshot = await this.snapshot(space, undefined, canWrite);
     if (!snapshot) return '';
     const stale = await this.fingerprint(space) !== snapshot.sourceFingerprint;
     return [`Knowledge snapshot v${snapshot.version} (candidate; source fingerprint ${snapshot.sourceFingerprint})${stale ? '\nSources changed after this snapshot; relevant knowledge requires verification against current A sources.' : ''}`, ...snapshot.overview.map(item => `\n## ${item.title} [${item.id}]\n${item.summary}\nReferences: ${item.entryIds.map(id => `B:${id}@v${snapshot.version}`).join(', ')}`)].join('\n');

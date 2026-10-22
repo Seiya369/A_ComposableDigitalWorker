@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkforceStore } from '../src/domain/store.js';
@@ -122,8 +122,8 @@ test('failed policy recompilation hides default C/B but explicit history carries
   assert.ok(f.errors.some(error => String(error).includes('合成编纂失败')));
   const overview = await f.engine.overviewDocumentsFor(current);
   assert.ok(overview.some(document => document.id.startsWith('pending:')));
-  assert.ok(!overview.some(document => document.id === 'cash-map'));
-  assert.deepEqual(await f.engine.searchFor(current, '现金流', 'B'), []);
+  assert.ok(!overview.some(document => document.library === 'employee' && document.id === 'cash-map'));
+  assert.deepEqual((await f.engine.searchFor(current, '现金流', 'B')).filter(hit => hit.library === 'employee'), []);
   await assert.rejects(f.engine.readFor(current, 'B', 'cash-detail', undefined, 'employee'), /政策|重编/);
   const historical = await f.engine.readFor(current, 'B', 'cash-detail', previous.version, 'employee') as any;
   assert.equal(historical.policyStatus, 'outdated');
@@ -143,4 +143,67 @@ test('default categories use professional duty identities and shared member name
   const modules = structuredClone(f.employee.modules); modules.responsibilities.duties = ['现金流预测', '成本分析'];
   await f.store.updateEmployee(f.employee.id, { modules }); await f.engine.flush();
   assert.equal(f.calls.findLast(item => item.space.memberId === f.employee.id)!.policy.categories[0]!.id, firstId);
+});
+
+test('a professional rule changed during synthesis aborts and cannot publish a late old-policy result', async t => {
+  let entered!: () => void; let release!: () => void;
+  const began = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let oldRequest: KnowledgeCompileRequest | undefined;
+  const f = await fixture(t, async request => {
+    if (request.space.memberId && request.policy.profession === '旧政策') { oldRequest = request; entered(); await gate; }
+    const output = compiled(request); output.entries[0]!.content = request.policy.profession;
+    return output;
+  });
+  await f.engine.prepareFor(f.employee);
+  const modules = structuredClone(f.employee.modules);
+  modules.knowledge.organization = { version: 1, profession: '旧政策', taskScope: '', conceptRules: '', categories: [] };
+  await f.store.updateEmployee(f.employee.id, { modules });
+  await began;
+  modules.knowledge.organization.profession = '新政策';
+  await f.store.updateEmployee(f.employee.id, { modules });
+  assert.equal(oldRequest?.signal.aborted, true);
+  await f.engine.flush(); release(); await new Promise(resolve => setImmediate(resolve));
+  const snapshot = (await f.repository.snapshot(f.privateSpace))!;
+  assert.equal(snapshot.policy?.profession, '新政策');
+  assert.equal(snapshot.entries[0]!.content, '新政策');
+});
+
+test('closing a team while initialization waits on the repository lock leaves its legacy sources unmigrated', async t => {
+  const f = await fixture(t);
+  const team = f.store.snapshot().teams.find(item => item.name === '财务团队')!;
+  const root = join(f.repository.rootPath, 'templates', team.id, 'team', 'A-sources');
+  await rename(join(root, '02-requirements-decisions', 'team-description'), join(root, 'team-description'));
+  const lockPath = join(f.repository.rootPath, '.write.lock');
+  await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: 'synthetic-blocker' }));
+  try {
+    await f.store.transaction(state => { state.teams.sort((a, b) => Number(b.id === team.id) - Number(a.id === team.id)); });
+    await new Promise(resolve => setTimeout(resolve, 40));
+    await f.store.saveTeam({ id: team.id, name: team.name, description: team.description, members: team.members, workflows: team.workflows, knowledgeEnabled: false });
+  } finally { await rm(lockPath, { force: true }); }
+  await f.engine.flush();
+  assert.ok((await stat(join(root, 'team-description', 'v1.json'))).isFile());
+  await assert.rejects(stat(join(root, '02-requirements-decisions', 'team-description', 'v1.json')), { code: 'ENOENT' });
+});
+
+test('a missing historical policy record is detected rather than relabelled as a legacy snapshot', async t => {
+  const f = await fixture(t);
+  await f.engine.prepareFor(f.employee);
+  const first = (await f.repository.snapshot(f.privateSpace))!;
+  const request = f.calls.findLast(item => item.space.memberId === f.employee.id)!;
+  await f.repository.publish(f.privateSpace, compiled(request), await f.repository.fingerprint(f.privateSpace), undefined, request.policy);
+  const path = join(f.repository.rootPath, 'projects', f.employee.projectId, 'teams', f.space.teamId, 'employees', f.employee.id, 'B-knowledge', `v${first.version}.policy.json`);
+  await rm(path);
+  await assert.rejects(f.engine.readFor(f.employee, 'B', 'cash-detail', first.version, 'employee'), /policy|政策|corrupt|missing/i);
+});
+
+test('normal new sources and task contexts do not change the running employee configuration identity', async t => {
+  const f = await fixture(t);
+  const before = f.engine.policyIdentityFor(f.employee);
+  await f.engine.ingestFor(f.employee, { id: 'additional-evidence', title: '新增资料', content: '新的观察', provenance: 'synthetic-source', verified: false });
+  assert.equal(f.engine.policyIdentityFor(f.employee), before);
+  const { WorkService } = await import('../src/work/service.js');
+  await new WorkService(f.store).command('work.saveTask', { projectId: f.employee.projectId, employeeId: f.employee.id,
+    title: '其他任务', goal: '新的公开目标', acceptanceCriteria: ['人工复核'] });
+  assert.equal(f.engine.policyIdentityFor(f.employee), before, 'new task context may trigger recompilation, but must not interrupt a live run');
 });

@@ -186,3 +186,21 @@ test('initialization refuses duplicate historical source identities across categ
   assert.equal(await readFile(original, 'utf8'), originalBytes);
   assert.equal(await readFile(join(conflictingDirectory, 'v1.json'), 'utf8'), conflict);
 });
+
+test('queued initialization rechecks its live write guard before legacy migration', async t => {
+  const repo = await fixture(t);
+  const source = await repo.ingest(team, input);
+  const root = join(repo.rootPath, 'templates/research/team/A-sources');
+  const legacy = join(root, encodeURIComponent(source.id));
+  await import('node:fs/promises').then(fs => fs.rename(join(root, '01-reference', encodeURIComponent(source.id)), legacy));
+  const lockPath = join(repo.rootPath, '.write.lock');
+  await writeFile(lockPath, JSON.stringify({ pid: process.pid, token: 'synthetic-migration-blocker' }));
+  let enabled = true;
+  const queued = repo.ensure(team, () => enabled);
+  await new Promise(done => setTimeout(done, 40));
+  enabled = false;
+  await rm(lockPath);
+  await assert.rejects(queued, /disabled|cancelled/i);
+  assert.ok((await stat(join(legacy, 'v1.json'))).isFile());
+  await assert.rejects(stat(join(root, '01-reference', encodeURIComponent(source.id), 'v1.json')), { code: 'ENOENT' });
+});

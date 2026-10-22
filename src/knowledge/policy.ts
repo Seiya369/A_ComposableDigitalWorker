@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { EmployeeModules, KnowledgeCategory } from '../domain/types.js';
+import type { EmployeeModules, KnowledgeOrganization } from '../domain/types.js';
 import type { KnowledgePolicy, KnowledgePolicyTask } from './types.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
