@@ -4,17 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { crc32 } from 'node:zlib';
 import { Inflate } from 'fflate';
 import { SaxesParser, type SaxesTagNS } from 'saxes';
-import type { KnowledgeOriginalFile } from './types.js';
+import type { KnowledgeUploadFile, KnowledgeUploadedDocument } from './types.js';
 import { KNOWLEDGE_UPLOAD_MAX_BYTES } from './upload-limits.js';
 
-export interface UploadedDocumentFile { name: string; mediaType?: string; base64: string }
-export interface ParsedUploadedDocument {
-  name: string;
-  mediaType: string;
-  content: string;
-  originalFile: KnowledgeOriginalFile;
-  parser: string;
-}
+export type UploadedDocumentFile = KnowledgeUploadFile;
+export type ParsedUploadedDocument = KnowledgeUploadedDocument;
 
 const MiB = 1_048_576;
 const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';

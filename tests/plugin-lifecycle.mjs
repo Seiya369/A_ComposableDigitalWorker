@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, mkdtemp, readFile, readdir, readlink, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -27,6 +27,7 @@ const tarball=resolve(process.argv[2]||resolve(root,`artifacts/dsh-plugin-compos
 await access(tarball);
 await checkHost(cliInstallation.manifest);
 const temp=await mkdtemp(resolve(tmpdir(),'workforce-plugin-lifecycle-'));
+const stagedTarball=resolve(temp,'package.tgz');
 const home=resolve(temp,'harness');
 const profile=resolve(home,'profiles/web');
 const statePath=resolve(home,'composable-workforce/state.json');
@@ -60,7 +61,7 @@ for(const [name,expectedVersion] of Object.entries(pkg.peerDependencies)) {
   runtimePeers[name]=manifest.version;
   runtimePeerPaths[name]=path;
 }
-const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),host:await checkHost(cliInstallation.manifest),runtimePeers,runtimePeerPaths,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
+const report={tarball,tarballSha256:createHash('sha256').update(await readFile(tarball)).digest('hex'),stagedTarball,host:await checkHost(cliInstallation.manifest),runtimePeers,runtimePeerPaths,officialInstallation:cliInstallation.manifest,hostBefore:originalHost,checks:[]};
 const input=process.env.WORKFORCE_LIFECYCLE_UI==='1'?createInterface({input:process.stdin,output:process.stdout}):undefined;
 let child;
 let log='';
@@ -119,9 +120,13 @@ async function post(path,body) {
 const command=(action,payload,options)=>post('/digital-workers/api/command',{action,payload,...(options?{options}:{})});
 const snapshot=async()=>{const response=await fetch(`${base}/digital-workers/api/state`,{headers:{Cookie:cookie}});assert.ok(response.ok);return response.json()};
 const digest=async()=>createHash('sha256').update(await readFile(statePath)).digest('hex');
-const install=()=>cli('plugin','--profile','web','add',tarball,'--ignore-scripts');
+const install=()=>cli('plugin','--profile','web','add',stagedTarball,'--ignore-scripts');
 
 try {
+  await copyFile(tarball,stagedTarball);
+  report.stagedTarballSha256=createHash('sha256').update(await readFile(stagedTarball)).digest('hex');
+  assert.equal(report.stagedTarballSha256,report.tarballSha256,'staged archive must match the source archive SHA-256');
+  report.checks.push('source archive is staged at a short isolated path with identical SHA-256 and retained through install/remove/reinstall/purge');
   await install();
   const packagePath=resolve(profile,'node_modules/dsh-plugin-composable-workforce');
   assert.notEqual(await realpath(packagePath),await realpath(root),'must install the archive, not link the checkout');
