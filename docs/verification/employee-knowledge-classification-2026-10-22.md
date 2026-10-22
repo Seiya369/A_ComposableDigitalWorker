@@ -1,6 +1,6 @@
 # 员工知识分类与投喂候选验收
 
-日期：2026-10-22。状态：本地候选及官方原版隔离验收通过；远端 PR、CI、合并和用户 profile 升级未执行。
+日期：2026-10-22。状态：本地候选及官方原版隔离验收通过；已获推送、草稿 PR 与远端 CI 授权，合并和用户 profile 升级未授权。
 
 ## 候选身份
 
@@ -34,8 +34,14 @@
 
 原件和提取文本各限 1 MiB；Word 为 DOCX，PDF 最多 200 页；扫描 OCR、加密 PDF、旧 DOC、宏文档及复杂版面不支持。模型上下文不含原件 base64；后台编纂输入超限时 A 保留并报告待整理。32/48/64K 预算候选未切为运行默认值。
 
-## 尚待授权的远端交付
+## 远端交付
 
-远端私有仓库 main 仍为 `d0925993204da48a9c85920fab4a5b5e13fa2292`，没有本分支 PR 或 CI run。已准备通用 CI 工作流（Node 22.19.0/24.21.0）；远端矩阵尚未运行，不能称 CI 已通过。PR 草稿见 `.scratch/employee-knowledge-classification/pr-body.md`，轻量复盘见同目录 `retro.md`。
+用户于 2026-10-22 明确授权分别推送历史基线及本次增量、创建草稿 PR 并运行远端 CI；暂不合 main，也不升级当前 profile。
 
-已执行 gstack `land-and-deploy` 的只读仓库/PR 预检，因没有 PR 停在合并前。该技能要求 “If no PR exists: STOP”。历史基线与本次增量需先明确发布范围，再建立可审查 PR、运行远端 CI，最后按其就绪门授权合并。当前未推送历史代码、未合 main、未发布 npm、未升级用户正在使用的 profile。
+- [历史基线 PR #1](https://github.com/Seiya369/A_ComposableDigitalWorker/pull/1)：`main ← codex/employee-knowledge-baseline-20261022`，固定在 `8c549f5`，独立保存历史代码。该快照没有最终 CI 工作流，仍含旧开发环境和安装示例，不作为最终合规交付候选。
+- [增量 PR #2](https://github.com/Seiya369/A_ComposableDigitalWorker/pull/2)：`codex/employee-knowledge-baseline-20261022 ← codex/employee-knowledge-classification-20261022`，只展示本次分类、专业编纂、投喂和交付门增量。
+- [首轮远端 CI](https://github.com/Seiya369/A_ComposableDigitalWorker/actions/runs/39736166654)：绑定 `b77c6132e7cd85edbd9c56c91e6c73b7760d541e`，Ubuntu 24.04，Node 22.19.0 / 24.21.0。两路均为 352 通过、0 失败，Node 22/24 测试耗时分别为 428.741/327.454 秒；构建、归档与独立宿主安装通过，官方生命周期因 CI 缺少 pnpm 而失败（CLI 退出 127）。保留真实失败并补充隔离的固定版本工具后重新完整验证，不能把部分通过称为整条 CI 通过。
+
+PR 说明按 `.scratch/employee-knowledge-classification/pr-body.md` 准备；轻量复盘见同目录 `retro.md`。本机归档与 Linux 归档分别按各自哈希核验；跨平台归档一致性另行核对，不将不同字节的归档认作同一个验收对象。原始远端结果、归档和授权记录保存在 `artifacts/employee-knowledge-classification-2026-10-22/remote/`。
+
+gstack `land-and-deploy` 的此前只读预检已记录。当前仅有草稿 PR，不调用合并或部署；main 仍应为 `d0925993204da48a9c85920fab4a5b5e13fa2292`。未发布 npm，未升级用户正在使用的 profile。

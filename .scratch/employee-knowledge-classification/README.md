@@ -1,6 +1,6 @@
 # 员工知识分类任务图
 
-状态：01–04、追加 06 已完成本地及官方原版验收；05 的远端发布/CI/合并待明确历史基线范围。规格见[员工 ABC 知识分类与专业编纂](../../docs/specs/employee-knowledge-classification.md)。
+状态：01–04、追加 06 已完成本地及官方原版验收；05 已分别推送两条分支并创建草稿 PR，首轮远端 CI 暴露 pnpm 工具缺失，修复后将重新完整验证；合并与当前 profile 升级不在此次授权内。规格见[员工 ABC 知识分类与专业编纂](../../docs/specs/employee-knowledge-classification.md)。
 
 | 任务 | 交付行为 | 前置依赖 |
 | --- | --- | --- |
