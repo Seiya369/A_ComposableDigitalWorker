@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** implemented; awaiting final independent review and archive acceptance
 
-- [ ] 六类输入落入对应真实目录，非法类别与路径被拒绝；相同输入幂等。
-- [ ] 内容或分类变化生成新版本；旧版、退役版、孤立已落盘版本可恢复，反复初始化不复制。
-- [ ] 迁移中断、并发与链接攻击不产生覆盖或越界，原始 B/C 精确引用继续有效。
-- [ ] 入库→按版本读取→发布的公开边界 TDD 通过，保留 red/green 日志。
+- [x] 六类输入落入对应真实目录，非法类别与路径被拒绝；相同输入幂等。
+- [x] 内容或分类变化生成新版本；旧版、退役版、孤立已落盘版本可恢复，反复初始化不复制。
+- [x] 迁移中断、并发与链接攻击不产生覆盖或越界，原始 B/C 精确引用继续有效。
+- [x] 入库→按版本读取→发布的公开边界 TDD 通过，保留 red/green 日志。
