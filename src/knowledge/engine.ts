@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { matchesPath } from '../domain/path-policy.js';
 import type { WorkforceStore } from '../domain/store.js';
 import type { EmployeeModules, ModelModule, ProjectEmployee, WorkforceState } from '../domain/types.js';
+import { buildKnowledgePolicy, knowledgePolicyFingerprint } from './policy.js';
 import { KnowledgeRepository } from './repository.js';
 import type { KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 import type { ContextDocument } from './context.js';
@@ -15,8 +16,8 @@ interface Group {
   templateId?: string;
   templateVersion?: number;
 }
-interface SpacePlan { space: KnowledgeSpace; group: Group; inputs: KnowledgeInput[] }
-interface CompilationJob { space: KnowledgeSpace; fingerprint: string; signature: string }
+interface SpacePlan { space: KnowledgeSpace; group: Group; inputs: KnowledgeInput[]; policy: import('./types.js').KnowledgePolicy }
+interface CompilationJob { space: KnowledgeSpace; fingerprint: string; policyFingerprint: string; signature: string }
 const key = (space: KnowledgeSpace) => JSON.stringify([space.kind, space.projectId ?? '', space.teamId, space.memberId ?? '']);
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const completed = new Set(['awaiting-review', 'succeeded', 'failed', 'cancelled']);
@@ -67,7 +68,9 @@ function groups(state: WorkforceState): Group[] {
 }
 function plans(state: WorkforceState): SpacePlan[] {
   return groups(state).flatMap(group => [group.space, ...group.members.map(member => ({ ...group.space, memberId: member.id }))]
-    .map(space => ({ space, group, inputs: inputsFor(state, group, space) })));
+    .map(space => ({ space, group, inputs: inputsFor(state, group, space), policy: buildKnowledgePolicy(group.members, space.memberId, group.description,
+      (state.workState?.tasks ?? []).filter(task => task.projectId === space.projectId && group.members.some(member => member.id === task.employeeId))
+        .map(task => ({ id: task.id, employeeId: task.employeeId, title: task.title, goal: task.goal, acceptanceCriteria: task.acceptanceCriteria }))) })));
 }
 function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): KnowledgeInput[] {
   const inputs: KnowledgeInput[] = [];
@@ -179,7 +182,7 @@ export class KnowledgeEngine {
   private spaceActive(space: KnowledgeSpace): boolean {
     return !this.disposed && groups(this.store.snapshot()).some(group => key(group.space) === key({ ...space, memberId: undefined }) && group.active);
   }
-  private signature(plan: SpacePlan): string { return digest({ active: plan.group.active, inputs: plan.inputs, model: selectedModel(plan.group), fileAccess: plan.space.memberId ? [...allowedFileIds(plan.group.members.find(member => member.id === plan.space.memberId)!.modules)].sort() : [] }); }
+  private signature(plan: SpacePlan): string { return digest({ active: plan.group.active, inputs: plan.inputs, policy: plan.policy, model: selectedModel(plan.group), fileAccess: plan.space.memberId ? [...allowedFileIds(plan.group.members.find(member => member.id === plan.space.memberId)!.modules)].sort() : [] }); }
   private cancelStaleCompilation(): void {
     const latestPlans = plans(this.store.snapshot());
     for (const spaceKey of this.observed.keys()) {
@@ -233,8 +236,12 @@ export class KnowledgeEngine {
     const current = this.store.snapshot().employees.find(item => item.id === employee.id && item.projectId === employee.projectId);
     return !!current && allowedFileIds(current.modules).has(sourceId) && allowedFileIds(employee.modules).has(sourceId);
   }
+  private snapshotPolicyCurrent(space: KnowledgeSpace, snapshot: KnowledgeSnapshot | undefined): boolean {
+    const plan = plans(this.store.snapshot()).find(item => key(item.space) === key(space) && item.group.active);
+    return !!plan && !!snapshot?.policyFingerprint && snapshot.policyFingerprint === knowledgePolicyFingerprint(plan.policy);
+  }
   private async snapshotUnavailable(employee: ProjectEmployee, space: KnowledgeSpace, snapshot: KnowledgeSnapshot): Promise<boolean> {
-    if (!this.spaceVisible(employee, space)) return true;
+    if (!this.spaceVisible(employee, space) || !this.snapshotPolicyCurrent(space, snapshot)) return true;
     const sources = new Set((await this.repository.sources(space)).map(source => source.id));
     return !this.spaceVisible(employee, space) || snapshot.entries.some(entry => entry.citations.some(citation => !sources.has(citation.sourceId) || !this.fileVisible(employee, citation.sourceId)));
   }
@@ -265,15 +272,17 @@ export class KnowledgeEngine {
         if (!this.spaceActive(plan.space)) continue;
         const fingerprint = await this.repository.fingerprint(plan.space);
         if (!this.spaceActive(plan.space)) continue;
-        const changed = this.observed.has(spaceKey) ? this.observed.get(spaceKey) !== fingerprint : allowCompile;
-        this.observed.set(spaceKey, fingerprint);
+        const policyFingerprint = knowledgePolicyFingerprint(plan.policy);
+        const identity = digest({ fingerprint, policyFingerprint });
+        const changed = this.observed.has(spaceKey) ? this.observed.get(spaceKey) !== identity : allowCompile;
+        this.observed.set(spaceKey, identity);
         if (!allowCompile || this.closing || !plan.group.active || (!changed && !this.retry.has(spaceKey) && !this.requested.has(spaceKey))) continue;
         this.requested.delete(spaceKey);
         const latest = plans(this.store.snapshot()).find(item => key(item.space) === spaceKey);
         if (!latest?.group.active || !selectedModel(latest.group)) { this.retry.delete(spaceKey); continue; }
         // Source changes during archive get their own next event; do not compile an obsolete A set.
-        if (digest(latest.inputs) !== digest(plan.inputs)) continue;
-        this.queueCompilation({ space: plan.space, fingerprint, signature: this.signature(latest) });
+        if (digest(latest.inputs) !== digest(plan.inputs) || knowledgePolicyFingerprint(latest.policy) !== policyFingerprint) continue;
+        this.queueCompilation({ space: plan.space, fingerprint, policyFingerprint, signature: this.signature(latest) });
       } catch (error) { if (!writeCancelled(error)) throw error; }
     }
   }
@@ -305,7 +314,7 @@ export class KnowledgeEngine {
     if (!this.spaceActive(request.space)) return;
     if (fingerprint !== request.fingerprint) return;
     const previous = await this.repository.snapshot(request.space);
-    if (previous?.sourceFingerprint === fingerprint) { this.retry.delete(spaceKey); return; }
+    if (previous?.sourceFingerprint === fingerprint && previous.policyFingerprint === request.policyFingerprint) { this.retry.delete(spaceKey); return; }
     if (this.closing || this.disposed) return;
     const controller = new AbortController();
     const active = { signature: request.signature, controller };
@@ -313,10 +322,10 @@ export class KnowledgeEngine {
     this.cancelStaleCompilation();
     if (controller.signal.aborted) { this.active.delete(spaceKey); return; }
     try {
-      const compilation = await abortable(this.compiler({ space: request.space, sources, previous, model, signal: controller.signal }), controller.signal);
+      const compilation = await abortable(this.compiler({ space: request.space, policy: latest.policy, sources, previous, model, signal: controller.signal }), controller.signal);
       this.cancelStaleCompilation();
       if (this.disposed || this.closing || controller.signal.aborted) return;
-      await this.repository.publish(request.space, compilation, fingerprint, controller.signal);
+      await this.repository.publish(request.space, compilation, fingerprint, controller.signal, latest.policy);
       this.retry.delete(spaceKey);
     } catch (error) {
       if (!controller.signal.aborted && !this.disposed) { this.retry.add(spaceKey); this.report(error); }
@@ -385,7 +394,7 @@ export class KnowledgeEngine {
       for (const space of this.employeeSpaces(employee)) {
         const snapshot = await this.repository.snapshot(space);
         if (!this.spaceVisible(employee, space)) continue;
-        if (snapshot?.sourceFingerprint !== await this.repository.fingerprint(space)) this.requested.add(key(space));
+        if (snapshot?.sourceFingerprint !== await this.repository.fingerprint(space) || !this.snapshotPolicyCurrent(space, snapshot)) this.requested.add(key(space));
       }
       await this.reconcile(true);
     });
@@ -435,12 +444,15 @@ export class KnowledgeEngine {
     for (const space of this.employeeSpaces(employee)) {
       if (library && library !== (space.memberId ? 'employee' : 'team')) continue;
       try {
-        const resolvedVersion = layer === 'B' ? version ?? (await this.repository.snapshot(space))?.version : version;
+        const snapshot = layer === 'B' ? await this.repository.snapshot(space, version) : undefined;
+        const currentPolicy = layer !== 'B' || this.snapshotPolicyCurrent(space, snapshot);
+        const resolvedVersion = layer === 'B' ? snapshot?.version : version;
         const hit = await this.repository.read(space, layer, id, resolvedVersion);
+        if (layer === 'B' && version === undefined && !currentPolicy) throw new Error('知识编纂政策已变化或缺失；B 待重编，请先读取 A 元数据和原文');
         if (layer === 'A' && !this.fileVisible(employee, (hit as KnowledgeSource).id)) throw new Error('原始文件资料的读取权限已撤销');
         if (layer === 'B' && (hit as KnowledgeEntry).citations.some(citation => !this.fileVisible(employee, citation.sourceId))) throw new Error('此知识引用的原始文件资料未获读取授权');
         if (!this.spaceVisible(employee, space)) continue;
-        if (hit !== undefined) hits.push(layer === 'B' ? { ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team' } : { ...hit as KnowledgeSource, library: space.memberId ? 'employee' : 'team' });
+        if (hit !== undefined) hits.push(layer === 'B' ? { ...hit as KnowledgeEntry, version: resolvedVersion, library: space.memberId ? 'employee' : 'team', policyFingerprint: snapshot?.policyFingerprint, policyStatus: currentPolicy ? 'current' : snapshot?.policyFingerprint ? 'outdated' : 'legacy', stale: !currentPolicy } : { ...hit as KnowledgeSource, library: space.memberId ? 'employee' : 'team' });
       }
       catch (error) { if (!(error && typeof error === 'object' && 'code' in error && error.code === 'NOT_FOUND')) throw error; }
     }

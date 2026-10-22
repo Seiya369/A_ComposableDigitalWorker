@@ -2,7 +2,8 @@ import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readdir, rename, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import { knowledgePolicyFingerprint } from './policy.js';
+import type { KnowledgePolicy, KnowledgeCompilation, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 
 const PLUGIN = 'dsh-plugin-composable-workforce';
 const queues = new Map<string, Promise<unknown>>();
@@ -24,7 +25,7 @@ const identifier = (value: unknown): string => {
   return value;
 };
 const sourceDirectory = (path: string, id: string) => join(path, 'A-sources', encodeURIComponent(identifier(id)));
-type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation> & { publishedVersions: number[] };
+type SnapshotManifest = Omit<KnowledgeSnapshot, keyof KnowledgeCompilation | 'policy'> & { publishedVersions: number[] };
 type SeedMarker = { schemaVersion: 1; from: { teamId: string; version: number }; createdAt: string };
 const versionNumber = (value: unknown): number => {
   check(Number.isSafeInteger(value) && Number(value) > 0, 'Invalid knowledge version');
@@ -303,19 +304,33 @@ export class KnowledgeRepository {
     return value;
   }
 
-  async snapshot(space: KnowledgeSpace): Promise<KnowledgeSnapshot | undefined> {
+  async snapshot(space: KnowledgeSpace, requestedVersion?: number): Promise<KnowledgeSnapshot | undefined> {
     const manifest = await this.manifest(space);
     if (!manifest) return undefined;
     const path = this.spacePath(space);
-    const entries = await this.json<KnowledgeCompilation['entries']>(join(path, 'B-knowledge', `v${manifest.version}.json`));
-    const overview = await this.json<KnowledgeCompilation['overview']>(join(path, 'C-overview', `v${manifest.version}.json`));
+    const version = requestedVersion === undefined ? manifest.version : versionNumber(requestedVersion);
+    if (!manifest.publishedVersions.includes(version)) throw notFound('Knowledge snapshot version was not published');
+    const identity = await this.json<{ sourceFingerprint: string; createdAt: string; policyFingerprint?: string; policy?: KnowledgePolicy }>(join(path, 'B-knowledge', `v${version}.policy.json`));
+    check(!identity?.policy || identity.policyFingerprint === knowledgePolicyFingerprint(identity.policy), 'Knowledge policy identity is corrupt');
+    check(requestedVersion !== undefined || !manifest.policyFingerprint || identity?.policyFingerprint === manifest.policyFingerprint, 'Knowledge policy identity is missing or corrupt');
+    const entries = await this.json<KnowledgeCompilation['entries']>(join(path, 'B-knowledge', `v${version}.json`));
+    const overview = await this.json<KnowledgeCompilation['overview']>(join(path, 'C-overview', `v${version}.json`));
     check(Array.isArray(entries) && Array.isArray(overview), 'Knowledge snapshot is incomplete');
-    return { version: manifest.version, sourceFingerprint: manifest.sourceFingerprint, createdAt: manifest.createdAt, status: 'candidate', entries, overview };
+    return { version, sourceFingerprint: identity?.sourceFingerprint ?? (version === manifest.version ? manifest.sourceFingerprint : ''), createdAt: identity?.createdAt ?? (version === manifest.version ? manifest.createdAt : ''), ...(identity?.policy ? { policy: identity.policy, policyFingerprint: identity.policyFingerprint } : {}), status: 'candidate', entries, overview };
   }
 
-  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal): Promise<KnowledgeSnapshot> {
+  async publish(space: KnowledgeSpace, compilation: KnowledgeCompilation, expectedSourceFingerprint: string, signal?: AbortSignal, policy?: KnowledgePolicy): Promise<KnowledgeSnapshot> {
     signal?.throwIfAborted();
     compilation = structuredClone(compilation);
+    policy = policy === undefined ? undefined : structuredClone(policy);
+    if (policy) {
+      check(policy.version === 1 && policy.scope === (space.memberId ? 'employee' : 'team') && Array.isArray(policy.categories) && policy.categories.length > 0, 'Knowledge policy category declaration is invalid');
+      const ids = new Set<string>();
+      for (const category of policy.categories) {
+        check(typeof category.id === 'string' && /^[a-z][a-z0-9-]{0,99}$/.test(category.id) && !ids.has(category.id), 'Knowledge policy category ID is invalid or duplicate');
+        ids.add(category.id); bounded(category.title, 'Knowledge category title', 2_000); bounded(category.description, 'Knowledge category description', 8_000, true);
+      }
+    }
     check(compilation && Array.isArray(compilation.entries) && Array.isArray(compilation.overview), 'Knowledge compilation is incomplete');
     check(Buffer.byteLength(JSON.stringify(compilation)) <= 2_000_000 && compilation.entries.length <= 500 && compilation.overview.length <= 200, 'Knowledge compilation is too large');
     return this.locked(async () => {
@@ -329,6 +344,7 @@ export class KnowledgeRepository {
       check(!sources.length || (compilation.entries.length > 0 && compilation.overview.length > 0), 'Knowledge compilation is incomplete');
       const entryIds = new Set<string>();
       for (const entry of compilation.entries) {
+        if (policy) check(typeof entry.categoryId === 'string' && policy.categories.some(category => category.id === entry.categoryId), 'Knowledge entry category is missing or not declared by its policy');
         identifier(entry.id); check(!entryIds.has(entry.id), 'Duplicate knowledge entry ID'); entryIds.add(entry.id);
         bounded(entry.title, 'Knowledge title', 1_600); bounded(entry.content, 'Knowledge content', 256_000);
         check(Array.isArray(entry.citations) && entry.citations.length > 0 && entry.citations.length <= 200, 'Each knowledge entry requires source references');
@@ -351,15 +367,17 @@ export class KnowledgeRepository {
       check([...entryIds].every(id => covered.has(id)), 'Knowledge compilation is incomplete: every entry needs an overview reference');
       const previous = await this.manifest(space);
       const version = Math.max(await this.nextVersion(join(path, 'B-knowledge'), previous?.version), await this.nextVersion(join(path, 'C-overview'), previous?.version));
-      const manifest = { version, sourceFingerprint: actualFingerprint, createdAt: new Date().toISOString(), status: 'candidate' as const };
+      const manifest = { version, sourceFingerprint: actualFingerprint, createdAt: new Date().toISOString(), status: 'candidate' as const, ...(policy ? { policyFingerprint: knowledgePolicyFingerprint(policy) } : {}) };
       // Immutable files become visible together only through this final atomic manifest replacement.
+      signal?.throwIfAborted();
+      await this.write(join(path, 'B-knowledge', `v${version}.policy.json`), { sourceFingerprint: actualFingerprint, createdAt: manifest.createdAt, ...(policy ? { policy, policyFingerprint: manifest.policyFingerprint } : {}) });
       signal?.throwIfAborted();
       await this.write(join(path, 'B-knowledge', `v${version}.json`), compilation.entries);
       signal?.throwIfAborted();
       await this.write(join(path, 'C-overview', `v${version}.json`), compilation.overview);
       signal?.throwIfAborted();
       await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version] }, signal);
-      return { ...compilation, ...manifest };
+      return { ...compilation, ...manifest, ...(policy ? { policy } : {}) };
     });
   }
 

@@ -1,4 +1,4 @@
-import type { ModelModule } from '../domain/types.js';
+import type { KnowledgeOrganization, ModelModule } from '../domain/types.js';
 import type { KnowledgeSourceCategory } from './categories.js';
 
 /** A template and each project installation own detached knowledge spaces. */
@@ -35,6 +35,8 @@ export interface KnowledgeCitation {
   endLine: number;
 }
 export interface KnowledgeEntry {
+  /** Required for policy-bound publications; absent only on legacy snapshots. */
+  categoryId?: string;
   id: string;
   title: string;
   content: string;
@@ -53,11 +55,27 @@ export interface KnowledgeCompilation {
 export interface KnowledgeSnapshot extends KnowledgeCompilation {
   version: number;
   sourceFingerprint: string;
+  policyFingerprint?: string;
+  policy?: KnowledgePolicy;
   createdAt: string;
   /** Model synthesis remains candidate knowledge, even with accepted inputs. */
   status: 'candidate';
 }
+export interface KnowledgePolicyTask {
+  id: string; employeeId: string; title: string; goal: string; acceptanceCriteria: string[];
+}
+export interface KnowledgePolicy {
+  version: 1;
+  scope: 'team' | 'employee';
+  profession: string;
+  taskScope: string;
+  conceptRules: string;
+  categories: KnowledgeOrganization['categories'];
+  roles: Array<{ memberId: string; mission: string; duties: string[]; boundaries: string[]; skills: Array<{ id: string; name: string; description: string }> }>;
+  tasks: KnowledgePolicyTask[];
+}
 export interface KnowledgeCompileRequest {
+  policy: KnowledgePolicy;
   space: KnowledgeSpace;
   sources: KnowledgeSource[];
   previous?: KnowledgeSnapshot;
