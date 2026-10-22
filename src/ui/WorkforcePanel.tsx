@@ -112,7 +112,7 @@ export function WorkforcePanel({ client, projectId, initialView = 'staffing', na
       {showEditor && <EmployeeEditor
         client={client}
         key={selection?.kind === 'new-template' ? `new:${selection.draftId ?? selection.teamId ?? ''}` : selection?.kind === 'template' ? `${selection.id}:${selection.teamId ?? ''}:${selection.memberId ?? ''}` : activeEmployee?.id}
-        record={activeEmployee ?? activeTemplate} isProject={!!projectId} standalone={templateSection === 'horses'} templates={templates} employees={employees} teams={state.teams}
+        record={activeEmployee ?? activeTemplate} isProject={!!projectId} standalone={templateSection === 'horses'} templates={templates} employees={employees} teams={state.teams} projectTeams={state.projectTeams}
         draftKey={selection?.kind === 'new-template' ? selection.draftId : undefined}
         teamId={selection?.kind === 'template' || selection?.kind === 'new-template' ? selection.teamId : undefined}
         memberId={selection?.kind === 'template' ? selection.memberId : undefined}

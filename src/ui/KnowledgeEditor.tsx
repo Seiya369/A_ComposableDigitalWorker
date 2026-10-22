@@ -1,4 +1,5 @@
 import { useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { EmployeeModules, KnowledgeOrganization, KnowledgeSource } from '../domain/types.js';
 import { KNOWLEDGE_SOURCE_CATEGORIES, type KnowledgeSourceCategory } from '../knowledge/categories.js';
 import { SelectField, TextField, Toggle } from './fields.js';
@@ -19,9 +20,12 @@ interface KnowledgeEditorProps {
   onUploadKnowledge?: (files: File[]) => Promise<void>;
   knowledgeUploadDisabled?: boolean;
   knowledgeUploadAccept?: string;
+  knowledgeUploadTargetLabel?: string;
+  knowledgeUploadDisabledReason?: string;
+  knowledgeUploadedSources?: ReactNode;
 }
 
-export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowledgeUploadDisabled = false, knowledgeUploadAccept }: KnowledgeEditorProps) {
+export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowledgeUploadDisabled = false, knowledgeUploadAccept, knowledgeUploadTargetLabel, knowledgeUploadDisabledReason, knowledgeUploadedSources }: KnowledgeEditorProps) {
   const id = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const [openGroups, setOpenGroups] = useState<Set<KnowledgeSourceCategory>>(() => new Set());
@@ -29,6 +33,7 @@ export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowle
   const [uploadError, setUploadError] = useState('');
   const [uploadStatus, setUploadStatus] = useState('');
   const uploadDisabled = uploading || knowledgeUploadDisabled || !onUploadKnowledge;
+  const uploadDisabledReason = knowledgeUploadDisabledReason || (!onUploadKnowledge ? '请先保存员工并启用资料管理员' : '');
   const update = (next: Partial<EmployeeModules['knowledge']>) => onChange({ ...knowledge, ...next });
   const setGroupOpen = (category: KnowledgeSourceCategory, open: boolean) => setOpenGroups(current => {
     if (current.has(category) === open) return current;
@@ -51,7 +56,7 @@ export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowle
     setUploadStatus(`正在上传 ${files.length} 份资料…`);
     try {
       await onUploadKnowledge(files);
-      setUploadStatus(`已上传 ${files.length} 份资料。`);
+      setUploadStatus(`已入库 ${files.length} 份资料；知识编纂另行排队。`);
     } catch (error) {
       setUploadStatus('');
       setUploadError(error instanceof Error && error.message ? error.message : '资料上传失败，请重试。');
@@ -61,7 +66,7 @@ export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowle
   }
 
   return <div className="wf-module-form wf-knowledge-editor">
-    <p className="wf-hint wf-knowledge-scope">以下为手工来源配置，不含自动归档资料。</p>
+    <p className="wf-hint wf-knowledge-scope">手工来源随配置保存，上传资料独立入库。</p>
     <div className="wf-knowledge-groups">
       {KNOWLEDGE_SOURCE_CATEGORIES.map(category => {
         const group = SOURCE_GROUPS[category];
@@ -70,7 +75,7 @@ export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowle
           <div className="wf-knowledge-heading">
             <div><h3 id={`${id}-${category}`}>{group.title}</h3><p className="wf-hint">{group.hint}</p></div>
             {category === 'reference' && <div className="wf-knowledge-upload" aria-busy={uploading}>
-              <button type="button" className="wf-button" disabled={uploadDisabled} aria-describedby={`${id}-upload-help`} onClick={() => fileInput.current?.click()}><Icon name="folder" size={14} />{uploading ? '上传中…' : '上传资料'}</button>
+              <button type="button" className="wf-button" disabled={uploadDisabled} aria-describedby={`${id}-upload-help${uploadDisabledReason ? ` ${id}-upload-unavailable` : ''}`} onClick={() => fileInput.current?.click()}><Icon name="folder" size={14} />{uploading ? '上传中…' : '上传资料'}</button>
               <input ref={fileInput} type="file" hidden multiple accept={knowledgeUploadAccept} aria-label="选择投喂资料" disabled={uploadDisabled} onChange={event => {
                 const files = Array.from(event.currentTarget.files ?? []);
                 const disabled = event.currentTarget.matches(':disabled');
@@ -80,9 +85,12 @@ export function KnowledgeEditor({ knowledge, onChange, onUploadKnowledge, knowle
             </div>}
           </div>
           {category === 'reference' && <>
-            <p className="wf-hint wf-knowledge-upload-help" id={`${id}-upload-help`}>{!onUploadKnowledge ? '请先保存员工并启用资料管理员' : '可一次选择多份资料。'}</p>
+            <p className="wf-hint wf-knowledge-upload-help" id={`${id}-upload-help`}>支持 PDF、DOCX、UTF-8 文本，单文件 ≤ 1 MiB。<br />扫描件 OCR 与旧 DOC 暂不支持。</p>
+            {knowledgeUploadTargetLabel && <p className="wf-hint wf-knowledge-upload-target">归档到：{knowledgeUploadTargetLabel}</p>}
+            {uploadDisabledReason && <p className="wf-hint" id={`${id}-upload-unavailable`}>{uploadDisabledReason}</p>}
             <p className="wf-hint wf-knowledge-upload-status" role="status" aria-live="polite">{uploadStatus}</p>
-            {uploadError && <p className="wf-error-box" role="alert">上传失败：{uploadError}</p>}
+            {uploadError && <p className="wf-error-box" role="alert">上传结果：{uploadError}</p>}
+            {knowledgeUploadedSources}
           </>}
           {sources.length > 0 && <details className="wf-knowledge-sources" open={openGroups.has(category)} onToggle={event => setGroupOpen(category, event.currentTarget.open)}>
             <summary>手工来源 · {sources.length}</summary>
