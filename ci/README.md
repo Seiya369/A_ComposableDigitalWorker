@@ -1,0 +1,34 @@
+# 可复现检查与官方原版宿主
+
+根 `package-lock.json` 覆盖插件开发、真实官方运行 peer 和单测所需的明确开发依赖。普通 `npm ci --ignore-scripts` 可完整还原，不再链接本机源码。Cordis 精确选择 `4.0.5`，与普通官方 `@deepseek-ai/dsh@0.2.1-alpha.2` 安装一致；声明调整必须与本次归档的完整原版验证绑定，旧归档不代替新候选验收。
+
+```sh
+npm ci --ignore-scripts
+npm run setup
+npm run check:scripts
+npm run typecheck
+npm run typecheck:checks
+KNOWLEDGE_CONTEXT_REPORT_DIR="$PWD/artifacts/ci/small-context" KNOWLEDGE_LARGE_REPORT_DIR="$PWD/artifacts/ci/large-context" npm test
+npm run build
+npm run package:check
+```
+
+`setup` 默认只校验项目自己的公开发布依赖：全部版本必须精确匹配，公开类型入口必须存在且位于包内，包不能回落到祖先源码链接。它拒绝符号链接形式的共享 `node_modules`。设置 `DSH_INSTALLATION_MANIFEST` 时校验真正的官方 CLI；设置 `DSH_DEVELOPMENT_MANIFEST` 时校验独立开发 fixture，二者互斥。外部链接只写项目自己的目录，保留归属记录，不能覆盖非自有实体；常规 npm 开发无需外部链接。`--verify-only` 只报告解析结果，不创建链接或归属文件。
+
+`official-host/package.json` 和 lock 是另一份官方 stock 安装的完整冻结声明，用于识别插件自己的开发依赖掩盖缺包的情况。它不加入任何第三方插件、版本 override 或源码补丁。原版程序目录在安装后保持不可修改，profile 全部由生命周期测试临时创建并销毁。macOS 运行 npm 时使用 `pwd -P` 所示的真实目录，避免 `/tmp` 别名影响 lock 路径。
+
+```sh
+cd ci/official-host
+npm ci --ignore-scripts
+cd ../..
+DSH_INSTALLATION_MANIFEST="$PWD/ci/official-host/node_modules/@deepseek-ai/dsh/package.json" node scripts/link-harness.mjs --verify-only
+DSH_INSTALLATION_MANIFEST="$PWD/ci/official-host/node_modules/@deepseek-ai/dsh/package.json" WORKFORCE_LIFECYCLE_REPORT_DIR="$PWD/artifacts/ci/lifecycle" npm run test:lifecycle -- artifacts/ci/package/dsh-plugin-composable-workforce-0.4.0.tgz
+```
+
+归档门两次运行真实 `npm pack`，比较压缩包 SHA-256；拒绝测试、源码、host patch、node_modules、本机数据、凭据形式文件及 source map，逐个比较归档文件与实际保存源文件。压缩包预算为 1 MiB，超出应审查并明确调整，不自动忽略。最终目录含 `.tgz`、`SHA256SUMS` 和 `report.json`。
+
+GitHub Actions 对所有 PR、main push 和手动运行生效，固定官方 action 完整 SHA，Node `22.19.0`、`24.21.0` 两个 Ubuntu 24.04 job 各自执行完整门禁。权限仅 `contents: read`，不读生产模型凭据，不自动发布、合并或部署。缓存仅包管理器缓存，包含两份 lock；证据保存 14 天。测试报告路径与历史验证资料隔离。
+
+安全审计使用 `npm audit --json --audit-level=high`，插件根与官方宿主分别保存完整 JSON。高危/严重项使 gate 失败，不自动运行 `audit fix`。中低危仍出现在报告中；上游依赖不能通过修改已安装宿主来修复。远端 gate 通过与分支保护是否可用是两件事；当前仓库保护配置不由本工作流更改。
+
+这里的自动检查不代替规格要求的浏览器配置往返、独立代码审查与人工语义核验。最终发布记录必须绑定同一候选提交、归档哈希和原版宿主生命周期结果。

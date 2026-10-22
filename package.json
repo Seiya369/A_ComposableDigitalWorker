@@ -73,7 +73,10 @@
     "plugin:uninstall": "node scripts/plugin.mjs uninstall",
     "plugin:purge": "node scripts/plugin.mjs purge",
     "test:lifecycle": "node tests/plugin-lifecycle.mjs",
-    "service:open": "node scripts/service.mjs open"
+    "service:open": "node scripts/service.mjs open",
+    "typecheck:checks": "tsc --project tsconfig.checks.json",
+    "check:scripts": "node scripts/check-scripts.mjs",
+    "package:check": "node scripts/ci-package.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
@@ -85,13 +88,22 @@
     "react-dom": "18.3.1",
     "tsx": "^4.22.4",
     "typescript": "~6.0.3",
-    "tiktoken": "1.0.22"
+    "tiktoken": "1.0.22",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.6",
+    "@deepseek-ai/dsh-agent-loop": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-fs-local": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-web": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-subprocess-local": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-fs-observation-policy": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-tool-bash": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-agent-instructions": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-skill-filesystem": "0.2.1-alpha.2"
   },
   "dependencies": {
     "yaml": "^2.9.0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.5-alpha.1",
+    "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-connection": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-locale": "0.2.1-alpha.2",

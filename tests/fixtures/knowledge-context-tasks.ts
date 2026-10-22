@@ -42,7 +42,7 @@ const createdAt = '2026-10-21T00:00:00.000Z';
 function source(id: string, title: string, lines: string[], version = 1, verified = true, provenance?: string): KnowledgeSource {
   const content = lines.join('\n');
   return {
-    id, title, version, verified, content, text: content,
+    id, title, version, verified, content, text: content, category: 'reference',
     provenance: provenance ?? `fixture://${id}/v${version}`,
     hash: createHash('sha256').update(content).digest('hex'), createdAt, processing: [],
   };
