@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 六类 A 真实归档及历史兼容；02 员工专业编纂配置与资料分类入口。
 
-**Status:** implemented; awaiting final independent review and archive acceptance
+**Status:** complete; locally verified candidate c069c8c
 
 - [x] 自动资料确定归类，显式类别优先；团队共享政策不包含私有正文。
 - [x] 模型实际接收职责/技能/任务范围/自定义分类及概念规则；无效 B 分类或引用拒绝发布。

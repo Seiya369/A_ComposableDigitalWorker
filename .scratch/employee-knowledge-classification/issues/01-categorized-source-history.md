@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** implemented; awaiting final independent review and archive acceptance
+**Status:** complete; locally verified candidate c069c8c
 
 - [x] 六类输入落入对应真实目录，非法类别与路径被拒绝；相同输入幂等。
 - [x] 内容或分类变化生成新版本；旧版、退役版、孤立已落盘版本可恢复，反复初始化不复制。

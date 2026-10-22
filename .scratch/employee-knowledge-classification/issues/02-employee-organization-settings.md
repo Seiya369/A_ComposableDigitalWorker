@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 六类 A 真实归档及历史兼容（来源枚举契约）。
 
-**Status:** implemented; awaiting final independent review and archive acceptance
+**Status:** complete; locally verified candidate c069c8c
 
 - [x] 配置保存、重载、模板采用和导入导出往返不丢分类与规则，项目实例保持独立。
 - [x] 字段、条数、长度、稳定分类 ID 和重复类别被校验；旧无配置记录仍可使用。
