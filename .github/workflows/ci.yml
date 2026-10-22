@@ -39,6 +39,7 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             ci/official-host/package-lock.json
+            ci/tools/package-lock.json
       - name: Install locked plugin development dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify published package boundaries
@@ -67,6 +68,14 @@ jobs:
         run: |
           node scripts/link-harness.mjs --verify-only > "$REPORT_DIR/official-dependencies.json"
           npm ls --prefix ci/official-host --all --json > "$REPORT_DIR/official-tree.json"
+      - name: Install locked lifecycle package manager
+        run: |
+          npm ci --prefix ci/tools --ignore-scripts --no-audit --no-fund
+          echo "$GITHUB_WORKSPACE/ci/tools/node_modules/.bin" >> "$GITHUB_PATH"
+      - name: Verify lifecycle package manager
+        run: |
+          pnpm --version | tee "$REPORT_DIR/lifecycle-pnpm-version.log"
+          test "$(pnpm --version)" = "10.33.0"
       - name: Official install, core use, uninstall, reinstall and complete cleanup
         env:
           DSH_INSTALLATION_MANIFEST: ${{ github.workspace }}/ci/official-host/node_modules/@deepseek-ai/dsh/package.json
