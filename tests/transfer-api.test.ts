@@ -10,6 +10,8 @@ import { WorkforceStore } from '../src/domain/store.js';
 import { ARCHITECT_TEMPLATE_ID } from '../src/domain/seed.js';
 import type { EmployeeTemplate, TeamTemplate, WorkforceState, WorkflowTemplate } from '../src/domain/types.js';
 import type { ImportPreview, ImportResult, TransferBundle } from '../src/domain/transfer-types.js';
+import { knowledgeRootFor } from '../src/knowledge/repository.js';
+import type { KnowledgeUploadResult, KnowledgeUploadedSource, KnowledgeSource } from '../src/knowledge/types.js';
 
 /** Exercise the production HTTP handler; only its external host services are fixtures. */
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
@@ -187,4 +189,38 @@ test('HTTP import lost-response retry accepts the old expectedRevision and rejec
   const different = structuredClone(payload); (different.document.data.templates[0] as EmployeeTemplate).name += '不同版本';
   const conflict = await f.command('bundle.import', different, options);
   assert.equal(conflict.status, 409); assert.equal(conflict.body.code, 'CONFLICT'); assert.equal(await readFile(f.file, 'utf8'), committed);
+});
+
+test('HTTP feeding uploads text into private A, lists durable metadata and preserves saved configuration', async t => {
+  const f = await fixture(t);
+  const state = await f.state();
+  const team = state.teams.find(item => item.members.some(member => member.templateId === ARCHITECT_TEMPLATE_ID))!;
+  const member = team.members.find(item => item.templateId === ARCHITECT_TEMPLATE_ID)!;
+  const target = { kind: 'template', teamId: team.id, memberId: member.memberId, templateId: ARCHITECT_TEMPLATE_ID };
+  const before = await readFile(f.file, 'utf8');
+  const content = '# 回执资料\n超时并不证明扣款失败。';
+  const base64 = Buffer.from(content, 'utf8').toString('base64');
+  const payload = { target, file: { name: '回执.md', mediaType: 'text/markdown', base64 } };
+  const uploaded = await f.command<KnowledgeUploadResult>('knowledge.upload', payload);
+  assert.equal(uploaded.status, 200, uploaded.body.error);
+  assert.equal(uploaded.body.result.status, 'archived');
+  assert.equal(uploaded.body.result.category, 'reference');
+  assert.equal(uploaded.body.result.version, 1);
+  assert.equal(await readFile(f.file, 'utf8'), before, 'upload saved unrelated employee configuration');
+  const path = join(knowledgeRootFor(f.file), 'templates', team.id, 'employees', member.memberId, 'A-sources', '01-reference', encodeURIComponent(uploaded.body.result.sourceId), 'v1.json');
+  const source = JSON.parse(await readFile(path, 'utf8')) as KnowledgeSource;
+  assert.equal(source.content, content);
+  assert.equal(source.originalFile!.data, base64);
+  assert.equal(source.verified, false);
+  const repeated = await f.command<KnowledgeUploadResult>('knowledge.upload', payload);
+  assert.equal(repeated.status, 200, repeated.body.error);
+  assert.equal(repeated.body.result.version, 1);
+  const listing = await f.command<KnowledgeUploadedSource[]>('knowledge.uploads.list', { target });
+  assert.equal(listing.status, 200, listing.body.error);
+  assert.equal(listing.body.result.length, 1);
+  assert.equal(listing.body.result[0]!.title, '回执.md');
+  assert.equal(JSON.stringify(listing.body.result).includes(base64), false);
+  const rejected = await f.command('knowledge.upload', { target: { ...target, memberId: 'other-private-member' }, file: payload.file });
+  assert.equal(rejected.status, 400);
+  assert.equal(await readFile(f.file, 'utf8'), before);
 });

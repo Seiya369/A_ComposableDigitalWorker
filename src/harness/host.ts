@@ -27,6 +27,8 @@ import { registerEmployeePreset } from './employee-preset.js';
 import { KnowledgeRepository, knowledgeRootFor } from '../knowledge/repository.js';
 import { KnowledgeEngine } from '../knowledge/engine.js';
 import { createKnowledgeCompiler } from './knowledge-compiler.js';
+import { parseUploadedDocument } from '../knowledge/upload-document.js';
+import type { KnowledgeUploadTarget } from '../knowledge/types.js';
 
 export const name = 'composable-workforce';
 export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
@@ -148,6 +150,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return work.command(action, payload, options as WorkCommandOptions);
     }
     switch (action) {
+      case 'knowledge.upload': {
+        if (Object.keys(payload).some(field => !['target', 'file'].includes(field))) throw new Error('上传包含未支持的字段');
+        const target = record(payload.target) as unknown as KnowledgeUploadTarget;
+        if (target.kind === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        const file = record(payload.file);
+        if (Object.keys(file).some(field => !['name', 'mediaType', 'base64'].includes(field))) throw new Error('上传文件包含未支持的字段');
+        const document = await parseUploadedDocument(file as unknown as import('../knowledge/upload-document.js').UploadedDocumentFile);
+        return knowledge.uploadFor(target, document);
+      }
+      case 'knowledge.uploads.list': {
+        if (Object.keys(payload).some(field => field !== 'target')) throw new Error('资料列表包含未支持的字段');
+        const target = record(payload.target) as unknown as KnowledgeUploadTarget;
+        if (target.kind === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        return knowledge.uploadedSourcesFor(target);
+      }
       case 'template.save': return store.saveTemplate(payload as unknown as SaveTemplateInput, options);
       case 'employee.configuration.save': return store.saveEmployeeConfiguration(payload as unknown as SaveEmployeeConfigurationInput, options);
       case 'template.archive': return store.archiveTemplate(string(payload.id, '模板 ID'), options);

@@ -1,0 +1,56 @@
+{
+  "purpose": "Synthetic upload-boundary fixtures only; no user data. Not part of the npm package.",
+  "files": [
+    {
+      "name": "professional-reference.pdf",
+      "expected": "accepted",
+      "textIncludes": [
+        "Approved means reviewed.",
+        "A failed attempt is evidence, not approval."
+      ],
+      "bytes": 896,
+      "sha256": "36cbed6019335f3fa09773cb984f427d25236241db187a9b091fc24a429f2674"
+    },
+    {
+      "name": "professional-reference.docx",
+      "expected": "accepted",
+      "textIncludes": [
+        "岗位资料：先核对依据，再形成候选结论。",
+        "失败记录不等于用户批准。"
+      ],
+      "bytes": 922,
+      "sha256": "6e383b864dabe854d8e0fdb06b52ebac238b20a4d5e0ad75d84f2aa50822dc4c"
+    },
+    {
+      "name": "professional-reference.md",
+      "expected": "accepted",
+      "textIncludes": [
+        "岗位资料",
+        "原件保留 BOM、CRLF、否定与例外。"
+      ],
+      "bytes": 65,
+      "sha256": "59de86fa7968b4daef590f8aae652466905e578f7513784fa95e2ae78704c7e3"
+    },
+    {
+      "name": "image-only-scan.pdf",
+      "expected": "rejected",
+      "errorIncludes": "没有可读取文字",
+      "bytes": 663,
+      "sha256": "bd7ec96f4519eef04053e2e4e4450b204182f9c0bf15a86bbccae465aff1e50a"
+    },
+    {
+      "name": "encrypted-password.pdf",
+      "expected": "rejected",
+      "errorIncludes": "加密 PDF",
+      "bytes": 827,
+      "sha256": "990b9c0ec96204102eb76833400e5cc645748e87dd7917f10645588ef11e62c3"
+    },
+    {
+      "name": "encrypted-empty-password.pdf",
+      "expected": "rejected",
+      "errorIncludes": "加密 PDF",
+      "bytes": 827,
+      "sha256": "5b488488d98253a3239cfbf8acb0e538d091119e6afb73fa3571bb8666f37fdb"
+    }
+  ]
+}

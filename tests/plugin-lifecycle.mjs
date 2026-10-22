@@ -213,6 +213,34 @@ try {
   await command('work.reviewTask',{projectId,id:task.id,decision:'accepted',note:'当前成果符合验收要求'},{requestId:'lifecycle-task-review',expectedVersion:currentTask.version,expectedRevision:(await snapshot()).revision});
   const {result:readyBrief}=await command('work.saveBrief',{...briefInput,requiredDeliverableIds:[placeholder.id]},{requestId:'lifecycle-final-brief',expectedVersion:brief.version});
   await command('work.completeProject',{projectId},{requestId:'lifecycle-complete-project',expectedVersion:readyBrief.version});
+  const uploadTarget={kind:'project',projectId,employeeId:installedMember.id};
+  const uploadedMaterials=[];
+  const uploadFixtures=JSON.parse(await readFile(resolve(root,'tests/fixtures/feeding/manifest.json'),'utf8'));
+  const beforeFeeding=await digest();
+  for(const fixture of uploadFixtures.files){
+    const bytes=await readFile(resolve(root,'tests/fixtures/feeding',fixture.name));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),fixture.sha256,'synthetic fixture bytes changed');
+    if(fixture.expected==='accepted'){
+      const {result:receipt}=await command('knowledge.upload',{target:uploadTarget,file:{name:fixture.name,base64:bytes.toString('base64')}});
+      assert.equal(receipt.status,'archived');assert.equal(receipt.version,1);
+      const archivedPath=resolve(knowledgeRoot,'projects',projectId,'teams',projectTeam.id,'employees',installedMember.id,'A-sources','01-reference',encodeURIComponent(receipt.sourceId),'v1.json');
+      const archived=JSON.parse(await readFile(archivedPath,'utf8'));
+      assert.deepEqual(Buffer.from(archived.originalFile.data,'base64'),bytes,'archived original bytes changed');
+      assert.equal(archived.originalFile.sha256,fixture.sha256);
+      for(const text of fixture.textIncludes)assert.ok(archived.text.includes(text),`archive missed extracted text: ${text}`);
+      assert.equal(archived.verified,false);
+      uploadedMaterials.push(receipt);
+    }else{
+      const rejected=await fetch(`${base}/digital-workers/api/command`,{method:'POST',headers:{'Content-Type':'application/json',Origin:base,Cookie:cookie},body:JSON.stringify({action:'knowledge.upload',payload:{target:uploadTarget,file:{name:fixture.name,base64:bytes.toString('base64')}}})});
+      assert.equal(rejected.status,400,'unreadable synthetic document was accepted');
+      assert.ok((await rejected.json()).error.includes(fixture.errorIncludes));
+    }
+  }
+  const {result:uploadedList}=await command('knowledge.uploads.list',{target:uploadTarget});
+  assert.equal(uploadedList.length,uploadedMaterials.length);
+  assert.ok(uploadedList.every(item=>item.attachment&&!Object.hasOwn(item.attachment,'data')),'metadata list leaked original base64');
+  assert.equal(await digest(),beforeFeeding,'feeding wrote unrelated employee or project state');
+  report.checks.push('archive parses synthetic PDF/DOCX/UTF-8 uploads through authenticated command, retains exact original bytes and page/paragraph text in private A, rejects scan/encrypted PDF, lists metadata only and leaves configuration untouched');
   const workState=(await snapshot()).workState;
   assert.equal(workState.briefs.find(item=>item.id===brief.id).status,'completed');
   const preservedOutput=workState.deliverables.find(item=>item.id===placeholder.id);
@@ -230,6 +258,8 @@ try {
   assert.equal(afterKnowledgeSwitch.teams.find(item=>item.id===team.id).knowledgeEnabled,true,'instance switch must not change its template');
   assert.deepEqual(afterKnowledgeSwitch.employees,beforeKnowledgeSwitch.employees,'system role switch must not create or edit employees');
   assert.deepEqual(afterKnowledgeSwitch.memories,beforeKnowledgeSwitch.memories,'closing librarian must preserve existing memory');
+  const blockedFeeding=await fetch(`${base}/digital-workers/api/command`,{method:'POST',headers:{'Content-Type':'application/json',Origin:base,Cookie:cookie},body:JSON.stringify({action:'knowledge.upload',payload:{target:uploadTarget,file:{name:'disabled.md',base64:Buffer.from('不得在关闭管理员时入库').toString('base64')}}})});
+  assert.equal(blockedFeeding.status,400,'closing librarian did not block human uploads');
   report.checks.push('default-on librarian switch persists via authenticated official host route; project override leaves template, employees and memories unchanged and survives reinstall');
   const baseline=afterKnowledgeSwitch;const hash=await digest();
   report.checks.push('tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request');
