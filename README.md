@@ -1,4 +1,8 @@
-# graph_horses · Composable Digital Workforce
+<a id="top"></a>
+
+# DSH_Graph-Horses
+
+Composable Digital Workforce for DeepSeek Harness · 可组装的专属数字员工团队
 
 **在同一个平台 DeepSeek Harness（DSH）中，打造属于你所在行业的专属 AI 员工、团队与工作流，让每个岗位拥有自己的专业能力、认知与记忆。**
 
@@ -10,7 +14,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/Seiya369/A_ComposableDigitalWorker/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz) · [SHA-256](https://github.com/Seiya369/A_ComposableDigitalWorker/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/Seiya369/A_ComposableDigitalWorker/releases/tag/v0.27.0)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.27.0)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
@@ -322,7 +326,7 @@ integration/  官方接入、安装卸载及版本验收记录
 
 感谢 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供插件与 Agent 扩展基础，以及 [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) 提供本项目知识程序所采用的上游模块。
 
-[↑ 返回顶部](#graph_horses--composable-digital-workforce) · [English ↓](#en)
+[↑ 返回顶部](#top) · [English ↓](#en)
 
 ---
 
@@ -612,4 +616,4 @@ Original plugin code is licensed under the [MIT License](LICENSE). The shared LL
 
 Thanks to [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) for its plugin and Agent extension foundations, and [nashsu/llm_wiki](https://github.com/nashsu/llm_wiki) for the upstream modules used in the shared knowledge program.
 
-[↑ Back to top](#graph_horses--composable-digital-workforce) · [简体中文](#zh)
+[↑ Back to top](#top) · [简体中文](#zh)
