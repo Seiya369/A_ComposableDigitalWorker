@@ -1,0 +1,2 @@
+.wf-root .wf-settings-transfer { display: flex; flex: 0 0 auto; align-items: center; flex-wrap: wrap; gap: 6px; max-width: 100%; min-width: 0; }
+.wf-root .wf-settings-transfer-error { flex-basis: 100%; max-width: 280px; color: var(--wf-red); font: var(--dsw-font-xxs-12); overflow-wrap: anywhere; }

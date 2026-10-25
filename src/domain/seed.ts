@@ -1,9 +1,10 @@
 import type { EmployeeModules, WorkforceState } from './types.js';
+import { createSoftwareDefaults } from './software-defaults.js';
 
 export const ARCHITECT_TEMPLATE_ID = 'employee-template-architect';
 export const SOFTWARE_TEAM_ID = 'team-template-software';
 
-/** Empty means no capability. Model inheritance is an explicit choice. */
+/** A new role adds no preferences; native DSH still supplies its normal tools and policy. */
 export function createBlankModules(): EmployeeModules {
   return {
     responsibilities: { mission: '', duties: [], boundaries: [] },
@@ -11,7 +12,7 @@ export function createBlankModules(): EmployeeModules {
     model: { mode: 'inherit' },
     knowledge: { sources: [], projectMemory: true, employeeMemory: true, memoryWritePolicy: 'explicit-only' },
     permissions: { allowedTools: [], readPaths: [], writePaths: [], allowShell: false, allowNetwork: false },
-    collaboration: { canDelegate: false, allowedTemplateIds: [], maxDepth: 2, maxConcurrent: 2, escalationRules: [] },
+    collaboration: { canDelegate: true, allowedTemplateIds: [], maxDepth: 2, maxConcurrent: 2, escalationRules: [] },
     delivery: { requiredArtifacts: [], acceptanceCriteria: [], reviewRequired: true },
   };
 }
@@ -29,25 +30,19 @@ export function createArchitectModules(): EmployeeModules {
         '评审方案的一致性、复杂度、数据隔离、并发、恢复和部署依赖，按影响列出有证据的问题及修正建议。',
       ],
       boundaries: [
-        '默认读取项目 README、AGENTS、常见构建清单及 src、tests、scripts、docs 内的代码和文档，只向 docs/architecture 写交付物。需要其他材料时说明缺口并请求项目调整授权；不读取密钥和环境文件。',
-        '不默认修改业务代码，不运行 shell，不部署、不发布、不发送外部消息；岗位身份和自然语言指令不能提升工具权限。',
+        '围绕本次任务读取项目资料并说明证据；涉及密钥或敏感资料时遵循用户要求与 DSH 原生策略。',
+        '按任务范围选择工具；文件操作、Shell、网络及外部动作遵循 DSH 原生沙箱和审批，不通过岗位身份提升权限。',
         '不编造已检查的源码、测试结果、性能数据或第三方能力；没有执行验证的结论必须标注验证计划。',
         '不把聊天中的临时观点、模型推断或未验收产物自动保存为长期事实；不读取其他项目记忆。',
       ],
     },
     capabilities: {
       skills: [
-        { id: 'architecture-analysis', name: '架构分析', description: '建立现状与需求证据表，识别领域边界、约束、关键质量属性和待确认假设。' },
-        { id: 'architecture-design', name: '架构设计', description: '设计最小可实施方案，明确接口、数据、权限、恢复策略、决策取舍和实施顺序。' },
-        { id: 'technical-review', name: '技术评审', description: '依据真实材料评审设计一致性、复杂度和失败场景，给出按优先级排列的可行动问题。' },
+        { id: 'architecture-analysis', name: 'architecture-analysis', usage: 'preferred', useWhen: '分析项目现状、领域边界和风险时', description: '建立现状与需求证据表，识别领域边界、约束、关键质量属性和待确认假设。' },
+        { id: 'architecture-design', name: 'architecture-design', usage: 'required', useWhen: '设计架构、接口或实施方案时', description: '设计最小可实施方案，明确接口、数据、权限、恢复策略、决策取舍和实施顺序。' },
+        { id: 'technical-review', name: 'technical-review', usage: 'preferred', useWhen: '评审方案、代码或交付物时', description: '依据真实材料评审设计一致性、复杂度和失败场景，给出按优先级排列的可行动问题。' },
       ],
-      tools: [
-        { id: 'worker_list_files', description: '列出当前项目已授权的架构资料。' },
-        { id: 'worker_read_file', description: '读取授权路径内的项目文档，建立可追溯证据。' },
-        { id: 'worker_write_artifact', description: '将方案、ADR 和评审报告写入 docs/architecture。' },
-        { id: 'worker_memory_search', description: '查询当前项目共享记忆和本员工的项目记忆。' },
-        { id: 'worker_delegate', description: '经项目授权后向本项目真实员工委派有目标、产物和验收标准的工作。' },
-      ],
+      tools: [],
     },
     model: { mode: 'inherit' },
     knowledge: {
@@ -72,7 +67,7 @@ export function createArchitectModules(): EmployeeModules {
       maxDepth: 2,
       maxConcurrent: 2,
       escalationRules: [
-        '首版软件开发团队仅配置本架构师。没有其他项目员工时自行处理职责内任务，不虚构团队成员。',
+        '按当前项目真实名册协作。没有适合且已授权的协作者时自行处理职责内任务，不虚构团队成员。',
         '扩充团队并授予委派能力后，按员工职责与权限选人；每个工作包提供目标、输入引用、交付物、验收标准和剩余预算。',
         '遇到目标冲突、资料不足、权限缺失或关键决策无法确定时，说明已完成工作和具体缺口，由用户决定。',
         '接收协作者结果后核验证据与验收条件；存在问题时明确返工要求，不能仅合并聊天摘要当作完成。',
@@ -100,8 +95,7 @@ export function createSeedState(now = new Date().toISOString()): WorkforceState 
   return {
     schemaVersion: 1,
     revision: 0,
-    templates: [{ id: ARCHITECT_TEMPLATE_ID, name: '技术负责人（架构师）', description: '从需求与现状分析，到架构设计、决策记录、工作分解和技术评审。', version: 1, status: 'ready', modules: createArchitectModules(), createdAt: now, updatedAt: now }],
-    teams: [{ id: SOFTWARE_TEAM_ID, name: '软件开发团', description: '可逐步扩充的软件开发团队。首版仅含技术负责人（架构师），其他岗位由用户按项目需要配置。', version: 1, members: [{ memberId: 'architect', templateId: ARCHITECT_TEMPLATE_ID }], createdAt: now, updatedAt: now }],
+    ...createSoftwareDefaults(now, { id: ARCHITECT_TEMPLATE_ID, name: '技术负责人（架构师）', description: '架构设计与独立技术审查', version: 1, status: 'ready', modules: createArchitectModules(), createdAt: now, updatedAt: now }, SOFTWARE_TEAM_ID),
     projects: [], employees: [], memories: [], runs: [],
   };
 }

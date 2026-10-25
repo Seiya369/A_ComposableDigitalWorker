@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 
-export type IconName = 'people' | 'person' | 'plus' | 'close' | 'chevron' | 'check' | 'search' | 'settings' | 'briefcase' | 'layers' | 'model' | 'memory' | 'shield' | 'network' | 'delivery' | 'arrow' | 'external' | 'trash' | 'clock' | 'play' | 'refresh' | 'edit' | 'folder';
+export type IconName = 'people' | 'person' | 'plus' | 'close' | 'chevron' | 'check' | 'search' | 'settings' | 'briefcase' | 'layers' | 'model' | 'memory' | 'shield' | 'network' | 'delivery' | 'arrow' | 'external' | 'trash' | 'archive' | 'clock' | 'play' | 'refresh' | 'edit' | 'folder';
 
 const paths: Record<IconName, string> = {
   folder: 'M3 7V5h6l2 2h10v13H3V7Zm0 3h18',
@@ -18,6 +18,7 @@ const paths: Record<IconName, string> = {
   delivery: 'M9 3h6v4H9V3ZM9 5H5v16h14V5h-4M8 13l3 3 5-6',
   arrow: 'M5 12h14m-5-5 5 5-5 5', external: 'M14 3h7v7M21 3 10 14M11 3H3v18h18v-8',
   trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7',
+  archive: 'M3 3h18v4H3V3ZM5 7v14h14V7M10 11h4',
   clock: 'M12 8v4l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   play: 'm8 4 12 8-12 8V4Z', refresh: 'M20 7v5h-5M4 17v-5h5M5 8a8 8 0 0 1 13-3l2 3M4 16l2 3a8 8 0 0 0 13-3',
   edit: 'm15 4 5 5M4 20l5-1L21 7l-5-5L4 14v6Z',

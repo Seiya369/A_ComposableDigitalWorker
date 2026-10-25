@@ -116,7 +116,7 @@ test('restart resumes durable queued work once and blocks an interrupted running
   assert.equal((await repository.start(f.input)).id, f.get().id);
 });
 
-test('handoff filters unreadable file references and never copies private employee memory', async t => {
+test('handoff shares accepted project file references under native policy without private employee memory', async t => {
   const f = await fixture(t); await f.engine.start(); await f.repository.start(f.input); await f.engine.idle();
   const employee = f.store.snapshot().employees.find(employee => employee.id === f.get().definition.steps[1]!.employeeId)!;
   const modules = structuredClone(employee.modules); modules.permissions.readPaths = ['docs/public/**'];
@@ -125,7 +125,7 @@ test('handoff filters unreadable file references and never copies private employ
   await f.store.updateRun(f.starts[0]!, { artifacts: [{ id: 'visible', title: '共享结果', path: 'docs/public/result.md' }, { id: 'secret', title: 'SECRET_ARTIFACT_SENTINEL', path: 'private/secret.md' }] });
   await f.complete(); await f.control('review', { runId: f.starts[0], decision: 'accepted' }); await f.engine.idle();
   const request = f.store.snapshot().runs.at(-1)!.request;
-  assert.match(request, /docs\/public\/result.md/); assert.doesNotMatch(request, /SECRET_ARTIFACT_SENTINEL|PRIVATE_MEMORY_SENTINEL/);
+  assert.match(request, /docs\/public\/result.md/); assert.match(request, /SECRET_ARTIFACT_SENTINEL/); assert.doesNotMatch(request, /PRIVATE_MEMORY_SENTINEL/);
   await assert.rejects(f.repository.control({ projectId: 'foreign', id: f.get().id, commandId: randomUUID(), expectedVersion: f.get().version, action: 'cancel' }), /当前项目/);
 });
 

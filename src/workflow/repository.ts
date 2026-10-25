@@ -5,6 +5,7 @@ import { validateModules } from '../domain/validation.js';
 import { validateWorkflows } from './definition.js';
 import { buildStepRequest } from './handoff.js';
 import { cancelWorkflow } from './cancel.js';
+import { workflowRetryPlan } from './rework.js';
 import type { SaveProjectWorkflowInput, StartWorkflowInput, WorkflowCommandInput, WorkflowPersistence, WorkflowRun, WorkflowStepRun } from './types.js';
 
 type WorkflowAction = { kind: 'advance' | 'start' | 'cancel'; id: string };
@@ -156,11 +157,23 @@ export class WorkflowRepository {
         invariant(step?.status === 'blocked', '当前步骤不需要重试');
         invariant(input.runId === task?.id, '重试目标已改变，请刷新');
         invariant(!task || !['queued', 'running', 'blocked'].includes(task.status), '旧任务尚未停止，不能重试');
-        invariant(step.attempts.length < (flow.definition.maxAttempts ?? 3), '已达到步骤尝试次数上限，请重新发起工作流');
-        const employee = state.employees.find(employee => employee.id === flow.definition.steps[flow.steps.indexOf(step)]!.employeeId);
+        const plan = workflowRetryPlan(flow, task);
+        invariant(plan.exhaustedIndex < 0, `第 ${plan.exhaustedIndex + 1} 步已达到尝试次数上限，请处理后重新发起工作流`);
+        const employee = state.employees.find(employee => employee.id === flow.definition.steps[plan.targetIndex]!.employeeId);
         invariant(employee?.status === 'active', '请先启用本步骤员工');
-        step.error = input.note?.trim() || step.error;
-        step.status = 'pending'; if (flow.status !== 'paused') flow.status = 'running'; this.event(flow, 'retry', '已请求重新执行当前步骤', step);
+        const feedback = input.note?.trim() || step.error || '验收未通过，请检查并修正交付';
+        const message = plan.targetIndex < plan.currentIndex ? `第 ${plan.currentIndex + 1} 步验收不合格，退回第 ${plan.targetIndex + 1} 步。${feedback}` : feedback;
+        const at = this.now();
+        for (let index = plan.targetIndex; index <= plan.currentIndex; index++) {
+          const affected = flow.steps[index]!;
+          if (affected.status === 'accepted') {
+            const attempt = affected.attempts.at(-1)!;
+            attempt.invalidatedAt = at; attempt.invalidationReason = message;
+          }
+          affected.status = 'pending'; affected.error = message;
+        }
+        if (flow.status !== 'paused') flow.status = 'running';
+        this.event(flow, plan.targetIndex < plan.currentIndex ? 'returned' : 'retry', plan.targetIndex < plan.currentIndex ? `已退回第 ${plan.targetIndex + 1} 步；到第 ${plan.currentIndex + 1} 步均需重新执行并验收` : '已请求重新执行当前步骤', step);
       } else {
         invariant(step?.status === 'awaiting-review' && task?.status === 'awaiting-review' && input.runId === task.id, '验收任务已改变或尚未完成');
         invariant(input.decision === 'accepted' || input.decision === 'rejected', '验收决定无效');

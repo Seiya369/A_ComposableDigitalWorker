@@ -1,0 +1,17 @@
+.wf-conversation-wiki {
+  --wf-panel: var(--dsw-alias-bg-base);
+  --wf-text: var(--dsw-alias-label-primary);
+  --wf-line: var(--dsw-alias-border-l2);
+  --wf-muted: var(--dsw-alias-label-secondary);
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  max-height: calc(100dvh - 170px);
+  overflow-y: auto;
+}
+.wf-conversation-wiki-empty { margin: 0; padding: 12px 20px; color: var(--wf-muted); }
+.wf-conversation-wiki-viewer { display: flex; height: min(640px, 67dvh); min-height: 260px; overflow: hidden; }
+@media (max-width: 720px) { .wf-conversation-wiki-viewer { height: 64dvh; } }
+@media (max-width: 520px) { .wf-conversation-wiki { max-height: calc(100dvh - 130px); } }

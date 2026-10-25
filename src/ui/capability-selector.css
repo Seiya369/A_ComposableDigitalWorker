@@ -1,0 +1,38 @@
+.wf-capability-selector { display: grid; gap: 16px; min-width: 0; }
+.wf-capability-group { display: grid; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-capability-group:last-of-type { border-bottom: 0; }
+.wf-capability-group-heading, .wf-capability-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wf-capability-group h3, .wf-capability-picker h3 { margin: 0; font: var(--wf-font-label); color: var(--wf-text); }
+.wf-capability-group h3 small { font-weight: 400; font-size: 12px; color: var(--wf-muted); }
+.wf-capability-selector .wf-capability-action { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; padding: 0; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); background: transparent; color: var(--wf-text); font-size: 20px; line-height: 1; cursor: pointer; }
+.wf-capability-selector .wf-capability-action:hover { background: var(--wf-card); }
+.wf-capability-selector .wf-capability-action:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 2px; }
+.wf-capability-list, .wf-capability-picker-list { list-style: none; margin: 0; padding: 0; }
+.wf-capability-selection-row { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 2px 0 2px 12px; }
+.wf-capability-selection-row > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wf-capability-selection-name { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; }
+.wf-capability-source { display: inline-block; width: fit-content; padding: 1px 6px; border: 1px solid var(--wf-line-soft); border-radius: var(--wf-control-radius); color: var(--wf-muted); font-size: 11px; font-weight: 400; white-space: nowrap; }
+.wf-capability-empty { color: var(--wf-muted); padding: 4px 12px; font-size: 12px; }
+.wf-capability-unavailable { font-size: 12px; color: var(--wf-warn); }
+.wf-capability-picker { width: min(520px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 48px)); box-sizing: border-box; margin: auto; padding: 16px; overflow: auto; border: 1px solid var(--wf-line); border-radius: var(--wf-radius); background: var(--wf-bg); color: var(--wf-text); }
+.wf-capability-picker::backdrop { background: rgb(0 0 0 / 40%); }
+.wf-capability-picker-heading { margin-bottom: 12px; }
+.wf-capability-picker-search { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.wf-capability-picker-search > input { flex: 1; width: 0; min-width: 0; }
+.wf-capability-picker-search > button, .wf-capability-picker-list button { flex-shrink: 0; }
+.wf-capability-picker-actions { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.wf-capability-mcp-guide { display: grid; gap: 12px; font-size: 13px; line-height: 1.6; }
+.wf-capability-mcp-guide h4 { margin: 0; font: var(--wf-font-label); }
+.wf-capability-mcp-guide ol { margin: 0; padding-left: 20px; }
+.wf-capability-mcp-guide code { overflow-wrap: anywhere; }
+.wf-capability-mcp-guide table { border-collapse: collapse; width: 100%; }
+.wf-capability-mcp-guide th, .wf-capability-mcp-guide td { padding: 8px; border-bottom: 1px solid var(--wf-line-soft); text-align: left; }
+.wf-capability-mcp-guide a { color: var(--wf-accent); }
+.wf-capability-mcp-guide > button { justify-self: start; }
+.wf-capability-picker-list > li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-capability-picker-list > li:last-child { border-bottom: 0; }
+.wf-capability-picker-list > li > span { display: grid; gap: 4px; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wf-capability-picker-list strong { font: var(--wf-font-label); }
+.wf-capability-picker-list small { color: var(--wf-muted); font-size: 12px; }
+.wf-capability-picker-list .wf-capability-unavailable { color: var(--wf-warn); }
+@media (max-width: 480px) { .wf-capability-selection-row { gap: 8px; padding-left: 4px; } .wf-capability-unavailable { max-width: 72px; } .wf-capability-picker { padding: 12px; } }

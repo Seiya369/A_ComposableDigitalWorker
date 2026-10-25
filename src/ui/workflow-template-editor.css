@@ -1,0 +1,68 @@
+.wf-root .wf-workflow-nav-item { min-height: 32px; padding: 5px 8px; gap: 8px; }
+.wf-workflow-nav-item > svg { flex-shrink: 0; }
+.wf-workflow-template-editor > .wf-team-toolbar { padding: 8px 16px; }
+.wf-root .wf-workflow-template-editor .wf-team-name { height: 32px; }
+.wf-workflow-template-editor .wf-object-header-actions > .wf-button,
+.wf-workflow-template-editor .wf-object-header-actions .wf-settings-transfer > .wf-button { height: 32px; padding-inline: 12px; }
+.wf-workflow-template-editor > .wf-team-content { padding: 12px 16px 16px; }
+.wf-workflow-step-list { display: flex; flex-direction: column; gap: 12px; }
+.wf-workflow-step-card { display: grid; grid-template-columns: minmax(0, 1fr) minmax(140px, .5fr) auto; gap: 10px 12px; min-width: 0; padding: 12px; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); }
+.wf-workflow-step-card .wf-field { min-width: 0; gap: 4px; margin: 0; }
+.wf-workflow-step-card .wf-field-label { font: var(--wf-font-label); }
+.wf-workflow-step-name-control { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.wf-workflow-step-name-control > span { flex-shrink: 0; color: var(--wf-muted); font: var(--wf-font-control); }
+.wf-root .wf-workflow-step-card input, .wf-root .wf-workflow-step-card select { height: 32px; padding-inline: 8px; }
+.wf-workflow-step-actions { display: flex; align-items: center; align-self: end; gap: 4px; height: 32px; }
+.wf-workflow-step-actions > .wf-icon-button { width: 26px; height: 28px; }
+.wf-workflow-step-sections { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.wf-root .wf-workflow-step-sections textarea { flex: 1; min-height: 156px; }
+.wf-workflow-step-outcome { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; min-width: 0; }
+.wf-workflow-step-outcome > span { color: var(--wf-muted); font: var(--dsw-font-xxs-12); }
+.wf-workflow-step-outcome > .wf-field { display: flex; flex-direction: row; align-items: center; gap: 8px; min-width: 0; }
+.wf-workflow-step-outcome .wf-field-label { flex-shrink: 0; color: var(--wf-muted); }
+.wf-workflow-step-outcome select { max-width: 280px; min-width: 100px; }
+.wf-root .wf-workflow-step-card textarea { resize: vertical; }
+.wf-workflow-add-step { align-self: flex-start; height: 30px; }
+@container team-editor (max-width: 600px) {
+  .wf-workflow-step-card { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 10px; }
+  .wf-workflow-step-name { grid-column: 1; grid-row: 1; }
+  .wf-workflow-step-actions { grid-column: 2; grid-row: 1; }
+  .wf-workflow-step-assignee { grid-column: 1 / -1; }
+  .wf-workflow-step-sections { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .wf-workflow-step-outcome > .wf-field { width: 100%; }
+  .wf-workflow-step-outcome select { flex: 1; max-width: none; width: 100%; }
+}
+.wf-root .wf-workflow-binding-dialog { width: min(520px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); margin: auto; padding: 16px; overflow: auto; color: var(--wf-text); background: var(--wf-panel); border: 1px solid var(--wf-line); border-radius: var(--wf-radius); }
+.wf-workflow-binding-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.wf-workflow-binding-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.wf-workflow-binding-heading > h2 { font: var(--wf-font-heading); }
+.wf-workflow-binding-fields { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 0; margin: 0; border: 0; }
+.wf-workflow-binding-fields .wf-field { margin: 0; }
+.wf-workflow-binding-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+@media (max-width: 480px) { .wf-root .wf-workflow-binding-dialog { max-height: calc(100dvh - 24px); padding: 12px; } }
+
+.wf-workflow-save-state { color: var(--wf-dim); font: var(--dsw-font-xxs-12); white-space: nowrap; }
+.wf-workflow-template-editor .wf-workflow-identity { display: flex; align-items: center; gap: 12px; flex-basis: 320px; }
+.wf-workflow-identity > h2 { flex: 1; min-width: 100px; }
+.wf-root .wf-workflow-team-button { display: flex; align-items: center; flex: 0 1 auto; min-width: 100px; max-width: 60%; height: 32px; gap: 6px; padding-inline: 10px; }
+.wf-workflow-team-button > svg { flex: none; }
+.wf-workflow-team-button > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wf-workflow-team-roster { list-style: none; padding: 0; margin: 12px 0 0; max-height: 320px; overflow: auto; }
+.wf-workflow-team-roster > li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; padding-block: 6px; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-workflow-team-roster small { color: var(--wf-muted); }
+.wf-workflow-diagram { margin-top: 24px; min-width: 0; }
+.wf-workflow-diagram > h3 { margin-bottom: 8px; font: var(--wf-font-label); }
+.wf-workflow-diagram-viewport { max-height: 440px; overflow: auto; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); }
+.wf-workflow-diagram-canvas { position: relative; min-width: 0; }
+.wf-workflow-diagram-canvas > svg { position: absolute; inset: 0; pointer-events: none; color: var(--wf-muted); }
+.wf-workflow-diagram-edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.wf-workflow-diagram-return { fill: none; stroke: var(--wf-red); stroke-width: 1.5; stroke-dasharray: 5 4; }
+.wf-workflow-diagram-return-label { fill: var(--wf-red); font: var(--dsw-font-xxs-12); }
+.wf-workflow-diagram-canvas marker > path { fill: currentColor; }
+.wf-root .wf-workflow-diagram-node { position: absolute; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; gap: 5px; width: 168px; height: 72px; padding: 10px; text-align: left; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); background: var(--wf-card); color: var(--wf-text); }
+.wf-workflow-diagram-node > strong, .wf-workflow-diagram-node > span { max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.wf-workflow-diagram-node > strong { font: var(--wf-font-label); }
+.wf-workflow-diagram-node > span { color: var(--wf-muted); font: var(--dsw-font-xxs-12); }
+.wf-root .wf-workflow-diagram-node:hover { border-color: var(--wf-muted); background: var(--wf-input); }
+.wf-step-move-up { transform: rotate(-90deg); }
+.wf-step-move-down { transform: rotate(90deg); }

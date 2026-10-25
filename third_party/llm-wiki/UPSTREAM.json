@@ -1,0 +1,18 @@
+{
+  "name": "llm_wiki",
+  "version": "0.6.13",
+  "origin": "https://github.com/nashsu/llm_wiki",
+  "revision": "e08cfce65aad8b76b13546a081c1a8d4422b70c3",
+  "license": "GPL-3.0",
+  "files": {
+    "upstream/lib/wiki-graph.ts": "35cce9da8d964b9e4e5af6906e625a5a7aed8859fbcd3927c7d512118df1bef0",
+    "upstream/lib/graph-relevance.ts": "50fe6411a0b01da9c0866473e6dbd99634d3a26150f7cb76be80afb367e98eda",
+    "upstream/lib/wiki-graph-analysis.ts": "6e41ebdb70be6a317afd65999b1a8ab357524a70901c1ef6e8563aa93177172f",
+    "upstream/lib/graph-insights.ts": "3bc85d26528aa6f3237f09cd89290ac7ccc59b9b5c6f26ddfe153df520d21965",
+    "upstream/lib/frontmatter.ts": "cb7f154d58e60e23a80827d950d09857ffe083d70d3a196febecec9e99570ecb",
+    "upstream/lib/path-utils.ts": "7ba009d3a3ea8ddf72b5dda2933b10a14cb64e186dbc41cb9f979c6a19885be3",
+    "upstream/lib/ingest.ts": "f93cb6a9581a33169f3b49dfc2b2f153cb8e1ddeb48f2313cf42da8ca4e428bb",
+    "upstream/lib/wiki-graph-analysis.worker.ts": "38b2b3f0bb3f62f3ec18acdedea2d1302529357901a4b001aec56d1cdd5190fe",
+    "LICENSE": "2e7e96952fc1b0a91def456f50f4f335846b57df77c123789f56971a74748dc6"
+  }
+}

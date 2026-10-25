@@ -6,8 +6,9 @@ import { join } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
 import AgentRegistry from '@deepseek-ai/dsh-agent';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
-import LlmRuntime, { CallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm';
+import LlmRuntime, { ToolCallId, LlmAdapter, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm';
 import SessionStore from '@deepseek-ai/dsh-session';
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
 import { WorkforceStore } from '../src/domain/store.js';
@@ -23,7 +24,7 @@ function answer(value: string): StreamChunk[] {
   return [{ type: 'block-start', index: 0, blockType: 'text' }, { type: 'text-delta', index: 0, text: value }, { type: 'block-end', index: 0, block: { type: 'text', text: value } }, { type: 'finish', reason: { kind: 'stop' } }];
 }
 function delegate(employeeId: string): StreamChunk[] {
-  const id = CallId(`review-${employeeId}`); const argumentsText = JSON.stringify({ employeeId, request: 'CHILD_TASK' });
+  const id = ToolCallId(`review-${employeeId}`); const argumentsText = JSON.stringify({ employeeId, request: 'CHILD_TASK' });
   return [{ type: 'block-start', index: 0, blockType: 'tool-call' }, { type: 'tool-call-delta', index: 0, id, name: 'worker_delegate', argumentsDelta: argumentsText }, { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'worker_delegate', arguments: argumentsText } }, { type: 'finish', reason: { kind: 'tool-calls' } }];
 }
 class ReviewAdapter extends LlmAdapter {
@@ -40,7 +41,7 @@ async function fixture(t: { after: (cleanup: () => Promise<void>) => void }, ada
   const modules = structuredClone(employee.modules); modules.model = { mode: 'override', provider: 'review', model: 'review' }; modules.capabilities.skills = []; modules.collaboration.allowedTemplateIds = [ARCHITECT_TEMPLATE_ID];
   employee = await store.updateEmployee(employee.id, { modules });
   const ctx = new Context();
-  for (const plugin of [LlmRuntime, SessionStore, SystemPrompt, ToolRuntime, AgentRegistry]) await ctx.plugin(plugin);
+  for (const plugin of [LlmRuntime, SessionStore, SessionProjectionRegistry, SystemPrompt, ToolRuntime, AgentRegistry]) await ctx.plugin(plugin);
   await ctx.plugin(AgentLoop, { agents: [] }); ctx.llm.registerAdapter(['review'], adapter);
   ctx.provide('workspaceRegistry', { get: () => ({ sessionIds: [], attachSession: async () => undefined }) } as never);
   const runtime = new WorkforceRuntime(ctx, store, new Map(), { maxRunMs: 1000 });

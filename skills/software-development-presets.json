@@ -1,0 +1,128 @@
+{
+  "format": "workforce-role-skill-presets",
+  "version": 1,
+  "roles": [
+    {
+      "role": "product",
+      "name": "产品负责人",
+      "required": "requirements-acceptance",
+      "preferred": [
+        {
+          "id": "grill-with-docs",
+          "useWhen": "需求存在影响范围或验收的关键疑问时"
+        },
+        {
+          "id": "to-spec",
+          "useWhen": "把已确定需求整理为正式规格时"
+        }
+      ]
+    },
+    {
+      "role": "architect",
+      "name": "技术负责人/架构师",
+      "required": "architecture-design",
+      "preferred": [
+        {
+          "id": "architecture-analysis",
+          "useWhen": "梳理现状、领域边界与风险时"
+        },
+        {
+          "id": "to-tickets",
+          "useWhen": "把已确认方案拆为工作包及依赖时"
+        },
+        {
+          "id": "code-review",
+          "useWhen": "独立审查实现、接口、权限、兼容及失败恢复时"
+        },
+        {
+          "id": "technical-review",
+          "useWhen": "审查非代码方案或已有交付证据时"
+        },
+        {
+          "id": "retro",
+          "useWhen": "阶段完成后或重复问题需要改进工程方法时"
+        },
+        {
+          "id": "worktree-cleanup",
+          "useWhen": "本任务创建临时工作树时先登记，合并验证后完整清理时"
+        }
+      ]
+    },
+    {
+      "role": "designer",
+      "name": "UX/UI设计师",
+      "required": "ux-design-review",
+      "preferred": [
+        {
+          "id": "frontend-ui-engineering",
+          "useWhen": "设计或核验页面布局、交互状态、适配与可访问性时"
+        },
+        {
+          "id": "design-system-guidance",
+          "useWhen": "新产品或明确要求建立视觉设计体系时"
+        }
+      ]
+    },
+    {
+      "role": "developer",
+      "name": "开发人员",
+      "required": "incremental-implementation",
+      "preferred": [
+        {
+          "id": "test-driven-development",
+          "useWhen": "实现重要行为或修复需要回归证明的缺陷时"
+        },
+        {
+          "id": "debugging-and-error-recovery",
+          "useWhen": "出现错误、构建失败或运行异常时"
+        },
+        {
+          "id": "pr",
+          "useWhen": "需要提交变更的PR说明稿时"
+        },
+        {
+          "id": "worktree-cleanup",
+          "useWhen": "创建本任务临时工作树或合并验证后清理时"
+        }
+      ]
+    },
+    {
+      "role": "tester",
+      "name": "测试负责人",
+      "required": "quality-verification",
+      "preferred": [
+        {
+          "id": "code-review",
+          "useWhen": "交叉审查测试代码、需求覆盖、断言有效性和接口契约时"
+        },
+        {
+          "id": "webapp-testing",
+          "useWhen": "验证Web真实界面路径、状态与回归时"
+        },
+        {
+          "id": "worktree-cleanup",
+          "useWhen": "本任务测试使用临时工作树，合并核验后清理时"
+        }
+      ]
+    },
+    {
+      "role": "operator",
+      "name": "运维负责人",
+      "required": "release-readiness",
+      "preferred": [
+        {
+          "id": "shipping-and-launch",
+          "useWhen": "准备发布材料、安装升级卸载或执行已授权上线时"
+        },
+        {
+          "id": "ci-cd-and-automation",
+          "useWhen": "修改或核验构建、测试和发布流水线时"
+        },
+        {
+          "id": "worktree-cleanup",
+          "useWhen": "本任务发布工作树合并验证后清理时"
+        }
+      ]
+    }
+  ]
+}

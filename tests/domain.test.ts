@@ -44,7 +44,7 @@ test('blank drafts instantiate paused; invalid ready configuration and hierarchy
   assert.equal(store.snapshot().revision, before);
   await store.updateEmployee(blank.id, { managerId: employee.id });
   await assert.rejects(store.updateEmployee(employee.id, { managerId: blank.id }), /循环/);
-  const group = await store.instantiateTeam(project.id, SOFTWARE_TEAM_ID); assert.equal(group.length, 1); assert.notEqual(group[0]!.id, employee.id);
+  const group = await store.instantiateTeam(project.id, SOFTWARE_TEAM_ID); assert.equal(group.length, store.snapshot().teams.find(team => team.id === SOFTWARE_TEAM_ID)!.members.length); assert.notEqual(group[0]!.id, employee.id);
 });
 
 test('memory CRUD isolates projects and employees, verifies sources, rejects symlink escape', async t => {
@@ -77,7 +77,7 @@ test('run lifecycle requires review; memory cannot promote unaccepted or cross-p
 test('prompt filters memory scopes even when caller provides an unfiltered snapshot', async t => {
   const { store, project, employee } = await fixture(t); const other = await store.createEmployee({ projectId: project.id, templateId: ARCHITECT_TEMPLATE_ID });
   await store.saveMemory({ projectId: project.id, scope: 'employee', employeeId: other.id, title: '他人私有', content: 'OTHER_PRIVATE_SENTINEL', source: { kind: 'user-confirmed', reference: '确认' } });
-  const prompt = buildEmployeePrompt(employee, store.snapshot().memories); assert.ok(!prompt.includes('OTHER_PRIVATE_SENTINEL')); assert.ok(prompt.includes('不得把临时聊天')); assert.ok(prompt.includes('worker_write_artifact'));
+  const prompt = buildEmployeePrompt(employee, store.snapshot().memories); assert.ok(!prompt.includes('OTHER_PRIVATE_SENTINEL')); assert.ok(prompt.includes('不得把临时聊天')); assert.ok(prompt.includes('DSH 原生策略')); assert.ok(!prompt.includes('可调用工具：'));
 });
 
 test('invalid persisted data is rejected rather than silently replaced with seeds', async t => {
@@ -105,4 +105,15 @@ test('accepted artifacts still cannot be promoted into another project memory', 
   await store.updateRun(run.id, { status: 'awaiting-review', artifacts: [{ id: 'a', title: '本项目方案', content: '方案正文' }] });
   await store.reviewRun(run.id, { decision: 'accepted', reviewer: 'user' });
   await assert.rejects(store.saveMemory({ projectId: otherProject.id, scope: 'project', title: '不允许跨项目', content: '方案事实', source: { kind: 'accepted-artifact', runId: run.id, artifactId: 'a' } }), /本项目已验收/);
+});
+
+
+test('project-only reads stay detached and never clone employee, memory or run bodies', async t => {
+  const { store, project } = await fixture(t);
+  const before = store.snapshot();
+  const projects = store.listProjects();
+  assert.deepEqual(projects, before.projects);
+  projects[0]!.name = 'uncommitted external edit'; projects.length = 0;
+  assert.equal(store.listProjects()[0]!.name, project.name);
+  assert.deepEqual(store.snapshot(), before);
 });

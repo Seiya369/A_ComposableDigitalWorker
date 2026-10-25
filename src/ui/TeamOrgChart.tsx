@@ -1,3 +1,4 @@
+import { useI18n } from './i18n.js';
 import { useMemo } from 'react';
 import { buildTeamHierarchy } from '../domain/team-hierarchy.js';
 import type { EmployeeTemplate, TeamMember } from '../domain/types.js';
@@ -52,39 +53,40 @@ function layoutHierarchy(roots: HierarchyNode[]) {
   return { width, height, nodes, edges };
 }
 
-export function TeamOrgChart({ members, templates, selectedMemberId, onSelect }: {
+export function TeamOrgChart({ members, templates, selectedMemberId, onSelect, readOnly = false }: {
   members: TeamMember[];
   templates: EmployeeTemplate[];
   selectedMemberId?: string;
-  onSelect: (memberId: string) => void;
+  onSelect?: (memberId: string) => void;
+  readOnly?: boolean;
 }) {
+  const { t } = useI18n();
   const layout = useMemo(() => layoutHierarchy(buildTeamHierarchy(members)), [members]);
   const templateNames = new Map(templates.map(template => [template.id, template.name]));
 
-  if (!members.length) return <div className="wf-team-org-empty"><Icon name="network" size={26} /><p>暂无团队成员</p></div>;
+  if (!members.length) return <div className="wf-team-org-empty"><Icon name="network" size={26} /><p>{t("暂无团队成员")}</p></div>;
 
-  return <div className="wf-team-org" role="region" aria-label="团队组织架构" tabIndex={0}>
+  return <div className="wf-team-org" role="region" aria-label={t("团队组织架构")} tabIndex={0}>
     <div className="wf-team-org-canvas" style={{ width: layout.width, height: layout.height }}>
       <svg className="wf-team-org-lines" width={layout.width} height={layout.height} aria-hidden="true">
         {layout.edges.map((path, index) => <path key={index} d={path} />)}
       </svg>
       {layout.nodes.map(({ node, x, y }) => {
-        const templateName = templateNames.get(node.member.templateId) ?? '未选择员工模板';
+        const templateName = templateNames.get(node.member.templateId) ?? t("未选择员工模板");
         const name = node.member.name?.trim() || templateName;
-        return <button
+        const content = <><span className="wf-team-org-node-meta"><Icon name="person" size={16} /><span>{t('第 {level} 级', { level: node.level })}</span></span><strong>{name}</strong>{name !== templateName && <span className="wf-team-org-template">{templateName}</span>}</>;
+        const style = { left: x, top: y, width: CARD_WIDTH, height: CARD_HEIGHT };
+        const title = t('{name} · 第 {level} 级', { name, level: node.level });
+        return readOnly ? <div key={node.member.memberId} className="wf-team-org-node is-read-only" style={style} title={title}>{content}</div> : <button
           type="button"
           key={node.member.memberId}
           className={`wf-team-org-node${selectedMemberId === node.member.memberId ? ' is-selected' : ''}`}
-          style={{ left: x, top: y, width: CARD_WIDTH, height: CARD_HEIGHT }}
-          aria-label={`配置团队成员 ${name}`}
+          style={style}
+          aria-label={t('配置团队成员 {name}', { name })}
           aria-pressed={selectedMemberId === node.member.memberId}
-          title={`${name} · 第 ${node.level} 级`}
-          onClick={() => onSelect(node.member.memberId)}
-        >
-          <span className="wf-team-org-node-meta"><Icon name="person" size={16} /><span>第 {node.level} 级</span></span>
-          <strong>{name}</strong>
-          {name !== templateName && <span className="wf-team-org-template">{templateName}</span>}
-        </button>;
+          title={title}
+          onClick={() => onSelect?.(node.member.memberId)}
+        >{content}</button>;
       })}
     </div>
   </div>;

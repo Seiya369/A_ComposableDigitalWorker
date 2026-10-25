@@ -15,3 +15,8 @@ artifacts/
 *.pfx
 *.log
 coverage/
+
+# Local audit working notes; public findings live in docs/audits/.
+task_plan.md
+findings.md
+progress.md

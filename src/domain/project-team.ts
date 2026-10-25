@@ -43,7 +43,7 @@ export function installProjectTeam(
   const date = new Date().toISOString();
   const team: ProjectTeam = {
     id: randomUUID(), projectId: input.projectId, teamTemplateId: template.id,
-    teamTemplateVersion: template.version, name: template.name, status: 'active', version: 1,
+    teamTemplateVersion: template.version, name: template.name, knowledgeEnabled: template.knowledgeEnabled ?? true, status: 'active', version: 1,
     members: [], workflows: [], createdAt: date, updatedAt: date,
   };
   const assignedIds = new Set(state.projectTeams?.flatMap(team => team.members.map(member => member.employeeId)) ?? []);
@@ -61,6 +61,7 @@ export function installProjectTeam(
     const employee = existing ?? createEmployee({ projectId: input.projectId, templateId: member.templateId, ...(member.name ? { name: member.name } : {}) }, team.id);
     if (existing) { employee.teamInstanceId = team.id; employee.version++; employee.updatedAt = date; }
     assignedIds.add(employee.id);
+    delete employee.legacyTeamKnowledgeEnabled;
     members.set(member.memberId, employee);
     team.members.push({ memberId: member.memberId, employeeId: employee.id });
   }
@@ -70,11 +71,20 @@ export function installProjectTeam(
     else delete employee.managerId;
   }
   team.workflows = (template.workflows ?? []).map(workflow => ({
-    id: randomUUID(), templateWorkflowId: workflow.id, name: workflow.name, version: 1, maxAttempts: workflow.maxAttempts ?? 3,
+    id: randomUUID(), templateWorkflowId: workflow.id, ...(workflow.sourceTemplateVersion !== undefined ? { templateWorkflowVersion: workflow.sourceTemplateVersion } : {}), name: workflow.name, version: 1, maxAttempts: workflow.maxAttempts ?? 3,
     steps: workflow.steps.map(({ memberId, ...step }) => ({ ...step, employeeId: members.get(memberId)!.id })),
   }));
   (state.projectTeams ??= []).push(team);
   return team;
+}
+
+/** Team-level gate also applies to legacy memory compatibility paths. */
+export function projectTeamKnowledgeEnabled(state: WorkforceState, employee: Pick<ProjectEmployee, 'id' | 'projectId'>): boolean {
+  const team = state.projectTeams?.find(team => team.projectId === employee.projectId && team.members.some(member => member.employeeId === employee.id));
+  if (team) return team.status !== 'cancelled' && team.knowledgeEnabled !== false;
+  const current = state.employees.find(member => member.id === employee.id && member.projectId === employee.projectId);
+  if (!current?.teamInstanceId) return true;
+  return state.employees.filter(member => member.projectId === current.projectId && member.teamInstanceId === current.teamInstanceId).every(member => member.legacyTeamKnowledgeEnabled !== false);
 }
 
 /** Cancel only the selected installation versions; preserve all snapshots, memories and history. */

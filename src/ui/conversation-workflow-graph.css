@@ -1,0 +1,14 @@
+.wf-conversation-workflow-bar { position: relative; z-index: 2; }
+.wf-conversation-workflow-steps[data-graph] { position: relative; display: block; flex: 1 1 auto; overflow: visible; }
+.wf-conversation-workflow-alignment-probe { position: absolute; left: 0; visibility: hidden; pointer-events: none; white-space: nowrap; font: var(--dsw-font-xxs-12); }
+.wf-conversation-workflow-steps[data-labels-visible="false"] .wf-conversation-workflow-step-label { visibility: hidden; }
+.wf-conversation-workflow-connections { position: absolute; top: 0; left: 0; z-index: 1; display: block; pointer-events: none; overflow: hidden; color: var(--dsw-alias-label-tertiary); }
+.wf-conversation-workflow-connections > path { fill: none; stroke: var(--dsw-alias-border-l2); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.wf-conversation-workflow-connections > path[data-kind="reject"] { stroke: currentColor; stroke-dasharray: 3 2; opacity: .8; }
+.wf-conversation-workflow-steps[data-graph] > .wf-conversation-workflow-step { position: absolute; top: 0; height: 100%; max-width: none; box-sizing: border-box; justify-content: flex-start; padding-bottom: 2px; }
+.wf-conversation-workflow-steps[data-graph] > .wf-conversation-workflow-step::after { content: none; }
+.wf-conversation-workflow-steps[data-graph] > .wf-conversation-workflow-step[aria-disabled="true"] { opacity: .6; cursor: default; }
+.wf-conversation-workflow-steps[data-graph] > .wf-conversation-workflow-step[aria-disabled="true"]:hover { background: transparent; }
+.wf-conversation-workflow-steps[data-graph] > .wf-conversation-workflow-more { position: absolute; height: 28px; box-sizing: border-box; }
+
+.wf-conversation-workflow-step-label { max-width: 100px; }

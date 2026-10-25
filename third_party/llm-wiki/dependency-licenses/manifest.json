@@ -1,0 +1,156 @@
+[
+  {
+    "name": "dompurify",
+    "version": "3.4.17",
+    "license": "(MPL-2.0 OR Apache-2.0)",
+    "notices": [
+      {
+        "file": "dompurify@3.4.17-LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ]
+  },
+  {
+    "name": "events",
+    "version": "3.3.0",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "events@3.3.0-LICENSE",
+        "sha256": "631987b7616a325a5b97566c232418481ddf7dbb5ecadefb991e791876cc2599"
+      }
+    ]
+  },
+  {
+    "name": "graphology",
+    "version": "0.26.0",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "graphology@0.26.0-LICENSE.txt",
+        "sha256": "9d396b4882c329077f32861c0d6822dcee48f2d0ff6196d8459af70844196275"
+      }
+    ]
+  },
+  {
+    "name": "graphology-communities-louvain",
+    "version": "2.0.2",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "graphology-communities-louvain@2.0.2-LICENSE.txt",
+        "sha256": "597c30078622c20d8e62f9d96b4d2b9f9013b9668b778a55eb00810d093cd08c"
+      }
+    ]
+  },
+  {
+    "name": "graphology-indices",
+    "version": "0.17.0",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "graphology-indices@0.17.0-LICENSE.txt",
+        "sha256": "ccd21f75fe569cc7c87f7b5c34c3263bfa123d565bfae1ac475814e0dcbf9f9c"
+      }
+    ]
+  },
+  {
+    "name": "graphology-utils",
+    "version": "2.5.2",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "graphology-utils@2.5.2-LICENSE.txt",
+        "sha256": "597c30078622c20d8e62f9d96b4d2b9f9013b9668b778a55eb00810d093cd08c"
+      }
+    ]
+  },
+  {
+    "name": "marked",
+    "version": "18.1.1",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "marked@18.1.1-LICENSE",
+        "sha256": "8e3a3f82f59a60958f56ca08f445647c32a4733dc7ca6c2c46f6eb898471ab9c"
+      }
+    ]
+  },
+  {
+    "name": "mnemonist",
+    "version": "0.39.8",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "mnemonist@0.39.8-LICENSE.txt",
+        "sha256": "dfa5b838b877406f163d57ed736fd6d7f99ed442dfde2152c11d7b34dff3dd81"
+      }
+    ]
+  },
+  {
+    "name": "obliterator",
+    "version": "2.0.5",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "obliterator@2.0.5-LICENSE.txt",
+        "sha256": "597c30078622c20d8e62f9d96b4d2b9f9013b9668b778a55eb00810d093cd08c"
+      }
+    ]
+  },
+  {
+    "name": "pandemonium",
+    "version": "2.4.1",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "pandemonium@2.4.1-LICENSE.txt",
+        "sha256": "b63d4dcdfcb0aa516388263914aa2d758419db59284b674120cbe3148d9412dc"
+      }
+    ]
+  },
+  {
+    "name": "react",
+    "version": "18.3.1",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "react@18.3.1-LICENSE",
+        "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+      }
+    ]
+  },
+  {
+    "name": "react-dom",
+    "version": "18.3.1",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "react-dom@18.3.1-LICENSE",
+        "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+      }
+    ]
+  },
+  {
+    "name": "scheduler",
+    "version": "0.23.2",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "scheduler@0.23.2-LICENSE",
+        "sha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85"
+      }
+    ]
+  },
+  {
+    "name": "sigma",
+    "version": "3.0.2",
+    "license": "MIT",
+    "notices": [
+      {
+        "file": "sigma@3.0.2-LICENSE.txt",
+        "sha256": "2d6beb4435a5186414986ef25facdea68619d0f3e1043b9a795f5c6233914013"
+      }
+    ]
+  }
+]

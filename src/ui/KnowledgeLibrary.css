@@ -1,0 +1,73 @@
+.wf-knowledge-library { --wf-knowledge-action: light-dark(#697585, #adb0b6); display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow: hidden; }
+.wf-knowledge-browser { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; border: 1px solid var(--wf-line); border-radius: var(--wf-radius); overflow: hidden; }
+.wf-knowledge-flow { flex-shrink: 0; min-width: 0; margin: 0; padding: 0 3px; color: var(--wf-muted); font-size: 11px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wf-knowledge-map-view { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.wf-knowledge-map-view[hidden] { display: none; }
+.wf-knowledge-show-all { align-self: flex-start; flex-shrink: 0; margin: 8px 12px 0; height: 28px; font-size: 12px; }
+.wf-knowledge-reader { display: flex; flex: 1 1 auto; flex-direction: column; align-items: stretch; gap: 12px; min-width: 0; min-height: 0; padding: 16px 20px; overflow: auto; }
+.wf-knowledge-reader > h3 { font: var(--wf-font-heading); font-size: 17px; overflow-wrap: anywhere; }
+.wf-knowledge-reader-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; }
+.wf-knowledge-reader-heading .wf-tag { font-size: 11px; }
+.wf-knowledge-prose { white-space: pre-wrap; font-size: 13px; line-height: 1.75; overflow-wrap: anywhere; }
+.wf-knowledge-prose > * + * { margin-top: 12px; }
+.wf-knowledge-prose h4, .wf-knowledge-prose h5 { margin: 16px 0 8px; font: var(--wf-font-label); font-size: 14px; }
+.wf-knowledge-prose ul, .wf-knowledge-prose ol { padding-left: 22px; white-space: normal; }
+.wf-knowledge-prose li + li { margin-top: 4px; }
+.wf-knowledge-prose code { font: 12px/1.65 var(--ds-font-family-code, monospace); background: var(--wf-input); border-radius: 3px; padding: 2px 4px; }
+.wf-knowledge-prose pre { padding: 10px; overflow: auto; background: var(--wf-input); border-radius: 4px; white-space: pre; }
+.wf-knowledge-prose pre > code { padding: 0; }
+.wf-knowledge-prose blockquote { padding: 4px 12px; border-left: 2px solid var(--wf-line); color: var(--wf-muted); }
+.wf-knowledge-citations { display: flex; flex-direction: column; gap: 4px; padding-top: 12px; margin-top: auto; border-top: 1px solid var(--wf-line); }
+.wf-knowledge-citations > strong { font: var(--wf-font-label); color: var(--wf-muted); }
+.wf-knowledge-citations > button { display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: 4px; background: var(--wf-input); text-align: left; font-size: 12px; }
+.wf-knowledge-citations > button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-knowledge-citations > button span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wf-knowledge-citations > button small { color: var(--wf-dim); white-space: nowrap; font-size: 11px; }
+.wf-knowledge-source-text { font: 12px/1.65 var(--ds-font-family-code, monospace); white-space: pre-wrap; margin: 0; overflow-wrap: anywhere; }
+.wf-knowledge-excerpt { margin: 0; padding: 8px 12px; background: var(--wf-input); border-left: 2px solid var(--wf-accent); white-space: pre-wrap; overflow-wrap: anywhere; }
+.wf-knowledge-excerpt small { display: block; color: var(--wf-muted); font-size: 11px; margin-bottom: 4px; }
+.wf-knowledge-empty { display: flex; flex: 1; flex-direction: column; justify-content: center; align-items: center; gap: 10px; min-width: 0; min-height: 0; padding: 24px; overflow: auto; text-align: center; color: var(--wf-muted); }
+.wf-knowledge-empty > svg { flex-shrink: 0; color: var(--wf-dim); }
+.wf-knowledge-empty > strong { color: var(--wf-text); font: var(--wf-font-label); }
+.wf-knowledge-empty > p { max-width: 420px; font-size: 12px; line-height: 1.6; }
+.wf-knowledge-categories { display: grid; flex-shrink: 0; grid-template-columns: repeat(4, minmax(208px, 1fr)); gap: 6px; overflow-x: auto; padding: 3px; }
+.wf-knowledge-categories > .wf-knowledge-category { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; height: 36px; padding: 4px 10px; text-align: left; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); background: transparent; }
+.wf-knowledge-category > strong { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--wf-font-label); font-size: 14px; }
+.wf-root .wf-knowledge-upload.wf-button { flex-shrink: 0; height: 26px; padding: 0 8px; color: var(--wf-knowledge-action) !important; font-size: 12px; }
+.wf-knowledge-category > .wf-knowledge-archive { display: inline-flex; flex-shrink: 0; align-items: center; gap: 6px; min-height: 26px; padding: 0; border: 0; border-radius: var(--wf-control-radius); background: transparent; color: var(--wf-knowledge-action); font-size: 12px; white-space: nowrap; }
+.wf-knowledge-archive:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 3px; }
+.wf-knowledge-archive:disabled { cursor: default; opacity: .5; }
+.wf-knowledge-switch-track { display: inline-flex; flex-shrink: 0; align-items: center; width: 18.2px; height: 11.2px; padding: 1.1px; border: 1px solid var(--wf-line); border-radius: 7px; background: var(--wf-input); transition: background .15s; }
+.wf-knowledge-switch-track > span { flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--wf-muted); transition: transform .15s; }
+.wf-knowledge-archive[aria-checked="true"] .wf-knowledge-switch-track { background: var(--wf-accent); border-color: var(--wf-accent); }
+.wf-knowledge-archive[aria-checked="true"] .wf-knowledge-switch-track > span { transform: translateX(7px); background: var(--wf-bg); }
+.wf-knowledge-archive[aria-busy="true"] .wf-knowledge-switch-track { opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .wf-knowledge-switch-track, .wf-knowledge-switch-track > span { transition: none; } }
+.wf-knowledge-library > .wf-banner { display: flex; flex-shrink: 0; align-items: center; gap: 8px; justify-content: space-between; }
+.wf-materials-dialog { width: min(620px, calc(100vw - 32px)); max-height: min(640px, calc(100dvh - 48px)); margin: auto; padding: 16px; border: 1px solid var(--wf-line); border-radius: var(--wf-radius); background: var(--wf-bg); color: var(--wf-text); overflow: hidden; }
+.wf-materials-dialog[open] { display: flex; flex-direction: column; gap: 12px; }
+.wf-materials-dialog::backdrop { background: rgb(0 0 0 / 40%); }
+.wf-materials-heading, .wf-materials-actions { display: flex; flex-shrink: 0; align-items: center; gap: 8px; }
+.wf-materials-heading { justify-content: space-between; }
+.wf-materials-heading > h3 { font: var(--wf-font-label); }
+.wf-materials-actions > .wf-hint { flex: 1; min-width: 0; }
+.wf-materials-dialog .wf-button { flex-shrink: 0; height: 30px; padding: 0 12px; font-size: 12px; }
+.wf-materials-actions > .wf-materials-add { width: 30px; padding: 0; font-size: 20px; }
+.wf-root .wf-materials-file { display: none; }
+.wf-materials-list { list-style: none; min-height: 0; margin: 0; padding: 0; overflow: auto; }
+.wf-materials-list > li { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--wf-line-soft); }
+.wf-materials-list > li:last-child { border-bottom: 0; }
+.wf-materials-list > li > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.wf-materials-list .wf-materials-remove { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); background: transparent; font-size: 20px; line-height: 1; }
+.wf-materials-remove:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-materials-dialog > .wf-knowledge-reader { padding: 0; }
+.wf-materials-dialog > .wf-banner { flex-shrink: 0; padding: 8px 10px; }
+@media (max-width: 700px) {
+  .wf-knowledge-reader { padding: 12px; }
+  .wf-knowledge-citations > button { flex-wrap: wrap; }
+}
+@media (max-width: 480px) {
+  .wf-materials-dialog { padding: 12px; }
+  .wf-materials-actions { flex-wrap: wrap; }
+  .wf-materials-actions > .wf-hint { flex-basis: 100%; }
+}

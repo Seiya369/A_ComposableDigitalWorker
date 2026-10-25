@@ -9,10 +9,117 @@
   margin: 0;
 }
 .wf-basic-fields.wf-employee-summary {
-  grid-template-columns: repeat(4, minmax(104px, 1fr));
+  grid-template-columns: repeat(3, minmax(104px, 1fr));
   overflow-x: auto;
   padding-bottom: 2px;
 }
+.wf-basic-fields.wf-employee-reporting {
+  grid-template-columns: minmax(0, 1fr);
+}
+.wf-root .wf-employee-name {
+  background: transparent;
+  border-color: transparent;
+  padding: 4px 8px;
+  margin-left: -8px;
+  font: var(--wf-font-heading);
+  text-overflow: ellipsis;
+}
+.wf-root .wf-employee-name:hover {
+  border-color: var(--wf-line);
+}
+.wf-root .wf-employee-name:focus {
+  border-color: var(--wf-accent);
+  background: var(--wf-input);
+}
+.wf-role-definition {
+  min-height: 100%;
+}
+.wf-role-definition > .wf-field {
+  flex: 1;
+}
+.wf-role-definition > .wf-field > textarea {
+  flex: 1;
+  min-height: 120px;
+}
+.wf-field-heading { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.wf-field-heading > .wf-field-label { flex-shrink: 0; }
+.wf-role-definition > .wf-field > .wf-field-heading,
+.wf-role-definition > .wf-field > .wf-field-label { flex: 0 0 24px; min-height: 24px; align-items: center; }
+.wf-role-autofill-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.wf-root .wf-role-autofill { flex-shrink: 0; height: 24px; padding: 0 8px; font-size: 12px; }
+.wf-role-autofill-error { min-width: 0; color: var(--wf-warn); font-size: 12px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 600px) {
   .wf-employee-fields .wf-editor-hero { max-height: 42vh; overflow-y: auto; }
+}
+.wf-import-permission-review { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--wf-line); border-radius: 8px; }
+.wf-import-permission-review > summary { cursor: pointer; color: var(--wf-warn); }
+.wf-import-permission-review > p { margin-top: 8px; }
+.wf-import-permission-review > pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; font: 12px/1.5 var(--ds-font-family-code, monospace); }
+.wf-model-selector { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.wf-model-catalog-status { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.wf-model-catalog-status > .wf-field-label { margin: 0; }
+.wf-model-catalog-status > .wf-hint { display: inline-flex; align-items: center; gap: 8px; }
+.wf-model-catalog-status > .wf-button { margin-left: auto; flex-shrink: 0; }
+.wf-model-warning { color: var(--wf-warn); margin: 0; font-size: 12px; line-height: 1.6; }
+.wf-model-options { display: flex; flex-direction: column; gap: 16px; min-width: 0; padding: 0; margin: 0; border: 0; }
+.wf-model-options > .wf-hint { margin: 0; }
+.wf-model-provider > h3 { color: var(--wf-muted); font: var(--wf-font-label); margin: 0 0 8px; }
+.wf-model-provider-options { display: flex; flex-direction: column; gap: 6px; }
+.wf-model-option { display: flex; align-items: center; gap: 12px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); cursor: pointer; }
+.wf-model-option:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-model-option.is-selected { border-color: var(--wf-accent); background: var(--wf-accent-bg); }
+.wf-model-option > input { flex: 0 0 auto; }
+.wf-model-option > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.wf-model-option strong { font: var(--wf-font-label); color: var(--wf-text); }
+.wf-model-option small { font-size: 12px; color: var(--wf-dim); }
+.wf-model-option.is-unavailable { cursor: default; border-color: var(--wf-line); }
+.wf-model-options:disabled .wf-model-option { cursor: wait; opacity: .65; }
+
+/* Employee settings use a compact header; the content owns the remaining space. */
+.wf-root .wf-employee-editor { min-height: 0; }
+.wf-root .wf-employee-editor .wf-editor-hero { padding: 8px 16px; flex: none; }
+.wf-root .wf-employee-editor .wf-employee-title-row { gap: 8px; min-height: 36px; flex-wrap: wrap; }
+.wf-root .wf-employee-editor .wf-employee-identity { flex: 1 1 180px; }
+.wf-root .wf-employee-editor .wf-employee-name { height: 32px; padding-block: 2px; }
+.wf-root .wf-employee-editor .wf-employee-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; max-width: 100%; margin-left: auto; }
+.wf-root .wf-employee-editor .wf-employee-actions .wf-button { height: 32px; padding-inline: 12px; }
+.wf-root .wf-employee-editor .wf-employee-actions > .wf-settings-transfer { flex: 0 1 auto; }
+.wf-root .wf-employee-editor .wf-employee-settings-error { flex-shrink: 0; margin: 8px 16px 0; }
+.wf-employee-save-state { color: var(--wf-dim); font: var(--dsw-font-xxs-12); white-space: nowrap; }
+.wf-root .wf-employee-editor .wf-basic-fields { margin-top: 8px; gap: 8px; }
+.wf-root .wf-employee-editor .wf-module-tabs { padding-inline: 16px; gap: 18px; }
+.wf-root .wf-employee-editor .wf-module-tabs button { min-height: 36px; padding-block: 6px; }
+.wf-root .wf-employee-editor .wf-module-content { padding: 12px 16px 16px; }
+.wf-root .wf-employee-editor .wf-module-content[data-module="responsibilities"] { display: flex; }
+.wf-root .wf-employee-editor .wf-module-content[data-module="knowledge"] { display: flex; overflow: hidden; }
+.wf-root .wf-employee-editor .wf-module-content[data-module="knowledge"] > * { flex: 1; min-width: 0; min-height: 0; }
+.wf-root .wf-employee-editor .wf-module-form { gap: 14px; }
+.wf-root .wf-employee-editor .wf-field { gap: 4px; }
+.wf-root .wf-employee-editor .wf-record { padding: 10px 12px; gap: 8px; }
+/* Three equal sections fill the panel; short windows scroll the full form. */
+.wf-root .wf-employee-editor .wf-role-definition { flex: 1; min-height: 328px; }
+.wf-root .wf-employee-editor .wf-role-definition > .wf-field { flex: 1 0 0; min-height: 100px; }
+.wf-root .wf-employee-editor .wf-role-definition > .wf-field > textarea { flex: 1 1 0; height: 0; min-height: 0; resize: none; overflow-y: auto; }
+.wf-root .wf-employee-editor .wf-model-selector,
+.wf-root .wf-employee-editor .wf-model-options { gap: 10px; }
+.wf-root .wf-employee-editor .wf-model-option { min-height: 40px; padding: 8px 10px; gap: 8px; }
+.wf-root .wf-employee-editor .wf-capability-selector { gap: 12px; }
+.wf-root .wf-employee-editor .wf-capability-selector .wf-content-heading { margin-bottom: 0; align-items: center; gap: 10px; }
+.wf-root .wf-employee-editor .wf-capability-selector .wf-content-heading p { margin: 0; }
+.wf-root .wf-employee-editor .wf-capability-group { gap: 8px; padding-bottom: 10px; }
+.wf-root .wf-employee-editor .wf-capability-selected { gap: 8px; padding: 8px 10px; }
+.wf-root .wf-employee-editor .wf-capability-selected textarea { min-height: 60px; }
+.wf-root .wf-employee-editor .wf-capability-selected .wf-button,
+.wf-root .wf-employee-editor .wf-capability-selector .wf-content-heading .wf-button { height: 30px; padding-inline: 10px; }
+.wf-root .wf-employee-editor .wf-capability-skill,
+.wf-root .wf-employee-editor .wf-capability-tool { padding: 8px 10px; gap: 8px; }
+@container graph-horses (max-width: 700px) {
+  .wf-root .wf-employee-editor .wf-employee-actions { flex-wrap: wrap; }
+  .wf-root .wf-employee-editor .wf-employee-save-state { display: none; }
+}
+@media (max-width: 600px) {
+  .wf-root .wf-employee-editor .wf-editor-hero { padding: 8px 12px; max-height: none; }
+  .wf-root .wf-employee-editor .wf-module-tabs { padding-inline: 12px; gap: 14px; }
+  .wf-root .wf-employee-editor .wf-module-content { padding: 10px 12px; }
+  .wf-root .wf-employee-editor .wf-employee-save-state { display: none; }
 }

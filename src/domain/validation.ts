@@ -4,6 +4,9 @@ export { invariant, textField, WorkforceError } from './errors.js';
 export { validateWorkflows } from '../workflow/definition.js';
 import type { EmployeeModules, WorkforceState } from './types.js';
 import { validateWorkflowRuns } from '../workflow/validation.js';
+import { validateWorkflowTemplates } from './workflow-template.js';
+import { validateProjectWork } from '../work/validation.js';
+import { validateConversationWorkflows } from './conversation-workflow.js';
 
 function object(value: unknown, label: string): asserts value is Record<string, unknown> {
   invariant(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} 必须为对象`);
@@ -26,8 +29,18 @@ export function validateModules(value: unknown, ready = false): asserts value is
   const r = value.responsibilities; object(r, '岗位职责'); textField(r.mission, '岗位使命', !ready); strings(r.duties, '岗位职责'); strings(r.boundaries, '职责边界');
   if (ready) invariant((r.duties as string[]).length > 0, '可运行员工至少需要一项岗位职责');
   const c = value.capabilities; object(c, '能力组合'); list(c.skills, '技能'); list(c.tools, '工具');
-  for (const s of c.skills) { object(s, '技能'); textField(s.id, '技能 ID'); textField(s.name, '技能名称'); textField(s.description, '技能描述', true); }
-  for (const t of c.tools) { object(t, '工具'); textField(t.id, '工具 ID'); textField(t.description, '工具描述', true); }
+  for (const s of c.skills) { object(s, '技能'); textField(s.id, '技能 ID'); textField(s.name, '技能名称'); textField(s.description, '技能描述', true); if (s.usage !== undefined) oneOf(s.usage, ['required', 'preferred'], '技能使用方式'); if (s.useWhen !== undefined) textField(s.useWhen, '技能适用场景', true); }
+  for (const t of c.tools) { object(t, '工具'); textField(t.id, '工具 ID'); textField(t.description, '工具描述', true); if (t.useWhen !== undefined) textField(t.useWhen, '工具适用场景', true); }
+  for (const [key, label] of [['plugins', '优先插件'], ['mcps', '优先 MCP']] as const) {
+    if (c[key] === undefined) continue;
+    const entries = c[key]; list(entries, label); const ids = new Set<string>();
+    for (const entry of entries) {
+      object(entry, label);
+      for (const field of Object.keys(entry)) invariant(['id', 'name', 'description'].includes(field), `${label} 包含未支持的字段：${field}`);
+      textField(entry.id, `${label} ID`); textField(entry.name, `${label}名称`); textField(entry.description, `${label}描述`, true);
+      invariant(!ids.has(entry.id), `${label} ID 重复`); ids.add(entry.id);
+    }
+  }
   const m = value.model; object(m, '模型配置'); oneOf(m.mode, ['inherit', 'override'], '模型模式');
   for (const key of ['provider', 'model', 'reasoningEffort']) if (m[key] !== undefined) textField(m[key], `模型 ${key}`);
   if (m.mode === 'override') { textField(m.provider, '模型 provider'); textField(m.model, '模型名称'); }
@@ -37,7 +50,6 @@ export function validateModules(value: unknown, ready = false): asserts value is
   const p = value.permissions; object(p, '权限'); strings(p.allowedTools, '工具白名单'); strings(p.readPaths, '读取路径'); strings(p.writePaths, '写入路径'); (p.readPaths as string[]).forEach(v => validateRelativePath(v)); (p.writePaths as string[]).forEach(v => validateRelativePath(v)); bool(p.allowShell, 'shell 权限'); bool(p.allowNetwork, '网络权限');
   const co = value.collaboration; object(co, '协作规则'); bool(co.canDelegate, '委派开关'); strings(co.allowedTemplateIds, '可委派模板'); integer(co.maxDepth, '委派深度', 0, 16); integer(co.maxConcurrent, '并发数', 1, 32); strings(co.escalationRules, '升级规则');
   const d = value.delivery; object(d, '交付标准'); strings(d.requiredArtifacts, '交付物'); strings(d.acceptanceCriteria, '验收标准'); bool(d.reviewRequired, '需要验收');
-  if (ready) invariant((d.acceptanceCriteria as string[]).length > 0, '可运行员工至少需要一项验收标准');
 }
 
 export function validateHierarchy(nodes: Array<{ id: string; parent?: string }>, label: string): void {
@@ -56,6 +68,18 @@ export function validateState(value: unknown): asserts value is WorkforceState {
     for (const entry of value[key] as unknown[]) { identity(entry, key); invariant(!ids.has(entry.id as string), `${key} ID 重复`); ids.add(entry.id as string); }
   }
   const state = value as unknown as WorkforceState;
+  if (state.workflowTemplates !== undefined) validateWorkflowTemplates(state.workflowTemplates);
+  for (const workflow of state.workflowTemplates ?? []) for (const member of workflow.team?.members ?? []) invariant(state.templates.some(template => template.id === member.templateId), '工作流团队成员的模板不存在');
+  if (state.importReceipts !== undefined) {
+    list(state.importReceipts, '导入回执'); const requests = new Set<string>();
+    for (const receipt of state.importReceipts) {
+      object(receipt, '导入回执'); textField(receipt.requestId, '导入请求'); invariant(!requests.has(receipt.requestId), '导入请求重复'); requests.add(receipt.requestId);
+      textField(receipt.fingerprint, '导入摘要'); invariant(/^[a-f0-9]{64}$/.test(receipt.fingerprint), '导入摘要无效'); timestamp(receipt.createdAt, '导入时间');
+      object(receipt.result, '导入结果'); textField(receipt.result.rootId, '导入根对象');
+      oneOf(receipt.result.scope, ['template', 'project'], '导入范围'); oneOf(receipt.result.kind, ['employee', 'team', 'workflow'], '导入类型');
+      for (const key of ['templateIds', 'teamIds', 'workflowTemplateIds', 'employeeIds', 'projectTeamIds', 'warnings']) strings(receipt.result[key], key);
+    }
+  }
   if (state.staffingBatches !== undefined) {
     list(state.staffingBatches, '创建请求记录');
     const requests = new Set<string>();
@@ -70,9 +94,17 @@ export function validateState(value: unknown): asserts value is WorkforceState {
   }
   for (const t of state.templates) { textField(t.name, '模板名称'); textField(t.description, '模板描述', true); integer(t.version, '模板版本', 1); oneOf(t.status, ['draft', 'ready', 'archived'], '模板状态'); validateModules(t.modules, t.status === 'ready'); }
   for (const t of state.teams) { textField(t.name, '团队名称'); textField(t.description, '团队描述', true); integer(t.version, '团队版本', 1); list(t.members, '团队成员'); for (const m of t.members) { object(m, '团队成员'); textField(m.memberId, '成员 ID'); textField(m.templateId, '成员模板'); invariant(state.templates.some(t => t.id === m.templateId), '团队引用的模板不存在'); if (m.name !== undefined) textField(m.name, '成员名称'); if (m.reportsTo !== undefined) textField(m.reportsTo, '上级成员'); } validateHierarchy(t.members.map(m => ({ id: m.memberId, ...(m.reportsTo ? { parent: m.reportsTo } : {}) })), '团队'); }
-  for (const team of state.teams) if (team.workflows !== undefined) validateWorkflows(team.workflows, 'memberId', new Set(team.members.map(member => member.memberId)));
+  for (const employee of state.employees) if (employee.legacyTeamKnowledgeEnabled !== undefined) bool(employee.legacyTeamKnowledgeEnabled, '历史团队资料管理员开关');
+  for (const team of state.teams) if (team.knowledgeEnabled !== undefined) bool(team.knowledgeEnabled, '资料管理员开关');
+  for (const team of state.teams) if (team.workflows !== undefined) {
+    validateWorkflows(team.workflows, 'memberId', new Set(team.members.map(member => member.memberId)));
+    for (const flow of team.workflows) {
+      if (flow.sourceTemplateId !== undefined) textField(flow.sourceTemplateId, '来源通用工作流');
+      if (flow.sourceTemplateVersion !== undefined) integer(flow.sourceTemplateVersion, '来源工作流版本', 1);
+    }
+  }
   for (const p of state.projects) { textField(p.name, '项目名称'); textField(p.rootPath, '项目目录'); invariant(p.rootPath.startsWith('/'), '项目目录必须为绝对路径'); }
-  for (const e of state.employees) { textField(e.name, '员工名称'); textField(e.templateId, '员工模板'); textField(e.templateName, '模板名称'); integer(e.version, '员工版本', 1); integer(e.templateVersion, '员工模板版本', 1); invariant(state.projects.some(p => p.id === e.projectId), '员工项目不存在'); oneOf(e.status, ['active', 'paused'], '员工状态'); validateModules(e.modules, e.status === 'active'); if (e.managerId !== undefined) textField(e.managerId, '员工上级'); if (e.teamInstanceId !== undefined) textField(e.teamInstanceId, '团队实例'); }
+  for (const e of state.employees) { textField(e.name, '员工名称'); textField(e.templateId, '员工模板'); textField(e.templateName, '模板名称'); integer(e.version, '员工版本', 1); integer(e.templateVersion, '员工模板版本', 1); invariant(state.projects.some(p => p.id === e.projectId), '员工项目不存在'); oneOf(e.status, ['active', 'paused'], '员工状态'); validateModules(e.modules, e.status === 'active'); if (e.managerId !== undefined) textField(e.managerId, '员工上级'); if (e.teamInstanceId !== undefined) textField(e.teamInstanceId, '团队实例'); if (e.importReview !== undefined) { object(e.importReview, '导入复核'); timestamp(e.importReview.importedAt, '导入时间'); validateModules({ ...e.modules, permissions: e.importReview.requestedPermissions }); } }
   for (const p of state.projects) validateHierarchy(state.employees.filter(e => e.projectId === p.id).map(e => ({ id: e.id, ...(e.managerId ? { parent: e.managerId } : {}) })), '项目员工');
   if (state.projectTeams !== undefined) {
     list(state.projectTeams, '项目团队');
@@ -81,6 +113,7 @@ export function validateState(value: unknown): asserts value is WorkforceState {
       identity(team, '项目团队'); textField(team.projectId, '团队项目'); textField(team.teamTemplateId, '来源团队');
       textField(team.name, '团队名称'); integer(team.teamTemplateVersion, '团队模板版本', 1);
       if (team.version !== undefined) integer(team.version, '项目团队版本', 1);
+      if (team.knowledgeEnabled !== undefined) bool(team.knowledgeEnabled, '资料管理员开关');
       if (team.status !== undefined) oneOf(team.status, ['active', 'cancelled'], '项目团队状态');
       invariant(!ids.has(team.id), '项目团队 ID 重复'); ids.add(team.id);
       const key = JSON.stringify([team.projectId, team.teamTemplateId]);
@@ -116,7 +149,7 @@ export function validateState(value: unknown): asserts value is WorkforceState {
     textField(r.request, '工作请求'); integer(r.version, '工作版本', 1); oneOf(r.status, ['queued', 'running', 'blocked', 'awaiting-review', 'succeeded', 'failed', 'cancelled'], '工作状态'); invariant(state.employees.some(e => e.id === r.employeeId && e.projectId === r.projectId), '工作所属员工或项目无效');
     identity(r.employeeSnapshot, '员工快照'); invariant(r.employeeSnapshot.id === r.employeeId && r.employeeSnapshot.projectId === r.projectId, '工作员工快照不匹配'); validateModules(r.employeeSnapshot.modules, true); integer(r.employeeSnapshot.version, '快照版本', 1);
     if (r.parentRunId !== undefined) invariant(r.parentRunId !== r.id && state.runs.some(p => p.id === r.parentRunId && p.projectId === r.projectId), '父工作不能跨项目或指向自身');
-    list(r.artifacts, '交付物'); const ids = new Set<string>(); for (const a of r.artifacts) { object(a, '交付物'); textField(a.id, '交付物 ID'); invariant(!ids.has(a.id as string), '交付物 ID 重复'); ids.add(a.id as string); textField(a.title, '交付物标题'); invariant(a.path !== undefined || a.content !== undefined, '交付物需要文件路径或文本内容'); if (a.path !== undefined) validateRelativePath(a.path, '交付物路径'); if (a.content !== undefined) textField(a.content, '交付物内容'); }
+    list(r.artifacts, '交付物'); const ids = new Set<string>(); for (const a of r.artifacts) { object(a, '交付物'); textField(a.id, '交付物 ID'); invariant(!ids.has(a.id as string), '交付物 ID 重复'); ids.add(a.id as string); textField(a.title, '交付物标题'); invariant(a.path !== undefined || a.content !== undefined, '交付物需要文件路径或文本内容'); if (a.path !== undefined) validateRelativePath(a.path, '交付物路径'); if (a.content !== undefined) textField(a.content, '交付物内容', true); }
     for (const key of ['sessionId', 'output', 'error'] as const) if (r[key] !== undefined) textField(r[key], `工作 ${key}`, key !== 'sessionId');
     if (r.usage !== undefined) { object(r.usage, '用量'); integer(r.usage.inputTokens, '输入 token'); integer(r.usage.outputTokens, '输出 token'); }
     if (r.startedAt !== undefined) timestamp(r.startedAt, '开始时间'); if (r.finishedAt !== undefined) timestamp(r.finishedAt, '结束时间');
@@ -125,4 +158,6 @@ export function validateState(value: unknown): asserts value is WorkforceState {
   }
   validateHierarchy(state.runs.map(r => ({ id: r.id, ...(r.parentRunId ? { parent: r.parentRunId } : {}) })), '工作');
   validateWorkflowRuns(state);
+  validateProjectWork(state);
+  validateConversationWorkflows(state);
 }

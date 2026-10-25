@@ -26,6 +26,22 @@ export function validateWorkflows(value: unknown, assigneeKey: 'memberId' | 'emp
       if (step.timeoutMs !== undefined) integer(step.timeoutMs, '步骤超时', 100, 3_600_000);
       for (const key of ['inputs', 'outputs', 'acceptanceCriteria']) if (step[key] !== undefined) { strings(step[key], key); invariant((step[key] as string[]).length <= 20 && (step[key] as string[]).every(item => item.length <= 2000), '步骤要求过长'); }
     }
-    if (assigneeKey === 'employeeId') textField(workflow.templateWorkflowId, '来源工作流');
+    for (const [index, step] of workflow.steps.entries()) { object(step, '工作流步骤'); if (step.onRejectStepId !== undefined) {
+      textField(step.onRejectStepId, '不合格退回步骤');
+      invariant(workflow.steps.slice(0, index + 1).some(target => { object(target, '工作流步骤'); return target.id === step.onRejectStepId; }), '不合格只能退回本步骤或之前的有效步骤');
+    } }
+    if (assigneeKey === 'employeeId') {
+      textField(workflow.templateWorkflowId, '来源工作流');
+      if (workflow.templateWorkflowVersion !== undefined) integer(workflow.templateWorkflowVersion, '来源工作流版本', 1);
+    }
   }
+}
+
+/** Rebuild local step identities and all rejection links together when copying a flow. */
+export function remapWorkflowStepIds<T extends { id: string; onRejectStepId?: string }>(steps: T[], fresh: () => string): T[] {
+  const ids = new Map(steps.map(step => [step.id, fresh()]));
+  return steps.map(step => {
+    if (step.onRejectStepId !== undefined) invariant(ids.has(step.onRejectStepId), '退回步骤引用不存在');
+    return { ...structuredClone(step), id: ids.get(step.id)!, ...(step.onRejectStepId !== undefined ? { onRejectStepId: ids.get(step.onRejectStepId)! } : {}) };
+  });
 }

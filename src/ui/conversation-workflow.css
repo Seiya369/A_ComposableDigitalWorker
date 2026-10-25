@@ -1,0 +1,80 @@
+.wf-conversation-workflow-picker { position: relative; display: flex; align-items: center; min-width: 0; }
+.wf-conversation-workflow-trigger { max-width: 220px; }
+.wf-conversation-workflow-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.wf-conversation-workflow-trigger > svg { flex: none; }
+.wf-conversation-workflow-chevron { transform: rotate(-90deg); }
+.wf-conversation-workflow-trigger:disabled { cursor: default; opacity: .55; }
+.wf-conversation-workflow-menu { position: absolute; z-index: 40; bottom: calc(100% + 8px); left: 0; width: 280px; max-width: calc(100vw - 40px); border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); box-shadow: var(--dsw-elevation-soft); padding: 4px; color: var(--dsw-alias-label-primary); font: var(--dsw-font-xxs-12); }
+.wf-conversation-workflow-options { max-height: min(320px, 60vh); overflow-y: auto; outline: none; }
+.wf-conversation-workflow-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 36px; padding: 6px 10px; border-radius: 6px; cursor: pointer; box-sizing: border-box; }
+.wf-conversation-workflow-option > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-conversation-workflow-option > svg { flex: none; }
+.wf-conversation-workflow-option.is-active { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-conversation-workflow-option[aria-disabled="true"] { opacity: .45; cursor: default; }
+.wf-conversation-workflow-error { display: flex; align-items: center; gap: 8px; padding: 6px 8px; color: var(--dsw-alias-state-error-primary); font: var(--dsw-font-xxs-12); overflow-wrap: anywhere; }
+.wf-conversation-workflow-error button { flex: none; border: 0; padding: 2px 4px; background: transparent; color: var(--dsw-alias-label-primary); cursor: pointer; font: inherit; }
+.wf-conversation-workflow-inline-error { max-width: 200px; padding: 0 4px; }
+.wf-conversation-workflow-inline-error > span { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-conversation-workflow-recovery { position: absolute; bottom: calc(100% + 8px); left: 0; z-index: 40; display: flex; align-items: center; gap: 10px; width: 300px; max-width: calc(100vw - 48px); padding: 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); line-height: 1.5; box-shadow: var(--dsw-elevation-soft); }
+.wf-conversation-workflow-recovery button { flex: none; padding: 4px 6px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: transparent; color: var(--dsw-alias-label-primary); font: inherit; cursor: pointer; }
+.wf-conversation-workflow-recovery button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.wf-conversation-workflow-bar { display: flex; align-items: center; flex: none; --wf-workflow-gap: 8px; gap: var(--wf-workflow-gap); width: 1440px; min-width: 0; max-width: min(76vw, 1440px, max(88px, calc(100vw - 352px))); max-width: min(76cqw, 1440px, max(88px, calc(100cqw - 352px))); margin-inline-end: 28px; }
+.wf-conversation-workflow-steps { display: flex; align-items: center; flex: 1; gap: 0; min-width: 0; overflow: hidden; }
+.wf-conversation-workflow-step { position: relative; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; flex: 1 1 88px; min-width: 0; max-width: 110px; gap: 3px; height: 52px; padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); white-space: nowrap; cursor: pointer; }
+.wf-conversation-workflow-step::after { content: ''; position: absolute; top: 16px; left: calc(50% + 14px); width: calc(100% - 28px); height: 1px; background: var(--dsw-alias-border-l2); pointer-events: none; }
+.wf-conversation-workflow-step:last-of-type::after { display: none; }
+.wf-conversation-workflow-dot { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; flex: none; border-radius: 50%; corner-shape: round; box-sizing: border-box; color: var(--dsw-static-neutral-1000, #000); background: var(--dsw-alias-label-tertiary); border: 1px solid var(--dsw-alias-border-l2); }
+.wf-conversation-workflow-dot::before { content: ''; position: absolute; inset: 3px; border: 1px solid currentColor; border-radius: inherit; corner-shape: round; opacity: .35; pointer-events: none; }
+.wf-conversation-workflow-step-number { position: relative; font: var(--dsw-font-xxs-12); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.wf-conversation-workflow-step-label, .wf-conversation-workflow-contact { display: block; width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+.wf-conversation-workflow-step.is-completed .wf-conversation-workflow-dot, .wf-conversation-workflow-dot.is-completed { background: #fff; border-color: var(--dsw-alias-label-tertiary); }
+.wf-conversation-workflow-step.is-current .wf-conversation-workflow-dot, .wf-conversation-workflow-dot.is-current { background: var(--dsw-alias-state-business-primary); border-color: var(--dsw-alias-state-business-primary); }
+.wf-conversation-workflow-step.is-current { color: var(--dsw-alias-state-business-primary); }
+.wf-conversation-workflow-more, .wf-conversation-workflow-details-trigger { flex: none; padding: 4px; border: 0; border-radius: 4px; background: transparent; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); cursor: pointer; }
+.wf-conversation-workflow-more { display: inline-flex; align-items: center; justify-content: center; width: 16px; padding: 0; cursor: default; pointer-events: none; user-select: none; }
+.wf-conversation-workflow-details-trigger { position: relative; z-index: 2; white-space: nowrap; }
+.wf-conversation-workflow-contact { position: absolute; color: var(--dsw-alias-label-secondary); font: var(--dsw-font-xxs-12); line-height: 1.5; text-align: left; pointer-events: none; }
+.wf-conversation-workflow-contact[data-visible="false"] { visibility: hidden; }
+.wf-conversation-workflow-details-trigger:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--dsw-alias-label-primary); }
+.wf-conversation-workflow-step:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-conversation-workflow-step:focus-visible, .wf-conversation-workflow-error button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+.wf-conversation-workflow-step:disabled { cursor: default; opacity: .6; }
+.wf-conversation-workflow-details-trigger:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: -2px; }
+.wf-conversation-details { width: min(880px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-soft); font: var(--dsw-font-xxs-12); }
+.wf-conversation-details::backdrop { background: rgb(0 0 0 / .45); }
+.wf-conversation-details > header { display: flex; align-items: start; justify-content: space-between; gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--dsw-alias-border-l2); }
+.wf-conversation-details h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.wf-conversation-details h3 { display: flex; align-items: center; gap: 12px; margin: 0 0 8px; font-size: 13px; font-weight: 500; }
+.wf-conversation-details h3 > span, .wf-conversation-details header p { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-secondary); }
+.wf-conversation-details header p { margin: 6px 0 0; }
+.wf-conversation-details-actions { display: flex; flex: none; align-items: center; gap: 6px; }
+.wf-conversation-details button { padding: 5px 10px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
+.wf-conversation-details button:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-conversation-details button:disabled { opacity: .5; cursor: default; }
+.wf-conversation-details button:focus-visible, .wf-conversation-details select:focus-visible, .wf-conversation-details textarea:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.wf-conversation-details-body { padding: 16px 20px; max-height: calc(100dvh - 145px); overflow-y: auto; }
+.wf-conversation-details-select { display: flex; align-items: end; gap: 12px; margin-bottom: 16px; }
+.wf-conversation-details-select label { display: flex; flex: 1; min-width: 0; align-items: center; gap: 12px; color: var(--dsw-alias-label-secondary); white-space: nowrap; }
+.wf-conversation-details select { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); font: inherit; }
+.wf-conversation-details-select > button { flex: none; }
+.wf-conversation-details-requirements { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.wf-conversation-details-requirements > section { min-width: 0; }
+.wf-conversation-details p, .wf-conversation-details li { line-height: 1.65; overflow-wrap: anywhere; }
+.wf-conversation-details-requirements p { margin: 0; white-space: pre-wrap; }
+.wf-conversation-details ul { margin: 0; padding-left: 18px; }
+.wf-conversation-details-return { margin: 12px 0 0; color: var(--dsw-alias-label-tertiary); }
+.wf-conversation-delivery { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--dsw-alias-border-l2); }
+.wf-conversation-delivery pre { max-height: 240px; overflow: auto; margin: 8px 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; }
+.wf-conversation-delivery code { margin-left: 8px; color: var(--dsw-alias-label-secondary); }
+.wf-conversation-delivery details { margin: 8px 0; }
+.wf-conversation-review textarea { width: 100%; box-sizing: border-box; padding: 8px; margin-top: 12px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; background: transparent; color: inherit; font: inherit; resize: vertical; }
+.wf-conversation-review > div { display: flex; align-items: center; justify-content: end; gap: 8px; margin-top: 8px; }
+.wf-conversation-review > div > span { flex: 1; color: var(--dsw-alias-label-tertiary); }
+.wf-conversation-details .is-destructive, .wf-conversation-details-error { color: var(--dsw-alias-state-error-primary); }
+.wf-conversation-details-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wf-conversation-details-fold { margin-top: 16px; border-top: 1px solid var(--dsw-alias-border-l2); padding-top: 12px; }
+.wf-conversation-details summary { cursor: pointer; }
+.wf-conversation-details-fold > button, .wf-conversation-details-fold > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; box-sizing: border-box; padding: 8px; margin-top: 4px; text-align: left; }
+.wf-conversation-details-fold > button > span, .wf-conversation-details-fold > div > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-conversation-details small { flex: none; color: var(--dsw-alias-label-secondary); }
+@media (max-width: 720px) { .wf-conversation-workflow-trigger { max-width: 160px; } .wf-conversation-workflow-bar { max-width: min(46vw, max(88px, calc(100vw - 352px))); max-width: min(46cqw, max(88px, calc(100cqw - 352px))); --wf-workflow-gap: 4px; } .wf-conversation-workflow-inline-error { max-width: 120px; } .wf-conversation-details-requirements { grid-template-columns: 1fr; gap: 12px; } .wf-conversation-details > header, .wf-conversation-details-body { padding: 12px; } .wf-conversation-details-select label { flex-direction: column; align-items: stretch; gap: 4px; } }

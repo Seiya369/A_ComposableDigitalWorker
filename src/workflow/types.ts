@@ -6,10 +6,12 @@ export interface WorkflowStepRequirements {
   outputs?: string[];
   acceptanceCriteria?: string[];
   timeoutMs?: number;
+  /** Failed acceptance may return to this step or an earlier step after explicit retry. */
+  onRejectStepId?: string;
 }
 export type WorkflowStatus = 'running' | 'paused' | 'awaiting-review' | 'blocked' | 'succeeded' | 'cancelled';
 export type WorkflowStepStatus = 'pending' | 'running' | 'awaiting-review' | 'accepted' | 'blocked' | 'cancelled';
-export interface WorkflowAttempt { runId: string; number: number; createdAt: string; feedback?: string }
+export interface WorkflowAttempt { runId: string; number: number; createdAt: string; feedback?: string; invalidatedAt?: string; invalidationReason?: string }
 export interface WorkflowStepRun { stepId: string; status: WorkflowStepStatus; attempts: WorkflowAttempt[]; error?: string }
 export interface WorkflowEvent { at: string; kind: string; message: string; stepId?: string; runId?: string }
 export interface WorkflowRun {

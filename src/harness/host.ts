@@ -1,22 +1,44 @@
 import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-host-webserver';
+import type {} from '@deepseek-ai/dsh-client-connection';
+import type {} from '@deepseek-ai/dsh-api-session-controller';
 import { SessionId } from '@deepseek-ai/dsh-session';
 import { WorkforceStore } from '../domain/store.js';
 import { ARCHITECT_TEMPLATE_ID, SOFTWARE_TEAM_ID } from '../domain/seed.js';
 import type { CreateEmployeeInput, CreateProjectEmployeesInput, MutationOptions, ReviewRunInput, SaveEmployeeConfigurationInput, SaveMemoryInput, SaveTeamInput, SaveTemplateInput, UpdateEmployeeInput } from '../domain/types.js';
-import { WorkforceRuntime, type RunRequest, type RuntimeConfig } from './runtime.js';
+import { DEFAULT_RUNTIME_CONFIG, WorkforceRuntime, type RunRequest, type RuntimeConfig } from './runtime.js';
 import { loadEmployeeSkills, registerEmployeeSkills } from './skills.js';
-import type { CancelProjectTeamsInput, ConfigureProjectTeamInput } from '../domain/types.js';
+import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, SetProjectTeamKnowledgeInput } from '../domain/types.js';
 import { WorkflowRepository } from '../workflow/repository.js';
 import { WorkflowEngine } from '../workflow/engine.js';
 import type { SaveProjectWorkflowInput, StartWorkflowInput, WorkflowCommandInput } from '../workflow/types.js';
+import type { SaveWorkflowTemplateInput } from '../domain/types.js';
+import type { ExportSelection, ImportOptions, ImportTarget } from '../domain/transfer-types.js';
+import { listEmployeeModels } from './model-catalog.js';
+import { WorkService } from '../work/service.js';
+import { WorkEngine } from '../work/engine.js';
+import type { WorkCommandOptions } from '../work/types.js';
+import { listEmployeeCapabilities } from './capability-catalog.js';
+import { KnowledgeRepository, knowledgeRootFor } from '../knowledge/repository.js';
+import { KnowledgeEngine } from '../knowledge/engine.js';
+import { createKnowledgeCompiler } from './knowledge-compiler.js';
+import type { KnowledgeArchivePolicyRequest, KnowledgeLibraryTarget, KnowledgeRemoveRequest, KnowledgeUploadRequest } from '../knowledge/library-api.js';
+import { createWikiRuntime } from '../knowledge/wiki-runtime.js';
+import { createEmployeeRoleDrafter } from './employee-role-draft.js';
+import type { EmployeeRoleDraftInput } from '../domain/employee-role.js';
+import type { ReorderLibraryInput } from '../domain/library-order.js';
+import { resolveConversationWorkflow, type SelectConversationWorkflowInput, type SelectConversationWorkflowStepInput } from '../domain/conversation-workflow.js';
+import { registerConversationWorkflowRuntime } from './conversation-workflow-runtime.js';
+import { isLegacyStandaloneRun } from '../domain/conversation-session.js';
+import { requireConversationWorkflowReview, resolveConversationWorkflowDetails, type ConversationWorkflowReviewInput } from '../domain/conversation-workflow-details.js';
 
 export const name = 'composable-workforce';
-export const inject = ['webServer', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'agentDefaultModel'];
+export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
 export interface Config extends Partial<RuntimeConfig> {
   statePath?: string;
   skillsDirectory?: string;
@@ -71,48 +93,99 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   if (!/^\/[a-zA-Z0-9/_-]+$/.test(prefix) || prefix.endsWith('/')) throw new Error('apiPrefix 必须是不带末尾斜杠的绝对 URL 路径');
   const origins = [`http://127.0.0.1:${ctx.webServer.port}`, `http://localhost:${ctx.webServer.port}`, ...(config.allowedOrigins ?? [])];
   for (const origin of origins) if (new URL(origin).origin !== origin || !['http:', 'https:'].includes(new URL(origin).protocol)) throw new Error('allowedOrigins 必须是完整 HTTP(S) origin');
-  const bodyLimit = config.maxBodyBytes ?? 1_048_576;
+  // A portable document is limited separately; leave room for its command envelope.
+  const bodyLimit = config.maxBodyBytes ?? 2_097_152;
   if (!Number.isSafeInteger(bodyLimit) || bodyLimit <= 0) throw new Error('maxBodyBytes 必须是正整数');
   const store = await WorkforceStore.open(config.statePath ?? resolve(process.env.DSH_HOME || resolve(homedir(), '.dsh'), 'composable-workforce', 'state.json'));
   const skills = await loadEmployeeSkills(config.skillsDirectory ?? fileURLToPath(new URL('../skills/', import.meta.url)));
   registerEmployeeSkills(ctx, skills);
-  const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => ['maxSteps', 'maxRunMs', 'maxTreeRuns', 'maxTreeTokens', 'maxFileBytes'].includes(key))));
+  const wiki = createWikiRuntime();
+  const roleDrafter = createEmployeeRoleDrafter(ctx);
+  const knowledge = new KnowledgeEngine(store, new KnowledgeRepository(knowledgeRootFor(store.filePath)), createKnowledgeCompiler(ctx, {}, wiki), error => ctx.logger.error(error), wiki);
+  const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => Object.hasOwn(DEFAULT_RUNTIME_CONFIG, key))), knowledge);
   const workflows = new WorkflowRepository(store);
   const workflowEngine = new WorkflowEngine(workflows, runtime, error => ctx.logger.error(error));
-  ctx.effect(() => async () => { await workflowEngine.dispose(); await runtime.dispose(); }, 'digital-workers.runtime');
+  const work = new WorkService(store);
+  const workEngine = new WorkEngine(work, runtime, error => ctx.logger.error(error));
+  // Historical standalone roots are ordinary project conversations again. Only
+  // an active standalone attempt or an executor-owned child/task/flow remains a
+  // delivery session; an old root record must not hide the selector forever.
+  const isDeliverySession = (sessionId: string) => store.snapshot().runs.some(run => run.sessionId === sessionId
+    && (run.parentRunId || run.workflow || run.workTaskId
+      || (isLegacyStandaloneRun(run) && ['queued', 'running', 'blocked'].includes(run.status))));
+  const workspaceForSession = (sessionId: string) => {
+    const matches = ctx.workspaceRegistry.list().filter(item => item.sessionIds.includes(SessionId(sessionId)));
+    if (matches.length > 1) throw new Error('对话的项目归属不唯一，请先检查原生工作区');
+    return matches[0];
+  };
+  const conversationIsBusy = (sessionId: string) => {
+    const agent = ctx.agents.get(SessionId(sessionId));
+    return agent?.status === 'running' || Boolean(agent?.inbox?.nextTurn?.length || agent?.inbox?.nextStep?.length);
+  };
+  const disposeConversationRuntime = registerConversationWorkflowRuntime(ctx, {
+    isDeliverySession,
+    ownsPendingTurn: agent => {
+      const workspace = workspaceForSession(agent.id);
+      return Boolean(workspace && resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId);
+    },
+    prepare: async (agent, turnKey, requestText, signal) => {
+      await syncProjects();
+      const workspace = workspaceForSession(agent.id);
+      if (!workspace) return undefined;
+      const view = resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id);
+      if (!view.instanceId) return undefined;
+      if (view.unavailableReason) throw new Error(view.unavailableReason);
+      if (!view.currentStepId || !view.owner) throw new Error('此工作流已完成，请选择需要继续的步骤或将工作流设为“无”');
+      return runtime.openConversationTurn(agent, turnKey, requestText, view, signal);
+    },
+    onError: error => ctx.logger.error(error),
+  });
+  ctx.effect(() => async () => { roleDrafter.dispose(); try { await disposeConversationRuntime(); await workEngine.dispose(); await workflowEngine.dispose(); await runtime.dispose(); await knowledge.dispose(); } finally { await wiki.dispose(); } }, 'digital-workers.runtime');
 
   // An interrupted external write is not replayed automatically after a process restart.
-  for (const run of store.snapshot().runs) if (!run.workflow && (run.status === 'queued' || run.status === 'running')) await store.updateRun(run.id, { status: 'failed', error: '上次宿主运行中断；请检查交付文件后重新提交任务', finishedAt: new Date().toISOString() });
+  for (const run of store.snapshot().runs) if (!run.workflow && !run.workTaskId && (run.status === 'queued' || run.status === 'running')) await store.updateRun(run.id, { status: 'failed', error: '上次宿主运行中断；请检查交付文件后重新提交任务', finishedAt: new Date().toISOString() });
 
   const syncProjects = async (): Promise<void> => {
+    const projects = new Map(store.listProjects().map(project => [project.id, project]));
     for (const workspace of ctx.workspaceRegistry.list()) {
-      const project = store.snapshot().projects.find(item => item.id === workspace.id);
+      const project = projects.get(workspace.id);
       if (!project || project.name !== workspace.title || project.rootPath !== workspace.path) await store.saveProject({ id: workspace.id, name: workspace.title, rootPath: workspace.path });
     }
   };
   if (config.bootstrapProjectPath) {
     const workspace = await ctx.workspaceRegistry.create(resolve(config.bootstrapProjectPath));
-    const firstSetup = !store.snapshot().projects.some(project => project.id === workspace.id);
+    const firstSetup = !store.listProjects().some(project => project.id === workspace.id);
     await syncProjects();
-    // Seed the requested first architect once. Removing an employee is a project choice,
+    // Bootstrap the requested default software team once. Removing an employee is a project choice,
     // and restarting the local service must not silently add that employee back.
     if (firstSetup && !store.snapshot().employees.some(employee => employee.projectId === workspace.id && employee.templateId === ARCHITECT_TEMPLATE_ID)) await store.instantiateTeam(workspace.id, SOFTWARE_TEAM_ID);
   } else await syncProjects();
+  await knowledge.start();
   await workflowEngine.start();
+  await workEngine.start();
 
   const requireProject = async (projectId: string) => {
     await syncProjects();
     if (!ctx.workspaceRegistry.list().some(workspace => workspace.id === projectId)) throw new Error('项目文件夹已被移除');
   };
+  const requireConversation = async (projectId: string, sessionId: string) => {
+    await requireProject(projectId);
+    const workspace = workspaceForSession(sessionId);
+    if (!workspace || workspace.id !== projectId) throw new Error('对话不属于当前项目');
+    if (isDeliverySession(sessionId)) throw new Error('交付记录不能切换对话工作流，请返回项目对话');
+    if (conversationIsBusy(sessionId)) throw new Error('当前对话正在执行或有待处理消息，请等待本轮结束再切换工作流或步骤');
+  };
   const requireStandaloneRun = (id: string) => {
+    if (store.snapshot().runs.find(run => run.id === id)?.conversationWorkflow) throw new Error('请在原生项目对话的工作流详情中验收或取消此交付');
     if (store.snapshot().runs.find(run => run.id === id)?.workflow) throw new Error('请在项目工作流中验收或取消此步骤');
+    if (store.snapshot().runs.find(run => run.id === id)?.workTaskId) throw new Error('请在此任务的交付验收入口处理');
     return id;
   };
 
-  // Native chat can inspect a completed employee session, but every further employee job
-  // must be admitted through @ so configuration, budget and result tracking are restored.
+  // Executor-owned child/task/flow records remain read-only when restored.
+  // Completed standalone roots may acquire a native workflow lease instead.
   ctx.on('agent/created', ({ agent }) => {
-    if (runtime.ownsSession(agent.id) || !store.snapshot().runs.some(run => run.sessionId === agent.id)) return;
+    if (runtime.ownsSession(agent.id) || !isDeliverySession(agent.id)) return;
     agent.ctx.tools.restrict({ allow: [] });
     agent.ctx.tools.guard(() => '请通过 @ 员工创建新的工作单');
     agent.ctx.on('agent/pre-step', async () => { throw new Error('这是数字员工交付记录，请通过 @ 员工创建新的工作单以继续工作'); });
@@ -122,12 +195,47 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     const action = string(body.action, '操作');
     const payload = record(body.payload ?? {});
     const options = record(body.options ?? {}) as MutationOptions;
+    if (action.startsWith('work.')) {
+      await requireProject(string(payload.projectId, '项目 ID'));
+      return work.command(action, payload, options as WorkCommandOptions);
+    }
     switch (action) {
+      case 'conversation.workflow.resume': {
+        await requireConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
+        return { sessionReopened: await runtime.handoffCompletedSession(string(payload.sessionId, '对话 ID')) };
+      }
+      case 'conversation.workflow.select': {
+        await requireConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
+        const selected = await store.selectConversationWorkflow(payload as unknown as SelectConversationWorkflowInput, options);
+        const sessionId = string(payload.sessionId, '对话 ID');
+        const sessionReopened = runtime.needsCompletedSessionHandoff(sessionId) ? await runtime.handoffCompletedSession(sessionId) : false;
+        return { ...selected, sessionReopened };
+      }
+      case 'conversation.workflow.step': {
+        await requireConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
+        return store.selectConversationWorkflowStep(payload as unknown as SelectConversationWorkflowStepInput, options);
+      }
+      case 'library.reorder': return store.reorderLibrary(payload as unknown as ReorderLibraryInput, options);
       case 'template.save': return store.saveTemplate(payload as unknown as SaveTemplateInput, options);
       case 'employee.configuration.save': return store.saveEmployeeConfiguration(payload as unknown as SaveEmployeeConfigurationInput, options);
       case 'template.archive': return store.archiveTemplate(string(payload.id, '模板 ID'), options);
       case 'team.save': return store.saveTeam(payload as unknown as SaveTeamInput, options);
       case 'team.delete': return store.deleteTeam(string(payload.id, '团队 ID'), options);
+      case 'workflow.template.save': return store.saveWorkflowTemplate(payload as unknown as SaveWorkflowTemplateInput, options);
+      case 'workflow.template.delete': return store.deleteWorkflowTemplate(string(payload.id, '工作流模板 ID'), options);
+      case 'workflow.template.bind': return store.bindTeamWorkflow(string(payload.teamId, '团队 ID'), string(payload.workflowTemplateId, '工作流模板 ID'), record(payload.bindings) as Record<string, string>, options);
+      case 'bundle.export': return store.exportBundle(payload as unknown as ExportSelection);
+      case 'settings.bundle.save': return store.saveSettingsBundle(payload.bundle, options);
+      case 'bundle.preview': {
+        const target = record(payload.target) as unknown as ImportTarget;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '目标项目 ID'));
+        return store.previewImport(payload.document, target);
+      }
+      case 'bundle.import': {
+        const target = record(payload.target) as unknown as ImportOptions;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '目标项目 ID'));
+        return store.importBundle(payload.document, target, options);
+      }
       case 'team.instantiate': return store.instantiateTeam(string(payload.projectId, '项目 ID'), string(payload.teamId, '团队 ID'), options);
       case 'employee.create': return store.createEmployee(payload as unknown as CreateEmployeeInput, options);
       case 'project.team.cancel': {
@@ -135,6 +243,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const result = await store.cancelProjectTeams(payload as unknown as CancelProjectTeamsInput);
         await Promise.all(result.runIds.map(id => runtime.cancel(id)));
         return { cancelled: true };
+      }
+      case 'project.team.knowledge': {
+        await requireProject(string(payload.projectId, '项目 ID'));
+        return store.setProjectTeamKnowledge(payload as unknown as SetProjectTeamKnowledgeInput);
       }
       case 'project.team.configure': {
         await syncProjects();
@@ -162,16 +274,123 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   };
 
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: prefix, handler: async (req, res) => {
+    const admission = ctx.connection.admit(req);
+    if ('rejection' in admission) { json(res, admission.rejection, { error: admission.rejection === 401 ? '请先登录 Harness。' : '请求来源未获允许。' }); return; }
     try { assertRequestOrigin(req, origins); } catch (error) { json(res, 403, { error: (error as Error).message }); return; }
     try {
       const url = new URL(req.url!, origins[0]);
       const route = url.pathname.slice(prefix.length);
+      if (req.method === 'GET' && route === '/wiki') {
+        const html = await readFile(new URL('./llm-wiki/web.html', import.meta.url), 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'self'" });
+        res.end(html); return;
+      }
       if (req.method === 'GET' && route === '/state') { await syncProjects(); json(res, 200, store.snapshot()); return; }
+      if (req.method === 'GET' && route === '/models') { json(res, 200, await listEmployeeModels(ctx)); return; }
+      if (req.method === 'POST' && route === '/employee-role-draft') {
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        const close = () => { if (!res.writableEnded) cancel(); };
+        req.once('aborted', cancel); res.once('close', close);
+        try {
+          const input = await readBody(req, Math.min(bodyLimit, 4096));
+          const result = await roleDrafter.generate(input as unknown as EmployeeRoleDraftInput, controller.signal);
+          if (!res.destroyed && !res.writableEnded) json(res, 200, result);
+        } catch (error) {
+          if (!res.destroyed && !res.writableEnded) {
+            const failure = error as { status?: number; code?: string };
+            json(res, failure.status ?? 400, { error: error instanceof Error ? error.message : 'AI 智填请求失败', ...(failure.code ? { code: failure.code } : {}) });
+          }
+        } finally { req.off('aborted', cancel); res.off('close', close); }
+        return;
+      }
+      if (req.method === 'GET' && (route === '/knowledge' || route === '/knowledge/wiki')) {
+        const target: KnowledgeLibraryTarget = {
+          scope: string(url.searchParams.get('scope'), '知识库范围') as KnowledgeLibraryTarget['scope'],
+          employeeId: string(url.searchParams.get('employeeId'), '员工 ID'),
+          library: string(url.searchParams.get('library'), '知识库类型') as KnowledgeLibraryTarget['library'],
+          ...(url.searchParams.has('projectId') ? { projectId: string(url.searchParams.get('projectId'), '项目 ID') } : {}),
+          ...(url.searchParams.has('teamId') ? { teamId: string(url.searchParams.get('teamId'), '团队 ID') } : {}),
+        };
+        if (target.scope === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        if (route === '/knowledge/wiki') { json(res, 200, await knowledge.libraryWiki(target)); return; }
+        const layer = url.searchParams.get('layer');
+        if (layer) {
+          if (layer !== 'A' && layer !== 'B') throw new Error('知识层级必须为 A 或 B');
+          const version = url.searchParams.has('version') ? Number(url.searchParams.get('version')) : undefined;
+          json(res, 200, { document: await knowledge.libraryDocument(target, layer, string(url.searchParams.get('id'), '知识 ID'), version) });
+        } else json(res, 200, await knowledge.library(target));
+        return;
+      }
+      if (req.method === 'POST' && route === '/knowledge/upload') {
+        const body = await readBody(req, Math.max(bodyLimit, 17_825_792));
+        const target = record(body.target) as unknown as KnowledgeLibraryTarget;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        json(res, 202, await knowledge.upload({ target, files: body.files, retry: body.retry } as KnowledgeUploadRequest)); return;
+      }
+      if (req.method === 'POST' && route === '/knowledge/remove') {
+        const body = await readBody(req, bodyLimit);
+        const target = record(body.target) as unknown as KnowledgeLibraryTarget;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        json(res, 200, await knowledge.remove({ target, sourceId: body.sourceId, version: body.version, employeeVersion: body.employeeVersion } as KnowledgeRemoveRequest)); return;
+      }
+      if (req.method === 'POST' && route === '/knowledge/archive-policy') {
+        const body = await readBody(req, bodyLimit);
+        const target = record(body.target) as unknown as KnowledgeLibraryTarget;
+        if (target.scope === 'project') await requireProject(string(target.projectId, '项目 ID'));
+        json(res, 200, await knowledge.updateArchivePolicy({ target, category: body.category, enabled: body.enabled, expectedVersion: body.expectedVersion } as KnowledgeArchivePolicyRequest)); return;
+      }
+      if (req.method === 'GET' && route === '/capabilities') {
+        const projectId = url.searchParams.get('projectId');
+        if (projectId) await requireProject(projectId);
+        const cwd = projectId ? store.listProjects().find(project => project.id === projectId)?.rootPath : undefined;
+        json(res, 200, await listEmployeeCapabilities(ctx, { cwd })); return;
+      }
       if (req.method === 'GET' && route === '/session-project') {
         await syncProjects();
         const sessionId = SessionId(string(url.searchParams.get('sessionId'), '会话 ID'));
-        const workspace = ctx.workspaceRegistry.list().find(item => item.sessionIds.includes(sessionId));
+        const workspace = workspaceForSession(sessionId);
         json(res, 200, { projectId: workspace?.id ?? null }); return;
+      }
+      if (req.method === 'GET' && route === '/conversation-workflow') {
+        await syncProjects();
+        const sessionId = string(url.searchParams.get('sessionId'), '对话 ID');
+        const workspace = workspaceForSession(sessionId);
+        const state = store.snapshot();
+        if (!workspace || isDeliverySession(sessionId)) {
+          json(res, 200, { sessionId, projectId: null, selection: 'inherit', instanceId: null, steps: [], choices: [], revision: state.revision }); return;
+        }
+        const view = resolveConversationWorkflow(state, workspace.id, sessionId);
+        const busy = conversationIsBusy(sessionId)
+          || Boolean(view.instanceId && state.runs.some(run => run.conversationWorkflow?.instanceId === view.instanceId && ['queued', 'running', 'blocked'].includes(run.status)));
+        json(res, 200, { ...view, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy,
+          sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId),
+          steps: view.steps.map(step => ({ ...step, employeeName: state.employees.find(employee => employee.id === step.employeeId)?.name })) }); return;
+      }
+      if (req.method === 'GET' && route === '/conversation-workflow/details') {
+        await syncProjects();
+        const sessionId = string(url.searchParams.get('sessionId'), '对话 ID');
+        const workspace = workspaceForSession(sessionId); const state = store.snapshot();
+        if (!workspace || isDeliverySession(sessionId)) {
+          json(res, 200, { projectId: null, sessionId, revision: state.revision, instanceId: null, steps: [], history: [], historyTotal: 0, tasks: [], tasksTotal: 0 }); return;
+        }
+        const view = resolveConversationWorkflow(state, workspace.id, sessionId);
+        const busy = conversationIsBusy(sessionId)
+          || Boolean(view.instanceId && state.runs.some(run => run.conversationWorkflow?.instanceId === view.instanceId && ['queued', 'running', 'blocked'].includes(run.status)));
+        json(res, 200, resolveConversationWorkflowDetails(state, workspace.id, sessionId, { busy,
+          ...(url.searchParams.has('stepId') ? { stepId: string(url.searchParams.get('stepId'), '步骤 ID') } : {}),
+          ...(url.searchParams.has('runVersion') ? { runVersion: Number(url.searchParams.get('runVersion')) } : {}),
+          ...(url.searchParams.has('runId') ? { runId: string(url.searchParams.get('runId'), '交付 ID') } : {}) })); return;
+      }
+      if (req.method === 'POST' && route === '/conversation-workflow/review') {
+        const input = await readBody(req, bodyLimit) as unknown as ConversationWorkflowReviewInput;
+        await requireConversation(string(input.projectId, '项目 ID'), string(input.sessionId, '对话 ID'));
+        const state = store.snapshot();
+        const run = requireConversationWorkflowReview(state, input, conversationIsBusy(input.sessionId));
+        await store.reviewRun(run.id, { decision: input.decision, reviewer: '用户', note: input.note ?? '' },
+          { expectedRevision: input.expectedRevision, expectedVersion: input.runVersion });
+        json(res, 200, resolveConversationWorkflowDetails(store.snapshot(), input.projectId, input.sessionId)); return;
       }
       if (req.method === 'POST' && route === '/command') {
         const result = await command(await readBody(req, bodyLimit));

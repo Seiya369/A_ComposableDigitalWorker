@@ -1,0 +1,10 @@
+[data-library-order-id] { position: relative; }
+[data-library-movable=true] { cursor: grab; user-select: none; }
+[data-library-movable=true]:active { cursor: grabbing; }
+.wf-library-order-dragging { opacity: .5; }
+.wf-library-order-before::before, .wf-library-order-after::after { content: ''; position: absolute; left: 0; right: 0; height: 2px; background: var(--wf-accent); pointer-events: none; }
+.wf-library-order-before::before { top: 0; }
+.wf-library-order-after::after { bottom: 0; }
+.wf-library-order-status { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.wf-sidebar[aria-busy=true] [data-library-order-id] { cursor: progress; }

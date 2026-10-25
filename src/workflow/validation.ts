@@ -41,17 +41,20 @@ export function validateWorkflowRuns(state: WorkforceState): void {
         textField(attempt.runId, '步骤任务 ID'); date(attempt.createdAt);
         invariant(attempt.number === attemptIndex + 1 && !tasks.has(attempt.runId), '工作流尝试标识重复'); tasks.add(attempt.runId);
         if (attempt.feedback !== undefined) textField(attempt.feedback, '返工意见');
+        if (attempt.invalidatedAt !== undefined) { date(attempt.invalidatedAt); textField(attempt.invalidationReason, '失效原因'); }
+        else invariant(attempt.invalidationReason === undefined, '缺少交付失效时间');
         const task = taskById.get(attempt.runId);
         invariant(task && task.projectId === flow.projectId && task.employeeId === flow.definition.steps[index]!.employeeId, '工作流任务不能跨项目或更换负责员工');
         invariant(task.workflow?.workflowRunId === flow.id && task.workflow.stepId === step.stepId && task.workflow.attempt === attempt.number && !task.parentRunId, '工作流任务链接不匹配');
         integer(task.workflow.timeoutMs, 100, 3_600_000);
         invariant(task.workflow.timeoutMs === (flow.definition.steps[index]!.timeoutMs ?? 600_000), '工作流任务超时与运行快照不一致');
-        if (attemptIndex < step.attempts.length - 1) invariant(['failed', 'cancelled'].includes(task.status), '旧尝试尚未停止，不能创建新尝试');
+        if (attempt.invalidatedAt !== undefined) invariant(task.status === 'succeeded' && task.acceptance?.decision === 'accepted', '仅已验收交付可标为本轮失效');
+        if (attemptIndex < step.attempts.length - 1) invariant(['failed', 'cancelled'].includes(task.status) || (task.status === 'succeeded' && !!attempt.invalidatedAt), '旧尝试尚未停止，不能创建新尝试');
       });
       const latest = taskById.get(step.attempts.at(-1)?.runId ?? '');
-      if (step.status === 'accepted') invariant(latest?.status === 'succeeded' && latest.acceptance?.decision === 'accepted', '工作流步骤尚未验收');
+      if (step.status === 'accepted') invariant(latest?.status === 'succeeded' && latest.acceptance?.decision === 'accepted' && !step.attempts.at(-1)?.invalidatedAt, '工作流步骤尚未验收');
       if (step.status === 'awaiting-review') invariant(latest?.status === 'awaiting-review', '工作流验收状态与员工任务不一致');
-      if (['pending', 'blocked'].includes(step.status) && latest) invariant(['failed', 'cancelled'].includes(latest.status), '工作流步骤仍有未结束的尝试');
+      if (['pending', 'blocked'].includes(step.status) && latest) invariant(['failed', 'cancelled'].includes(latest.status) || (latest.status === 'succeeded' && !!step.attempts.at(-1)?.invalidatedAt), '工作流步骤仍有未结束的尝试');
     });
     const current = flow.steps.find(step => step.status !== 'accepted');
     if (flow.status === 'succeeded') invariant(!current && flow.finishedAt, '工作流尚未全部验收');

@@ -1,116 +1,137 @@
-import { useEffect, useState } from 'react';
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client';
+import { useSyncExternalStore, type ComponentType } from 'react';
+import type { Context } from '@deepseek-ai/cordis';
+import type { SessionId } from '@deepseek-ai/dsh-session/types';
+import type {} from '@deepseek-ai/dsh-api-session-controller/client';
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client';
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client';
+import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client';
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client';
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client';
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client';
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client';
 import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client';
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots';
-import { WorkforcePanel } from '../ui/index.js';
-import { ProjectTeamDialog } from '../ui/ProjectTeamDialog.js';
-import { ProjectTeamMenu } from './ProjectTeamMenu.js';
+import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client';
+import { WorkforceWorkspace, clearWorkforceDrafts } from '../ui/index.js';
+import { ProjectExecutionReview } from '../ui/ProjectExecutionReview.js';
+import { ConversationWorkflowPicker, ConversationWorkflowSteps } from '../ui/ConversationWorkflow.js';
 import { Icon } from '../ui/icons.js';
 import type { WorkforceClient } from '../ui/client.js';
 import type { WorkforceRun } from '../domain/types.js';
 import { createWorkforceClient, request, startEmployeeRun } from './api.js';
 import { createEmployeeMentionSource } from './mentions.js';
+import { createConversationWorkflowController } from './conversation-workflow.js';
+import { createConversationWorkflowTransport } from './conversation-workflow-transport.js';
+import { createConversationWorkflowDetailsClient } from './conversation-workflow-details.js';
+import { createConversationReopenNavigation } from './conversation-workflow-reopen.js';
+import { WorkforceI18nProvider, createWorkforceI18n, registerWorkforceLocales } from '../ui/i18n.js';
 import './integration.css';
 import '../ui/workforce.css';
+import '../ui/capability-selector.css';
+import '../ui/KnowledgeLibrary.css';
+import '../ui/knowledge-graph.css';
 
-type PanelState={open:boolean;projectId?:string;view?:'configure-team'|'staffing'|'runs'|'memories'|'workflows'};
-type PanelProps={usePanel:<T>(select:(state:PanelState)=>T)=>T;client:WorkforceClient;close:()=>void;navigate:(state:PanelState)=>void};
-function PanelOverlay({usePanel,client,close,navigate}:PanelProps){
-  const state=usePanel(s=>s);
-  if (!state.open) return null;
-  if (state.projectId && state.view === 'configure-team') return <ProjectTeamDialog key={state.projectId} client={client} projectId={state.projectId} onClose={close} onManage={()=>navigate({...state,view:'staffing'})}/>;
-  return <WorkforcePanel key={`${state.projectId||'templates'}:${state.view||'staffing'}`} client={client} projectId={state.projectId} initialView={state.view === 'configure-team' ? 'staffing' : state.view} onClose={close} onConfigureTeam={()=>navigate({...state,view:'configure-team'})}/>;
+export const GRAPH_HORSES_PANEL_ID = 'graph_horses' as MainPanelId;
+const DELIVERY_PANEL_ID = 'graph_horses_delivery' as MainPanelId;
+function GraphHorsesIcon({size}:PropsRuntime<'sidebar.panellist'>){ return <Icon name="network" size={size}/>; }
+function GraphHorsesPage({client}:{client:WorkforceClient}){ return <WorkforceWorkspace client={client}/>; }
+type ReviewNavigation={getSnapshot:()=>WorkforceRun|undefined;subscribe:(listener:()=>void)=>()=>void};
+function DeliveryPage({client,navigation,onClose,onOpenSession}:{client:WorkforceClient;navigation:ReviewNavigation;onClose:()=>void;onOpenSession:(sessionId:string)=>void}){
+  const run=useSyncExternalStore(navigation.subscribe,navigation.getSnapshot);
+  return run ? <ProjectExecutionReview key={run.id} client={client} projectId={run.projectId} initialRunId={run.id} onClose={onClose} onOpenSession={onOpenSession}/> : null;
 }
+export const inject=['slots','sessions','workspaces','locale','layout','uiWorkspace','inputTriggers','conversation'];
 
-type EmployeeButtonProps=PropsRuntime<'conversation.input.left'>&{configure:()=>void};
-type LibraryButtonProps=PropsRuntime<'sidebar.workspaces.header.action'>&{openLibrary:()=>void};
-function LibraryButton({openLibrary}:LibraryButtonProps){
-  return <button className="wf-workspace-action" aria-label="数字员工模板" title="数字员工模板" onClick={openLibrary}><Icon name="people" size={16}/></button>;
-}
-function EmployeeButton({configure}:EmployeeButtonProps){
-  return <button className="wf-native-button" title="配置项目团队" aria-label="配置项目团队" onClick={configure}><Icon name="people" size={16}/><span>团队</span></button>;
-}
-type RunDockProps=PropsRuntime<'conversation.input.dock'>&{load:()=>Promise<WorkforceRun|undefined>;review:()=>void};
-function RunDock({load,review}:RunDockProps){
-  const [run,setRun]=useState<WorkforceRun>();
-  useEffect(()=>{
-    let alive=true;const refresh=()=>{load().then(r=>{if(alive)setRun(r)}).catch(()=>{/* Main panel owns surfaced API errors; this optional dock retains the last known status. */});};
-    refresh();const timer=setInterval(refresh,2500);return()=>{alive=false;clearInterval(timer)};
-  },[load]);
-  if(!run)return null;
-  const labels={queued:'排队中',running:'执行中',blocked:'已退回', 'awaiting-review':'待验收',succeeded:'已验收',failed:'执行失败',cancelled:'已取消'};
-  return <div className="wf-native-dock"><Icon name="person" size={16}/><b>{run.employeeSnapshot.name}</b><span>{labels[run.status]}</span><button onClick={review}>任务与交付</button></div>;
-}
-
-export const inject=['slots','sessions','workspaces','locale','connection','inputTriggers'];
-
-/** Host-derived UI data stays on the API; the browser keeps only modal state.
- * Native slot and trigger APIs are pinned in integration/README.md.
- */
-export function apply(ctx:ClientContext):void{
-  let panel:PanelState={open:false};
-  const listeners=new Set<()=>void>();
-  const change=(next:PanelState)=>{panel=next;for(const listener of listeners)listener()};
-  const openLibrary=()=>change({open:true});
-  const configureProject=(projectId:string)=>change({open:true,projectId,view:'configure-team'});
-  const viewProject=(projectId:string)=>change({open:true,projectId,view:'staffing'});
-  const showProjectRuns=(projectId:string)=>change({open:true,projectId,view:'runs'});
-  const source={getSnapshot:()=>panel,subscribe:(listener:()=>void)=>{listeners.add(listener);return()=>listeners.delete(listener)}};
-  const client=createWorkforceClient();
+/** Library and single-delivery review use distinct public panels. */
+export function apply(ctx:Context):void{
+  ctx.effect(()=>registerWorkforceLocales(ctx.locale),'workforce: locale dictionaries');
+  const i18n=createWorkforceI18n(ctx.locale);
+  const localized=<P extends object,>(Component:ComponentType<P>)=>(props:P)=><WorkforceI18nProvider runtime={ctx.locale}><Component {...props}/></WorkforceI18nProvider>;
+  let reviewRun:WorkforceRun|undefined;
+  const reviewListeners=new Set<()=>void>();
+  const reviewNavigation:ReviewNavigation={getSnapshot:()=>reviewRun,subscribe:listener=>{reviewListeners.add(listener);return()=>reviewListeners.delete(listener)}};
+  const showReview=(run:WorkforceRun)=>{
+    reviewRun=run;
+    for(const listener of reviewListeners)listener();
+    ctx.layout.selectPanel(DELIVERY_PANEL_ID);
+  };
+  const client=createWorkforceClient({
+    onOpenNativePlugins:bundleName=>{
+      if(bundleName){
+        const navigation=ctx.get('pluginNavigation');
+        if(!navigation)throw new Error(i18n.t('DSH 原生插件管理页面暂不可用，请稍后重试'));
+        navigation.openBundle(bundleName);
+      }else ctx.layout.selectPanel('plugins' as MainPanelId);
+    },
+  });
   const projectForSession=async(sessionId:string):Promise<string|undefined>=>{
     const response=await request<{projectId?:string}>(`/session-project?sessionId=${encodeURIComponent(sessionId)}`);
     return response.projectId;
   };
+  const reopenNavigation=createConversationReopenNavigation({
+    isCurrentConversation:sessionId=>ctx.layout.panelInfo.getSnapshot().activePanelId===null
+      && Boolean(ctx.sessions.list.getSnapshot().byId[sessionId as SessionId]?.retainedBy.mainView),
+    isConversationVisible:()=>ctx.layout.panelInfo.getSnapshot().activePanelId===null,
+    beginNavigation:()=>ctx.layout.beginNavigation(),
+    reloadBlockReason:sessionId=>{
+      const scope=ctx.sessions.scope(sessionId as SessionId);
+      if(!scope)return '会话正在恢复，请稍后点击“刷新继续”';
+      const input=ctx.conversation.input.for(scope).state.getSnapshot();
+      if(input.attachmentIds.length)return '会话已恢复，请先移除未发送附件，再点击“刷新继续”';
+      if(input.phase!=='plain')return '请等待当前输入处理完成，再点击“刷新继续”';
+      return undefined;
+    },
+    reloadSession:sessionId=>{
+      // The official Client keeps removed=true on a retained Session generation.
+      // Its public navigation persists the identity; browser reload releases that
+      // stale generation without disposing references owned by native UI.
+      ctx.uiWorkspace.openSession(sessionId as SessionId);
+      window.location.reload();
+    },
+  });
+  const workflowTransport=createConversationWorkflowTransport(request,reopenNavigation);
+  const workflowController=createConversationWorkflowController(workflowTransport.transport);
+  const detailsClient=createConversationWorkflowDetailsClient(request,client);
   let disposed=false;
   const openRun=async(initial:WorkforceRun)=>{
     // Admission returns immediately. Open the native session only after the host
     // attaches it to the workspace, including when a queued task starts later.
     let run=initial;
     for(let attempt=0;attempt<40&&!disposed;attempt++){
-      if(run.sessionId && ctx.sessions.list.getSnapshot().byId[run.sessionId]
+      if(run.sessionId && ctx.sessions.list.getSnapshot().byId[run.sessionId as SessionId]
         && ctx.workspaces.list.getSnapshot().items.some(project=>project.workspaceId===run.projectId && project.sessionIds.includes(run.sessionId as SessionId))){
-        ctx.sessions.open(run.sessionId as SessionId);return;
+        ctx.uiWorkspace.openSession(run.sessionId as SessionId);return;
       }
-      if(run.status==='failed'||run.status==='cancelled'){showProjectRuns(run.projectId);return;}
+      if(run.status==='failed'||run.status==='cancelled'){showReview(run);return;}
       await new Promise(resolve=>setTimeout(resolve,250));
       const state=await client.snapshot();run=state.runs.find(r=>r.id===run.id)||run;
     }
-    if(!disposed)showProjectRuns(run.projectId);
+    if(!disposed)showReview(run);
   };
-  ctx.slots.inject('sidebar.workspaces.header.action',()=>ctx.slots.register({
-    name:'sidebar.workspaces.header.action',id:'workforce-library',order:20,
-    inject:()=>({openLibrary}),
-  },LibraryButton));
-  ctx.slots.inject('sidebar.workspaces.menu.action',()=>ctx.slots.register({
-    name:'sidebar.workspaces.menu.action',id:'workforce-configure-project',order:20,
-    inject:()=>({client,configureProject,viewProject}),
-  },ProjectTeamMenu));
-  ctx.slots.inject('shell.overlay',()=>ctx.slots.register({
-    name:'shell.overlay',id:'workforce-config',order:50,
-    inject:()=>({client,close:()=>change({open:false}),navigate:change,hooks:{panel:source}}),
-  },PanelOverlay));
+  ctx.slots.inject('main',()=>ctx.slots.register({
+    name:'main',key:GRAPH_HORSES_PANEL_ID,
+    inject:()=>({client}),
+  },localized(GraphHorsesPage)));
+  ctx.slots.inject('main',()=>ctx.slots.register({
+    name:'main',key:DELIVERY_PANEL_ID,
+    inject:()=>({client,navigation:reviewNavigation,onClose:()=>reviewRun?.sessionId ? ctx.uiWorkspace.openSession(reviewRun.sessionId as SessionId) : ctx.layout.selectPanel(GRAPH_HORSES_PANEL_ID),onOpenSession:(sessionId:string)=>ctx.uiWorkspace.openSession(sessionId as SessionId)}),
+  },localized(DeliveryPage)));
+  ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({
+    name:'sidebar.panellist',id:GRAPH_HORSES_PANEL_ID,order:10,label:'graph_horses',
+  },GraphHorsesIcon));
   ctx.slots.inject('conversation.input.left',()=>ctx.slots.register({
-    name:'conversation.input.left',id:'workforce-employees',order:5,
-    inject:(sessionId)=>({configure:()=>{projectForSession(sessionId).then(id=>id?configureProject(id):openLibrary()).catch(openLibrary)}}),
-  },EmployeeButton));
-  ctx.slots.inject('sidebar.footer.action',()=>ctx.slots.register({
-    name:'sidebar.footer.action',id:'workforce-library',order:20,
-    inject:()=>({openLibrary}),
-  },({wide,openLibrary}:{wide:boolean;openLibrary:()=>void})=>wide?null:<button className="wf-native-button" aria-label="数字员工模板" title="数字员工模板" onClick={openLibrary}><Icon name="people"/></button>));
-  ctx.slots.inject('conversation.input.dock',()=>ctx.slots.register({
-    name:'conversation.input.dock',id:'workforce-run',order:30,
-    inject:(sessionId)=>({
-      load:async()=> (await client.snapshot()).runs.find(run=>run.sessionId===sessionId),
-      review:()=>{projectForSession(sessionId).then(id=>id?showProjectRuns(id):openLibrary()).catch(openLibrary)},
-    }),
-  },RunDock));
+    name:'conversation.input.left',id:'workforce-workflow',order:5,
+    inject:()=>({controller:workflowController,recovery:reopenNavigation}),
+  },localized(ConversationWorkflowPicker)));
+  ctx.slots.inject('conversation.session.header.utilities',()=>ctx.slots.register({
+    name:'conversation.session.header.utilities',id:'workforce-workflow-steps',order:-20,
+    inject:()=>({controller:workflowController,detailsClient,onOpenSession:(sessionId:string)=>ctx.uiWorkspace.openSession(sessionId as SessionId)}),
+  },localized(ConversationWorkflowSteps)));
   ctx.effect(()=>ctx.inputTriggers.registerSource(createEmployeeMentionSource({
     snapshot:client.snapshot,projectForSession,run:startEmployeeRun,
-    onStarted:run=>{void openRun(run).catch(()=>showProjectRuns(run.projectId));},
+    translate:i18n.t,translateError:i18n.errorMessage,
+    onStarted:run=>{void openRun(run).catch(()=>showReview(run));},
   })),'workforce: employee mentions');
-  ctx.effect(()=>()=>{disposed=true;listeners.clear();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
+  ctx.effect(()=>()=>{disposed=true;workflowController.dispose();workflowTransport.dispose();reopenNavigation.dispose();reviewListeners.clear();clearWorkforceDrafts();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
 }
+import '../ui/SharedWikiGraph.css';

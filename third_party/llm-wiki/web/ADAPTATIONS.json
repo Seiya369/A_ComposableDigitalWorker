@@ -1,0 +1,122 @@
+{
+  "schemaVersion": 1,
+  "component": "Shared LLM Wiki web",
+  "license": "GPL-3.0-only",
+  "adaptedOn": "2026-10-25",
+  "upstream": {
+    "repository": "https://github.com/nashsu/llm_wiki",
+    "version": "0.6.13",
+    "revision": "e08cfce65aad8b76b13546a081c1a8d4422b70c3",
+    "originalPath": "src/components/graph/graph-view.tsx",
+    "retainedSource": "../upstream/components/graph-view.tsx",
+    "sha256": "d694f2621921bcf52d5b1ace32d22325e5f39699faf65784e779a35b43a2eab6"
+  },
+  "adaptedFiles": [
+    {
+      "path": "WikiNetwork.tsx",
+      "changes": [
+        "Controlled JSON graph input replaces Tauri filesystem and global project stores",
+        "Retains Sigma circular rendering, degree sizing and type/community colors; the inherited force layout is replaced by deterministic concentric rings",
+        "Scopes layouts and selection to the knowledge space and snapshot version",
+        "Adds deterministic initial positions, keyboard equivalents, node dragging and SVG fallback",
+        "Node dragging prevents Sigma's default movement without disabling the camera; native release/cancel/blur and no-button recovery prevent stuck gestures across sandbox boundaries",
+        "Restricts both Sigma and SVG to concept/entity nodes and evidence-bearing semantic edges; degree, community coloring and layout exclude reading-only page navigation",
+        "Packs real connected components into stable annotated groups, preserves isolated nodes without bridges, and supports actual one-hop labels and camera focus in both Sigma and SVG",
+        "Uses Sigma's public node-label and hover drawing callbacks plus matching SVG text placement to keep 12px labels inside the viewport, moving edge labels left and ellipsizing only when needed",
+        "Follows the parent-supplied Chinese/English locale for presentation labels, accessible names, controls and reader status while preserving all user knowledge verbatim",
+        "Removes component rectangles and repeated captions, keeps the full semantic background, projects multi-hop exploration onto real visible edges and fits the current exploration without rebuilding the graph in Sigma or SVG",
+        "Fits all current coordinates for overview and fit actions, including dragged nodes beyond the original bounds; a failed WebGL instance handles later resizes in SVG without reinitializing or resetting its geometry",
+        "Removes the upper-left relationship list from the canvas; the reader owns all directional relationship summaries and evidence",
+        "Reduces normal and highlighted semantic edge widths in Sigma and SVG while retaining color emphasis, relation weights and all interaction behavior; sets the public minEdgeThickness to 1 so Sigma does not clamp thin strokes to its inherited 1.7 default and antiAliasingFeather to 0.4 to preserve continuous readable thin strokes"
+      ]
+    },
+    {
+      "path": "graph-style.ts",
+      "changes": [
+        "Extracts upstream type/community colors, degree-based node sizing, layout iteration policy and color mixing",
+        "Uniformly scales node radii by sqrt(1/2) to halve their area while preserving all degree-based size ratios in Sigma and SVG",
+        "Further scales the existing node radii by 1/2 at the user's request, retaining relative degree and graph-density sizing in both renderers"
+      ]
+    },
+    {
+      "path": "WikiReader.tsx",
+      "changes": [
+        "Retains same-screen graph/article reading pattern",
+        "Replaces auto-writing WikiEditor and arbitrary file reads with read-only Markdown and exact citation requests",
+        "Preserves semantic relationship direction and distinguishes inferred relationships from ordinary Wiki page links",
+        "Keeps the full page index in a grouped reading directory, including articles, overview navigation and original sources outside the semantic canvas; shows each directional predicate and its evidence",
+        "Retains independent semantic graph context across article and exact-source reading, with return and locate controls",
+        "Follows the parent-supplied Chinese/English locale for presentation labels, accessible names, controls and reader status while preserving all user knowledge verbatim",
+        "Adds compact localized neighborhood exploration controls while retaining full article and exact-source reading context",
+        "Consolidates root-context relationships into the reader, with source/predicate/target summaries and expandable evidence retained across related article and exact-source reading"
+      ]
+    },
+    {
+      "path": "main.tsx",
+      "changes": [
+        "Sandboxed shared entry with versioned JSON messages and no Tauri runtime, model credentials, arbitrary paths or write API",
+        "Displays concept/entity counts and the full number of semantic statements while retaining an independent article directory for empty concept graphs",
+        "Separates graph selection from reader navigation and provides explicit search focus and overview reset",
+        "Removes the article toolbar entry, labels community coloring as \u77e5\u8bc6\u5206\u7ec4 and makes it the per-space default, labels type coloring as \u8282\u70b9\u7c7b\u522b, and automatically opens the read-only directory for old article-only snapshots",
+        "Follows the parent-supplied Chinese/English locale for presentation labels, accessible names, controls and reader status while preserving all user knowledge verbatim",
+        "Owns in-memory exploration state, resets at binding/root/filter boundaries, preserves it across article/source/locale/color navigation and offers Back to full graph"
+      ]
+    },
+    {
+      "path": "protocol.ts",
+      "changes": [
+        "Defines a data-only channel bound to the parent window, random channel, epoch, knowledge space and snapshot",
+        "Requires a semantic graph discriminator and filters canvas nodes/edges separately from the complete authorized reading pages",
+        "Accepts only optional zh/en locale on authorized init/update messages; omitted locale remains Chinese for existing integrations; locale updates preserve the graph binding and reader state"
+      ]
+    },
+    {
+      "path": "markdown.ts",
+      "changes": [
+        "Renders marked output through DOMPurify and resolves internal Wiki links only within the authorized view"
+      ]
+    },
+    {
+      "path": "styles.css",
+      "changes": [
+        "Compact responsive toolbar, network legend and article reader matched to the parent theme",
+        "Adds subtle connected-group envelopes, compact one-hop relationships and a reading context bar",
+        "Adds compact responsive exploration controls; the graph no longer uses rectangular group envelopes",
+        "Removes the obsolete canvas relationship overlay styles and keeps the consolidated reader relationship list compact",
+        "Removes the fixed SVG stroke-width override so normal, active and selected edge attributes control the intended thin strokes"
+      ]
+    },
+    {
+      "path": "graph-layout.ts",
+      "changes": [
+        "Local deterministic connected-component layout and compact packing over semantic edges only",
+        "Lays out the complete real semantic graph together rather than normalizing disconnected component boxes; retains component metadata and deterministic isolated nodes without adding edges",
+        "Replaces the global force positions with deterministic evenly spaced concentric rings, placing highly connected semantic nodes inside while retaining actual component metadata and all true edges"
+      ]
+    },
+    {
+      "path": "graph-focus.ts",
+      "changes": [
+        "Local one-hop visibility and highlight derivation without adding semantic graph data",
+        "Adds immutable space/version/root-bound neighborhood exploration, visible frontier expansion and induced real-edge projections that cannot cross hidden bridge nodes"
+      ]
+    },
+    {
+      "path": "i18n.tsx",
+      "changes": [
+        "Small local React context and presentation dictionary; locale comes only from the parent, with no browser-language detection, setting, storage or executable dependency on the parent plugin",
+        "Localizes expansion, exhausted/isolated states and Back to full graph using the parent-provided DSH locale"
+      ]
+    }
+  ],
+  "boundary": {
+    "programCopies": "One package-level web program, reused by all employee and team knowledge spaces",
+    "mainPluginImports": "No GPL executable code is imported into the MIT host UI bundle; the parent communicates with this separately bundled sandboxed program using JSON",
+    "excludedCapabilities": [
+      "Tauri desktop runtime",
+      "automatic file writing",
+      "upstream model configuration and credentials",
+      "desktop research and agent runtime"
+    ]
+  }
+}
