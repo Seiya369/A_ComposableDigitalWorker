@@ -14,7 +14,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.27.0/dsh-plugin-composable-workforce-0.27.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.27.0)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.28.0/dsh-plugin-composable-workforce-0.28.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.28.0/dsh-plugin-composable-workforce-0.28.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.28.0)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
@@ -98,18 +98,20 @@ flowchart LR
 
 | 项目 | 当前范围 |
 | --- | --- |
-| DSH | 官方 **DeepSeek Harness `0.2.1-alpha.2`**；其他版本需要重新验证。 |
+| DSH | 官方 **DeepSeek Harness `0.2.1-rc.3`**；其他版本需要重新验证。 |
 | Node.js | 声明范围 `^22.19.0 || >=24`；当前验收使用 `24.21.0`。 |
-| 界面 | DSH Web 客户端；插件界面跟随 DSH 的中文／English 设置，业务内容保持原文。 |
+| 界面 | DSH Web 和官方 macOS Apple Silicon Desktop `0.2.1-rc.3`；插件界面跟随 DSH 的中文／English 设置，业务内容保持原文。 |
 | 模型 | 在 DSH 中配置可用模型；员工可继承 DSH 默认值或选择单独的岗位模型。 |
-| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.27.0.tgz` 及对应 SHA-256。 |
+| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.28.0.tgz` 及对应 SHA-256。 |
+
+截至 2026-10-26，官方最新 GitHub 发行标签和 npm `next` 为 `0.2.1-rc.3`，npm `latest` 仍为 `0.2.1-rc.2`。本版本按 rc.3 验证；使用 npm 时可显式安装 `@deepseek-ai/dsh@0.2.1-rc.3`。
 
 正式安装只需要受支持的官方 DSH 和插件 `.tgz`，无需克隆、修改或重建 Harness。先核对归档校验和并停止目标宿主，再使用自己的 `DSH_HOME` 与 profile：
 
 ```sh
 # 替换为你的 DSH 数据目录、profile 和插件归档绝对路径。
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.27.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -120,6 +122,20 @@ DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
 **最快体验路径：** 打开左侧 **graph_horses** → 查看内置六岗位与软件开发团 → 在 DSH 中打开一个项目及其原生对话 → 选择 **工作流：软件工程** → 向当前负责人描述任务 → 从顶部 **详情** 查看交付并验收。
 
 安装、更新、数据归属与完整清理说明见[接入与生命周期指南](integration/README.md)。
+
+#### 官方 Desktop 桌面版
+
+DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.github.io/deepseek-harness/)下载。桌面版共用 Web 插件机制，本插件使用同一个 `.tgz`；Web 与 Desktop 各有自己的 profile，安装到 Web 不会自动安装到 Desktop。当前实测范围为 macOS Apple Silicon `0.2.1-rc.3`；Windows 桌面版和其他架构尚未在本项目验收。
+
+首次打开 Desktop 完成原生初始化，然后退出应用。请使用 **Desktop 自带的 dsh 命令**安装到 `desktop` profile；npm 安装的 `dsh` 不允许管理该保留 profile。macOS 安装在 `~/Applications` 时，例如：
+
+```sh
+"$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
+```
+
+若装在 `/Applications`，相应替换路径。使用自定义 `DSH_HOME` 时，应用和上述命令必须使用同一数据目录。重新打开 Desktop 后，左侧出现 **graph_horses**。桌面端的保存操作兼容官方 `dsh-app://app` 鉴权代理。普通卸载用同一条 Desktop 命令执行 `plugin --profile desktop remove dsh-plugin-composable-workforce`；完整清理的脚本用法见[Desktop 接入说明](integration/README.md#desktop)。
 
 <a id="zh-usage"></a>
 
@@ -247,21 +263,22 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-alpha.2` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.27.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.27.0.md)。
+**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.28.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.28.0.md)。
 
 ### 验证状态与已知限制
 
 最近一次代码审计与归档复测基于官方 DSH、独立临时 profile 和固定归档 SHA-256：
 
-| 检查 | 0.27.0 验收结果 |
+| 检查 | 0.28.0 验收结果 |
 | --- | --- |
 | 类型检查与构建 | 通过 |
-| 自动化测试 | 696 项：695 通过、0 失败、1 项可选私有数据测试跳过 |
+| 自动化测试 | 698 项：697 通过、0 失败、1 项可选私有数据测试跳过 |
 | 真实归档安装、移除、重装与清理 | 15 项生命周期检查通过；原生会话持久记录保留项见上文 |
-| 官方原生界面与对话工作流 | 29 项检查通过 |
-| 宿主程序完整性 | 28,779 个程序文件前后总哈希一致 |
+| 跨版本升级 | 官方 alpha.2 / 插件 0.27.0 → rc.3 / 插件 0.28.0，保留自定义岗位定义与库对象 |
+| 官方原生界面与对话工作流 | Web 29 项检查通过；macOS Desktop 实机安装、保存、卸载和重装通过 |
+| 宿主程序完整性 | 27,607 个程序文件前后总哈希一致 |
 
-界面与业务执行测试使用临时离线模型适配器，不等同于实际供应商的回答质量、费用、延迟或生产容量验收。当前仅实测 macOS arm64、Node `24.21.0` 和指定 DSH 版本；本地 JSON 全量事务仍随历史规模增长。性能负载、原始证据、根因与后续计划见[完整审计报告](docs/audits/2026-10-25-principles-quality.md)。
+界面与业务执行测试使用临时离线模型适配器，不等同于实际供应商的回答质量、费用、延迟或生产容量验收。当前仅实测 macOS arm64、Node `24.21.0` 和指定 DSH 版本；本地 JSON 全量事务仍随历史规模增长。性能负载、原始证据、根因与后续计划见[完整审计报告](docs/audits/2026-10-26-dsh-desktop.md)。
 
 当前资源库界面只保留自由职业人、团队和工作流；工作入口是原生项目对话及顶部详情。项目目标、任务依赖、成果版本与并行调度等旧工作台后端能力和记录仍保留兼容，**旧工作台编辑器并非当前公开页面入口**。
 
@@ -278,7 +295,7 @@ npm ci --legacy-peer-deps
 npm --prefix third_party/llm-wiki ci --ignore-scripts
 
 # 可选开发链接方式：已有兼容 SDK 源码目录时使用。
-DSH_SOURCE_PATH=/absolute/deepseek-harness-0.2.1-alpha.2 npm run setup
+DSH_SOURCE_PATH=/absolute/deepseek-harness-0.2.1-rc.3 npm run setup
 
 npm run typecheck
 npm test
@@ -293,7 +310,7 @@ npm pack --pack-destination artifacts
 | --- | --- |
 | `npm start` | 启动本仓库独立开发 profile。 |
 | `npm run service:start / service:status / service:stop / service:open` | macOS 开发后台服务管理；其他系统使用独立终端 `npm start`。 |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.27.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.28.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
 | `npm run test:performance` | 本地合成负载下的状态、持久化、知识包与布局测量。 |
 
 发布前需重新生成归档、SHA-256 和绑定该哈希的验收记录；改动随包文件后不能沿用旧归档验收。提交问题时请附版本、复现步骤、预期／实际行为与脱敏日志。新增能力需遵守 [AGENTS.md](AGENTS.md) 的官方扩展、数据归属和清理要求。
@@ -395,18 +412,20 @@ You can edit, reuse, or replace these defaults. They contain no demo workflows, 
 
 | Requirement | Current scope |
 | --- | --- |
-| DSH | Official **DeepSeek Harness `0.2.1-alpha.2`**; other versions require separate validation. |
+| DSH | Official **DeepSeek Harness `0.2.1-rc.3`**; other versions require separate validation. |
 | Node.js | Declared range: `^22.19.0 || >=24`; current acceptance used `24.21.0`. |
-| Interface | DSH Web client. UI language follows DSH Chinese/English settings; user content stays in its original language. |
+| Interface | DSH Web and official macOS Apple Silicon Desktop `0.2.1-rc.3`. UI language follows DSH Chinese/English settings; user content stays in its original language. |
 | Models | Configure a working model in DSH. Employees can inherit the default or use an explicit role model. |
-| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.27.0.tgz` and matching SHA-256 checksum. |
+| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.28.0.tgz` and matching SHA-256 checksum. |
+
+As checked on 2026-10-26, the newest official GitHub tag and npm `next` are `0.2.1-rc.3`; npm `latest` remains `0.2.1-rc.2`. Select `@deepseek-ai/dsh@0.2.1-rc.3` explicitly for this release.
 
 End users need the supported official DSH installation and the plugin `.tgz`. There is no requirement to clone, patch, or rebuild Harness. Verify the checksum, stop the target host, and install into your intended home and profile:
 
 ```sh
 # Replace the data directory, profile, and absolute archive path.
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.27.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -417,6 +436,20 @@ Restart Harness and refresh open pages after installation or an update. Compatib
 **Fastest path:** open **graph_horses** in the sidebar → inspect the six roles and software team → open a project and its native DSH conversation → select the included **软件工程** workflow → describe the task → inspect and review its delivery through **Details** in the conversation header. Preset names are user-editable business content and are not automatically translated.
 
 See the [installation and lifecycle guide](integration/README.md) for updates, ownership rules, and cleanup details.
+
+#### Official Desktop app
+
+DSH provides an official Desktop app from the [DSH website](https://deepseek-harness.github.io/deepseek-harness/). It shares the Web plugin system and uses the same `.tgz`. Web and Desktop have separate profiles; installing in Web does not install in Desktop. This project validates macOS Apple Silicon Desktop `0.2.1-rc.3`; Windows and other architectures remain untested.
+
+Open Desktop once to initialize it, then quit. Install into `desktop` with **the command bundled inside Desktop**; the npm CLI cannot manage this reserved profile. For a macOS app installed in `~/Applications`:
+
+```sh
+"$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
+```
+
+Adjust the path for `/Applications`. If using a custom `DSH_HOME`, launch the app and its command with the same home. Reopen Desktop to see **graph_horses**. Saving supports the official `dsh-app://app` authentication proxy. Remove with the same Desktop command and `plugin --profile desktop remove dsh-plugin-composable-workforce`; see [Desktop integration](integration/README.md#desktop) for full cleanup.
 
 <a id="en-usage"></a>
 
@@ -537,21 +570,21 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-alpha.2` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.27.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.27.0.md).
+**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.28.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.28.0.md).
 
 ### Verification status and limitations
 
 The latest code audit and archive verification used an official release, isolated temporary profiles, and one fixed archive SHA-256:
 
-| Check | 0.27.0 result |
+| Check | 0.28.0 result |
 | --- | --- |
 | Type checking and build | Passed |
-| Automated tests | 696 total: 695 passed, 0 failed, 1 optional private-data test skipped |
+| Automated tests | 698 total: 697 passed, 0 failed, 1 optional private-data test skipped |
 | Real archive installation, removal, reinstallation, cleanup | 15 lifecycle checks passed; session-persistence exception above remains |
 | Official native UI and conversation workflows | 29 checks passed |
-| Host program integrity | Identical aggregate hash across 28,779 program files before and after |
+| Host program integrity | Identical aggregate hash across 27,607 program files before and after |
 
-UI and execution tests use temporary offline model adapters. They do not establish real provider answer quality, cost, latency, or production capacity. The verified environment is macOS arm64, Node `24.21.0`, and the specified DSH release. Full-file local JSON transactions still grow with history. Loads, evidence, root causes, and follow-up plans are in the [audit report](docs/audits/2026-10-25-principles-quality.md).
+UI and execution tests use temporary offline model adapters. They do not establish real provider answer quality, cost, latency, or production capacity. The verified environment is macOS arm64, Node `24.21.0`, and the specified DSH release. Full-file local JSON transactions still grow with history. Loads, evidence, root causes, and follow-up plans are in the [audit report](docs/audits/2026-10-26-dsh-desktop.md).
 
 The current library UI exposes employees, teams, and workflows; work happens through native project conversations and header details. Backend services and records for legacy project goals, task dependencies, deliverable versions, and parallel scheduling remain compatible. **The old workbench editor is not a current public page entry.**
 
@@ -568,7 +601,7 @@ npm ci --legacy-peer-deps
 npm --prefix third_party/llm-wiki ci --ignore-scripts
 
 # Optional development links when a compatible SDK checkout is already available.
-DSH_SOURCE_PATH=/absolute/deepseek-harness-0.2.1-alpha.2 npm run setup
+DSH_SOURCE_PATH=/absolute/deepseek-harness-0.2.1-rc.3 npm run setup
 
 npm run typecheck
 npm test
@@ -583,7 +616,7 @@ Skip `setup` if all peers are already prepared from official npm packages. Launc
 | --- | --- |
 | `npm start` | Launch the repository's separate development profile. |
 | `npm run service:start / service:status / service:stop / service:open` | Manage the macOS development service; on other systems use `npm start` in a separate terminal. |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.27.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.28.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
 | `npm run test:performance` | Measure local synthetic state, persistence, knowledge-packet, and layout loads. |
 
 Before distribution, generate a new archive, checksum, and acceptance record bound to that hash. Changes to packaged files cannot reuse an older archive's acceptance. Report issues with versions, reproduction steps, expected/actual behavior, and redacted logs. Contributions must follow the public extension, ownership, and cleanup requirements in [AGENTS.md](AGENTS.md).

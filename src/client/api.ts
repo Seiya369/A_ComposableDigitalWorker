@@ -13,7 +13,7 @@ export const API_PREFIX = '/digital-workers/api';
 export async function request<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${API_PREFIX}${path}`, {
     method: body === undefined ? 'GET' : 'POST', credentials: 'same-origin', signal,
-    headers: { 'Accept': 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
+    headers: { 'Accept': 'application/json', ...(body === undefined ? {} : { 'Content-Type': 'application/json', 'X-DSH-Graph-Horses': '1' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json() as T & { error?: string | { message?: string }; message?: string };

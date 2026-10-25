@@ -64,13 +64,16 @@ function json(res: ServerResponse, code: number, value: unknown): void {
   res.end(JSON.stringify(value));
 }
 
-/** Exact origin and Host validation prevents cross-site mutation and DNS rebinding. */
+/** Run only after connection.admit: Desktop's authenticated proxy strips Origin.
+ * The custom write header requires a browser CORS preflight, which this API never grants.
+ * An explicitly supplied Origin or Fetch Metadata must still pass the same-origin fence.
+ */
 export function assertRequestOrigin(req: Pick<IncomingMessage, 'headers' | 'method'>, allowedOrigins: readonly string[]): void {
   const host = req.headers.host;
   if (!host || !allowedOrigins.some(origin => new URL(origin).host === host)) throw new Error('不允许的请求主机');
   const origin = req.headers.origin;
   if (origin && (!allowedOrigins.includes(origin) || new URL(origin).host !== host)) throw new Error('只允许同源请求');
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !origin) throw new Error('写操作必须携带同源 Origin');
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !origin && req.headers['x-dsh-graph-horses'] !== '1') throw new Error('写操作必须携带同源 Origin 或客户端请求头');
   if (req.headers['sec-fetch-site'] && !['same-origin', 'none'].includes(String(req.headers['sec-fetch-site']))) throw new Error('不允许跨站请求');
 }
 

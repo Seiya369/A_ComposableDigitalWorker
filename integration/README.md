@@ -2,25 +2,25 @@
 
 0.9.0 使用独立 npm bundle，通过官方 `sidebar.panellist` 与 `main` 注册 `graph_horses` 全局页面。项目入口、配置与任务继续使用官方对话插槽和服务。安装、运行和卸载均不修改 Harness 源码、构建物、内置插件或其 `node_modules`。本目录旧的 `harness-workspace-slots.patch` 只保留历史证据，不进入安装包，不得应用它来准备宿主。
 
-兼容目标是官方 **0.2.1-alpha.2**，声明在 `engines.dsh` 和 DSH `peerDependencies` 中。预检检查该版本的已安装官方客户端构建是否公开 `sidebar.panellist`、`main` 和 `layout.selectPanel`。预检通过只说明接口存在；发布是否验收通过，以绑定最终归档 SHA-256 的生命周期记录为准。没有验证过的版本不应改版本号直接放行。
+兼容目标是官方 **0.2.1-rc.3**（核查日 2026-10-26：GitHub 最新发行标签 / npm next；npm latest 仍为 rc.2），声明在 `engines.dsh` 和 DSH `peerDependencies` 中。预检检查该版本的已安装官方客户端构建是否公开 `sidebar.panellist`、`main` 和 `layout.selectPanel`。预检通过只说明接口存在；发布是否验收通过，以绑定最终归档 SHA-256 的生命周期记录为准。没有验证过的版本不应改版本号直接放行。
 
 官方依据：
 
 | 接入点 | 官方说明 | 生命周期 |
 | --- | --- | --- |
-| `dsh.bundle.patch` / profile | [插件发布与打包](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/docs/user/develop/basic/publish.zh.md) | 官方 CLI 管理依赖和 bundle 列表 |
-| `sidebar.panellist` | [侧边栏公开面板席位](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/client/ui-sidebar/README.zh.md) | 由 slots 注册清理；无宿主补丁 |
-| `main` / `layout.selectPanel` | [布局公开服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/client/ui-layout/README.zh.md) | Cordis 生命周期撤销贡献，刷新页面移除已加载浏览器模块 |
-| `pluginNavigation.openBundle` | [原生插件导航](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/client/ui-plugin-manager/README.zh.md) | 从能力选择器定位原生插件详情，MCP 仅在所属 bundle 明确时复用；只导航，不安装或启用；无额外持久资源 |
-| `connection.admit()` / WebServer | [原生连接鉴权](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/client/connection/README.zh.md) | Host API 路由由插件 effect 注册并移除 |
-| `sessionController.modelCatalog()` | [Session Controller 公开模型目录](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/api/session-controller/src/index.ts) | 声明注入 `sessionController`；按需读取宿主当前目录，不另存账号/凭据，不创建会话或发起模型推理；没有额外后台任务 |
-| 资料管理员 `llm.stream()` | [官方 LLM 服务与 GenerateOptions](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/llm/llm/src/index.ts) | 使用已声明的 `@deepseek-ai/dsh-llm@0.2.1-alpha.2` peer，显式注入 `llm`；需要模型的增量分分析、生成两次受限请求，无变化及可本地完成的撤销不调用模型；传入 AbortSignal，插件 dispose 中断队列与请求；不创建原生 Session |
+| `dsh.bundle.patch` / profile | [插件发布与打包](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/docs/user/develop/basic/publish.zh.md) | 官方 CLI 管理依赖和 bundle 列表 |
+| `sidebar.panellist` | [侧边栏公开面板席位](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/client/ui-sidebar/README.zh.md) | 由 slots 注册清理；无宿主补丁 |
+| `main` / `layout.selectPanel` | [布局公开服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/client/ui-layout/README.zh.md) | Cordis 生命周期撤销贡献，刷新页面移除已加载浏览器模块 |
+| `pluginNavigation.openBundle` | [原生插件导航](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/client/ui-plugin-manager/README.zh.md) | 从能力选择器定位原生插件详情，MCP 仅在所属 bundle 明确时复用；只导航，不安装或启用；无额外持久资源 |
+| `connection.admit()` / WebServer | [原生连接鉴权](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/client/connection/README.zh.md) | Host API 路由由插件 effect 注册并移除 |
+| `sessionController.modelCatalog()` | [Session Controller 公开模型目录](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/api/session-controller/src/index.ts) | 声明注入 `sessionController`；按需读取宿主当前目录，不另存账号/凭据，不创建会话或发起模型推理；没有额外后台任务 |
+| 资料管理员 `llm.stream()` | [官方 LLM 服务与 GenerateOptions](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/llm/llm/src/index.ts) | 使用已声明的 `@deepseek-ai/dsh-llm@0.2.1-rc.3` peer，显式注入 `llm`；需要模型的增量分分析、生成两次受限请求，无变化及可本地完成的撤销不调用模型；传入 AbortSignal，插件 dispose 中断队列与请求；不创建原生 Session |
 | 岗位 AI 智填 `llm.stream()` | 同一官方 LLM 服务及上述模型目录 | 使用当前员工草稿的模型和姓名单次生成，输入不含旧岗位、项目或知识资料；本插件 `/employee-role-draft` 接口只返回草稿，不持久化、不建立 Session 或工作单。2 并发、120 秒、4096 输出 token／64 KiB 上限；断连或前端取消传播 AbortSignal，dispose 清除计时器并中断请求，无新增数据目录 |
-| 知识上下文 `Session.append` / `surfaceOp: replace` | [官方 SurfaceIntent](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/core/session/src/types.ts#L455)、[官方工具结果收拢](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/compaction/compaction-tool-result-pruner/src/index.ts#L136) | 员工作用域 pre-step 只改本插件知识工具的可见 content；先记录 compaction/prune 再替换，保留原始日志与引用；新增声明 token-meter / compaction 原版 peer，计价用公开 estimate 子路径；任务结束/卸载撤销 hook，保留原生可重放历史 |
-| `agentPresets.acquireScope()` / `composeFrom` / `mount` | [公开 Agent preset registry](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/preset/agent-preset-registry/src/index.ts) | 目录查询以公开只读租约取得默认 preset 的注册目录，查询完成后释放；任务继承来源会话预设，独立任务使用默认预设，结束释放；不注册员工专属 preset |
+| 知识上下文 `Session.append` / `surfaceOp: replace` | [官方 SurfaceIntent](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/core/session/src/types.ts#L455)、[官方工具结果收拢](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/compaction/compaction-tool-result-pruner/src/index.ts#L136) | 员工作用域 pre-step 只改本插件知识工具的可见 content；先记录 compaction/prune 再替换，保留原始日志与引用；新增声明 token-meter / compaction 原版 peer，计价用公开 estimate 子路径；任务结束/卸载撤销 hook，保留原生可重放历史 |
+| `agentPresets.acquireScope()` / `composeFrom` / `mount` | [公开 Agent preset registry](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/preset/agent-preset-registry/src/index.ts) | 目录查询以公开只读租约取得默认 preset 的注册目录，查询完成后释放；任务继承来源会话预设，独立任务使用默认预设，结束释放；不注册员工专属 preset |
 | 原生权限与来源会话只读 | `dsh-permission-presets`、`dsh-sandbox-policy`、`dsh-user-approval`、`dsh-session-persistence` 的公开类型；详见[能力接入](../docs/architecture/native-capabilities.md) | 只读来源预设、沙箱和审批，通过公开服务写入新工作单；持久化读取句柄在 finally 关闭，不操作来源会话生命周期 |
-| `workingDirectory` | [公开工作目录服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/packages/session/working-directory/src/index.ts) | 原生任务作用域内绑定项目目录，随 Agent 释放，不改宿主进程 cwd |
-| Agent、工具、技能、Workspace | [插件服务机制](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-alpha.2/docs/user/develop/framework/service.zh.md) | 本插件任务、中断、订阅和定时器在 dispose 时停止 |
+| `workingDirectory` | [公开工作目录服务](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/packages/session/working-directory/src/index.ts) | 原生任务作用域内绑定项目目录，随 Agent 释放，不改宿主进程 cwd |
+| Agent、工具、技能、Workspace | [插件服务机制](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/docs/user/develop/framework/service.zh.md) | 本插件任务、中断、订阅和定时器在 dispose 时停止 |
 
 对话工作流与历史顺序工作流使用同一个员工执行器。目录读取不建立 Agent 会话；任务执行继承原生工具、Skill 目录、沙箱与审批；员工只配置必备/优先 Skill 与工具使用偏好。Bash 和第三方工具以实际原生预设及服务约束为准。历史任务数据存放在同一个插件专属状态文件的可选 `workState`，旧状态无需迁移；安装/升级不会自动创建任务、修改已有人员或发起模型请求。参见[工作流详情与验收](../docs/architecture/project-delivery-review.md)及[能力边界](../docs/architecture/native-capabilities.md)。
 
@@ -31,7 +31,7 @@
 先停止目标 Harness。使用你实际要管理的 `DSH_HOME` 与 profile，避免作用于另一套安装。正式使用者只需官方 DSH 和 `.tgz`，无须准备 Harness 源码仓库。
 
 ```sh
-DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.27.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
+DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web remove dsh-plugin-composable-workforce --config.auto-install-peers=false
 ```
 
@@ -68,7 +68,7 @@ DSH_INSTALLATION_MANIFEST=/official/install/node_modules/@deepseek-ai/dsh/packag
 
 ### 完全卸载尚未满足项
 
-官方 `dsh-session-persistence@0.2.1-alpha.2` 没有会话持久记录删除接口（见官方同版本 README 的“已知限制”）。员工工作单创建的原生会话历史由宿主管理，本插件不能证明其中所有记录均属于可丢弃数据，也不能绕过官方接口直接清理存储。因此，本版本已验证插件运行能力、专属文件与配置级完整清理，但 **ADR-001 中插件专属持久记录的全部清理仍未满足**；此包属于有此保留项的验收候选，不能标记为无保留合规成品。共享会话、凭据和用户成果按规范保留。后续需要上游提供按归属删除的官方能力，再增加真实员工执行后的清理验收；当前不直接修改宿主数据库或会话文件。
+官方 `dsh-session-persistence@0.2.1-rc.3` 没有会话持久记录删除接口（见官方同版本 README 的“已知限制”）。员工工作单创建的原生会话历史由宿主管理，本插件不能证明其中所有记录均属于可丢弃数据，也不能绕过官方接口直接清理存储。因此，本版本已验证插件运行能力、专属文件与配置级完整清理，但 **ADR-001 中插件专属持久记录的全部清理仍未满足**；此包属于有此保留项的验收候选，不能标记为无保留合规成品。共享会话、凭据和用户成果按规范保留。后续需要上游提供按归属删除的官方能力，再增加真实员工执行后的清理验收；当前不直接修改宿主数据库或会话文件。
 
 脚本本身没有创建缓存或专属日志目录；官方插件管理器生成的共享 pnpm 缓存、操作日志和 profile 锁文件由宿主管理并保留。构建和验收产生的仓库 `artifacts/` 是交付资料，亦不由卸载脚本删除。
 
@@ -79,3 +79,24 @@ DSH_INSTALLATION_MANIFEST=/official/install/node_modules/@deepseek-ai/dsh/packag
 `npm run test:lifecycle` 默认使用 `.local/official-validation-complete/node_modules/@deepseek-ai/dsh/package.json`，或显式 `DSH_INSTALLATION_MANIFEST`。测试要求 npm 安装目录，拒绝源码宿主。它在独立临时 `DSH_HOME` 和随机端口验证真实归档安装、模型目录、默认 preset 实际能力目录、项目目标/任务/成果版本与验收、普通卸载、宿主原生启动、重装完整保留、随包 purge 和宿主程序文件总哈希未变；不会操作现有 3081 profile，也不发送模型请求。`WORKFORCE_LIFECYCLE_UI=1` 允许暂停各阶段供浏览器检查。
 
 发布包使用显式白名单，包含 Host/Client 构建、声明、本插件源码、技能、bundle、生命周期脚本，以及共享 LLM Wiki 的对应源码、固定版本哈希、改造说明、构建脚本、依赖锁和许可证；不含宿主源码补丁、source map、node_modules 安装目录、本机数据、凭据、测试或完整 Harness。Wiki 程序只有一份包级代码和按需启动的共享子进程；各知识空间的 `wiki/vN/` 只是派生数据。卸载时该子进程及全部队列停止；完整清理在知识根内一并移除这些数据，普通卸载保留。许可范围见随包 `LICENSES.md`。最终验收记录须重新绑定最终 `.tgz` 的 SHA-256，不能借用旧补丁宿主的结果。
+
+<a id="desktop"></a>
+
+## Desktop 官方接入 / Official Desktop integration
+
+官方依据：[Desktop 运行时与自带命令](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/apps/desktop/README.zh.md#bundled-command-runtime)、[鉴权请求代理](https://github.com/deepseek-ai/deepseek-harness/blob/dsh-v0.2.1-rc.3/apps/desktop/src/web-document.ts)。桌面端使用相同 Web 插件 bundle，`desktop` profile 由 Electron 所有；必须通过该安装自带的命令管理。
+
+Desktop shares the Web plugin bundle, with its own Electron-owned `desktop` profile. Its authenticated proxy strips `Origin`, cookies and Fetch Metadata before attaching a host-issued cookie. This plugin first calls official `connection.admit()`, then validates Host, any supplied Origin and Fetch Metadata. Origin-less writes additionally require `X-DSH-Graph-Horses: 1`; cross-origin browser pages cannot attach this header without a CORS preflight, which this API does not grant. The header never replaces native authentication.
+
+从解压的插件包或源码目录运行清理脚本时，显式提供 Desktop 的公开命令与实际数据目录；不要将 npm CLI 指向 desktop。默认数据目录是 `~/.dsh`，自定义安装以启动时的 `DSH_HOME` 为准。先退出 Desktop。
+
+```sh
+node scripts/plugin.mjs uninstall --home "$HOME/.dsh" --profile desktop \
+  --dsh-command "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh"
+node scripts/plugin.mjs purge --home "$HOME/.dsh" --profile desktop \
+  --dsh-command "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
+  --dry-run
+# 核对范围后，将 --dry-run 替换为 --host-stopped 执行。
+```
+
+The same ownership rules and native-session retention exception apply on Desktop. Full cleanup does not uninstall the shared DSH Desktop app or erase its shared shell preferences, credentials, sessions, or user workspaces.

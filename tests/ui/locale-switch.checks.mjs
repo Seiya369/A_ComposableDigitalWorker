@@ -18,7 +18,8 @@ export async function switchDshLocale(page, locale) {
     settingsContext = await browser.newContext({ storageState: await page.context().storageState() });
     const settingsPage = await settingsContext.newPage();
     await settingsPage.goto(startingUrl, { waitUntil: 'domcontentloaded' });
-    await settingsPage.getByRole('button', { name: /^(设置|Settings)$/ }).click();
+    await settingsPage.getByRole('button', { name: /^(账号菜单|Account menu)$/ }).click();
+    await settingsPage.getByText(/^(设置|Settings)$/, { exact: true }).click();
     const settings = settingsPage.getByRole('dialog', { name: /^(设置|Settings)$/ });
     await expect(settings).toBeVisible();
     await settings.getByRole('button', { name: /^(通用设置|General)$/ }).click();

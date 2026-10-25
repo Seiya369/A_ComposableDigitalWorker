@@ -29,7 +29,8 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const origin = `http://127.0.0.1:${address.port}`;
   const ctx = new Context();
   ctx.provide('webServer', { port: address.port, register(route: { handler: typeof handler }) { handler = route.handler; return () => { handler = undefined; }; } } as never);
-  ctx.provide('connection', { admit: () => ({}) } as never);
+  let admissionDenied = false;
+  ctx.provide('connection', { admit: () => admissionDenied ? { rejection: 401 } : {} } as never);
   ctx.provide('skills', { register: () => () => undefined, list: async () => [{ name: 'installed-project-skill', description: '项目专用技能', source: 'project', invocation: { modelInvocable: true, userInvocable: true } }] } as never);
   ctx.provide('tools', { schemas: () => [{ name: 'read', description: 'Read files' }, { name: 'bash', description: 'Execute shell commands' }], guard: () => () => undefined } as never);
   ctx.provide('systemPrompt', { context: () => () => undefined } as never);
@@ -60,7 +61,12 @@ async function fixture(t: { after(fn: () => Promise<void>): void }) {
     const response = await fetch(`${origin}/digital-workers/api/capabilities${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
     return { status: response.status, body: await response.json() as any };
   };
-  return { file, project, command, request, state, models, capabilities, changeModels() { catalog = { groups: [{ id: 'second-provider', name: '新供应商', models: [{ id: 'second-model', name: '新模型' }] }], failures: [] }; }, removeWorkspace() { workspaces = []; } };
+  return { file, project, command, request, state, models, capabilities,
+    denyAdmission() { admissionDenied = true; },
+    proxyWrite: async (headers: Record<string, string>) => {
+      const response = await fetch(`${origin}/digital-workers/api/command`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ action: 'work.saveBrief', payload: { projectId: project.id, goal: 'Desktop proxy delivery', completionCriteria: ['Saved through authenticated proxy'] } }) });
+      return { status: response.status, body: await response.json() as any };
+    }, changeModels() { catalog = { groups: [{ id: 'second-provider', name: '新供应商', models: [{ id: 'second-model', name: '新模型' }] }], failures: [] }; }, removeWorkspace() { workspaces = []; } };
 }
 
 test('HTTP workbench preserves task identity, dependencies and version-bound reviews without automatic model calls', async t => {
@@ -241,4 +247,16 @@ test('HTTP library ordering requires revision and complete identities and persis
   assert.deepEqual([...result.body.state.templates].sort((a,b) => a.id.localeCompare(b.id)), [...before.templates].sort((a,b) => a.id.localeCompare(b.id)));
   assert.equal((await f.command('library.reorder', { kind: 'employee', orderedIds: ids.reverse() }, { expectedRevision: before.revision })).status, 409);
   assert.deepEqual(await f.state(), result.body.state);
+});
+
+test('Desktop proxy saves through production routes only after native admission and explicit client intent', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.proxyWrite({})).status, 403);
+  assert.equal((await f.proxyWrite({ 'X-DSH-Graph-Horses': '1', Origin: 'https://untrusted.invalid' })).status, 403);
+  assert.equal((await f.proxyWrite({ 'X-DSH-Graph-Horses': '1', 'Sec-Fetch-Site': 'cross-site' })).status, 403);
+  const saved = await f.proxyWrite({ 'X-DSH-Graph-Horses': '1' });
+  assert.equal(saved.status, 200, saved.body.error);
+  assert.equal(saved.body.result.goal, 'Desktop proxy delivery');
+  f.denyAdmission();
+  assert.equal((await f.proxyWrite({ 'X-DSH-Graph-Horses': '1' })).status, 401);
 });

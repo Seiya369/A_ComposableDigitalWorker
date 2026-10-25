@@ -257,6 +257,16 @@ test('HTTP routes require exact same-origin writes and reject rebinding hosts', 
   assert.throws(() => assertRequestOrigin({ method: 'GET', headers: { host: 'evil.example:1234' } }, allowed), /主机/);
 });
 
+test('Desktop proxy writes require the custom header and keep origin, metadata and host fences', () => {
+  const allowed = ['http://localhost:1234'];
+  const desktop = { host: 'localhost:1234', 'x-dsh-graph-horses': '1' };
+  assertRequestOrigin({ method: 'POST', headers: desktop }, allowed);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { ...desktop, 'x-dsh-graph-horses': '0' } }, allowed), /Origin/);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { ...desktop, origin: 'https://evil.example' } }, allowed), /同源/);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { ...desktop, 'sec-fetch-site': 'cross-site' } }, allowed), /跨站/);
+  assert.throws(() => assertRequestOrigin({ method: 'POST', headers: { ...desktop, host: 'evil.example:1234' } }, allowed), /主机/);
+});
+
 test('real Harness loop runs isolated sessions, includes project memory, and awaits review', async () => {
   const adapter = new ScriptedAdapter([() => text('架构方案已交付'), () => text('后续答复')]);
   const f = await fixture(adapter);

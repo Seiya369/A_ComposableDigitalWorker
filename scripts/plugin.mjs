@@ -5,17 +5,17 @@ import { createHash } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkHost } from '../integration/check-host.mjs';
-import { resolveCliInstallation } from '../integration/harness-baseline.mjs';
+import { harnessVersion, resolveCliInstallation } from '../integration/harness-baseline.mjs';
 import { applyPurge, planPurge, pluginName } from './purge-profile.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const [action, ...args] = process.argv.slice(2);
-if (!['install', 'uninstall', 'remove', 'purge'].includes(action)) throw new Error('用法：node scripts/plugin.mjs install [archive.tgz] | uninstall | purge [--dry-run] [--host-stopped] [--owned-state-path /absolute/state.json] [--home /dsh/home] [--profile web] [--service-root /checkout]');
+if (!['install', 'uninstall', 'remove', 'purge'].includes(action)) throw new Error('用法：node scripts/plugin.mjs install [archive.tgz] | uninstall | purge [--dry-run] [--host-stopped] [--owned-state-path /absolute/state.json] [--home /dsh/home] [--profile web] [--service-root /checkout] [--dsh-command /absolute/Desktop/dsh]');
 const options = {}; let archive;
 for (let index = 0; index < args.length; index++) {
   const key = args[index];
   if (['--dry-run', '--host-stopped'].includes(key)) options[key] = true;
-  else if (['--home', '--profile', '--owned-state-path', '--service-root'].includes(key)) {
+  else if (['--home', '--profile', '--owned-state-path', '--service-root', '--dsh-command'].includes(key)) {
     if (!args[index + 1] || args[index + 1].startsWith('--')) throw new Error(`${key} 缺少参数。`);
     options[key] = args[++index];
   } else if (action === 'install' && !key.startsWith('--') && !archive) archive = key;
@@ -24,14 +24,23 @@ for (let index = 0; index < args.length; index++) {
 const home = resolve(options['--home'] || process.env.WORKFORCE_HOME || resolve(root, '.local/harness'));
 const profile = options['--profile'] || 'web';
 if (!/^[a-zA-Z0-9_-]+$/.test(profile)) throw new Error('profile 名称无效。');
-const cli = await resolveCliInstallation(root);
+// Desktop reserves its profile for the command shipped inside the signed app.
+// Invoke that public command as-is; never load or rewrite its app.asar resources.
+const desktopCommand = options['--dsh-command'] && resolve(options['--dsh-command']);
+if (profile === 'desktop' && !desktopCommand) throw new Error('Desktop profile 必须传 --dsh-command /absolute/path/to/Desktop自带的dsh；npm CLI 不拥有该 profile。');
+let cli;
+if (desktopCommand) {
+  await access(desktopCommand);
+  const version = spawnSync(desktopCommand, ['--version'], { encoding: 'utf8' });
+  if (version.status !== 0 || version.stdout.trim() !== harnessVersion) throw new Error(`需要官方 Desktop 自带的 dsh ${harnessVersion} 命令。`);
+} else cli = await resolveCliInstallation(root);
 const run = (...values) => {
-  const result = spawnSync(process.execPath, [cli.entry, 'plugin', '--profile', profile, ...values], { cwd: process.cwd(), env: { ...process.env, DSH_HOME: home }, stdio: 'inherit' });
+  const result = spawnSync(desktopCommand || process.execPath, [...(desktopCommand ? [] : [cli.entry]), 'plugin', '--profile', profile, ...values], { cwd: process.cwd(), env: { ...process.env, DSH_HOME: home }, stdio: 'inherit' });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`官方插件 CLI 失败（${result.status ?? 1}），未清理业务数据。`);
 };
 if (action === 'install') {
-  await checkHost(cli.manifest);
+  if (cli) await checkHost(cli.manifest);
   const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
   const tarball = resolve(archive || resolve(root, `artifacts/${pluginName}-${manifest.version}.tgz`));
   await access(tarball);

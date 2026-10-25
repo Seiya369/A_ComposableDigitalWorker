@@ -14,7 +14,7 @@ test('host preflight accepts the official global panel API without patched works
     for (const [name, interfaces] of Object.entries(requiredPublicInterfaces)) {
       const path = resolve(root, 'node_modules', name);
       await mkdir(path, { recursive: true });
-      await writeFile(resolve(path, 'package.json'), JSON.stringify({ name, version: '0.2.1-alpha.2', exports: { './package.json': './package.json', './client': './client.js' } }));
+      await writeFile(resolve(path, 'package.json'), JSON.stringify({ name, version: '0.2.1-rc.3', exports: { './package.json': './package.json', './client': './client.js' } }));
       await writeFile(resolve(path, 'client.js'), interfaces.join('\n'));
     }
     assert.deepEqual((await checkHost(resolve(root, 'package.json'))).interfaces, requiredPublicInterfaces);
