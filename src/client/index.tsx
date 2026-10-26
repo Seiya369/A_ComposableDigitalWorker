@@ -15,6 +15,7 @@ import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client';
 import { WorkforceWorkspace, clearWorkforceDrafts } from '../ui/index.js';
 import { ProjectExecutionReview } from '../ui/ProjectExecutionReview.js';
 import { ConversationWorkflowPicker, ConversationWorkflowSteps } from '../ui/ConversationWorkflow.js';
+import { ConversationEmployee } from '../ui/ConversationEmployee.js';
 import { Icon } from '../ui/icons.js';
 import type { WorkforceClient } from '../ui/client.js';
 import type { WorkforceRun, WorkforceState } from '../domain/types.js';
@@ -25,6 +26,8 @@ import { createConversationWorkflowTransport } from './conversation-workflow-tra
 import { createConversationWorkflowDetailsClient } from './conversation-workflow-details.js';
 import { createConversationReopenNavigation } from './conversation-workflow-reopen.js';
 import { createEmployeeConversationBlocks } from './employee-conversation-blocks.js';
+import { createConversationEmployeeController } from './conversation-employee.js';
+import { createConversationEmployeeTransport } from './conversation-employee-transport.js';
 import { WorkforceI18nProvider, createWorkforceI18n, registerWorkforceLocales } from '../ui/i18n.js';
 import './integration.css';
 import '../ui/workforce.css';
@@ -108,6 +111,7 @@ export async function apply(ctx:Context):Promise<void>{
     ...reopenNavigation,onEmployeeSessionOwner:employeeBlocks.observe,
   });
   const workflowController=createConversationWorkflowController(workflowTransport.transport);
+  const employeeController=createConversationEmployeeController(createConversationEmployeeTransport(request,reopenNavigation));
   const detailsClient=createConversationWorkflowDetailsClient(request,client);
   let disposed=false;
   const openRun=async(initial:WorkforceRun)=>{
@@ -147,11 +151,15 @@ export async function apply(ctx:Context):Promise<void>{
     name:'conversation.session.header.utilities',id:'workforce-workflow-steps',order:-20,
     inject:()=>({controller:workflowController,detailsClient,onOpenSession:(sessionId:string)=>ctx.uiWorkspace.openSession(sessionId as SessionId)}),
   },localized(ConversationWorkflowSteps)));
+  ctx.slots.inject('conversation.session.header.utilities',()=>ctx.slots.register({
+    name:'conversation.session.header.utilities',id:'workforce-conversation-employee',order:-19,
+    inject:()=>({controller:employeeController}),
+  },localized(ConversationEmployee)));
   ctx.effect(()=>ctx.inputTriggers.registerSource(createEmployeeMentionSource({
     snapshot:client.snapshot,projectForSession,run:startEmployeeRun,
     translate:i18n.t,translateError:i18n.errorMessage,
     onStarted:run=>{void openRun(run).catch(()=>{if(!disposed&&ctx.fiber.uid!==null)showReview(run);});},
   })),'workforce: employee mentions');
-  ctx.effect(()=>()=>{disposed=true;workflowController.dispose();workflowTransport.dispose();reopenNavigation.dispose();reviewListeners.clear();clearWorkforceDrafts();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
+  ctx.effect(()=>()=>{disposed=true;workflowController.dispose();workflowTransport.dispose();employeeController.dispose();reopenNavigation.dispose();reviewListeners.clear();clearWorkforceDrafts();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
 }
 import '../ui/SharedWikiGraph.css';

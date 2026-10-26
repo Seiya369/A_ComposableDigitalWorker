@@ -1,5 +1,13 @@
 # 更新记录
 
+## 0.2.1 / plugin.3 — 2026-10-26
+
+- Chat 顶部在项目负责人相同位置增加“常驻此对话”显式下拉菜单，默认原生助手；可切换/退出，刷新保留，旧 @ 不隐式绑定。每次 @ 的单次独立工作单行为保留。
+- 新增轻咨询/工具执行选择和本地员工信息卡。轻咨询收起新工具表、自动技能目录和岗位知识初始化，拒绝工具执行，普通问答不自动归档编纂；执行模式保留完整能力与权限。
+- 常驻沿用同一原生 Session 的历史、附件、流式输出与停止，按轮次精确撤销公开接口作用域；会话间隔离，CAS 防止过期切换，不修改 DSH。
+- 保留员工模型/推理配置及原生历史。离线请求结构测量只说明输入组成，不声称实际费用或固定缓存命中比例。
+- Explicit Chat residency, local employee cards and consultation/execution modes share the native conversation lifecycle. Previous mentions never bind automatically; one-time delegation and project workflows remain available.
+
 ## 0.2.1 / plugin.2 — 2026-10-26
 
 - 员工身份首句只显示姓名/岗位，明确不主动输出内部 ID、路径和运行协议；内部路由资料后置，保留必要工具调用与交付引用。

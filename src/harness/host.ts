@@ -38,6 +38,7 @@ import { isLegacyStandaloneRun } from '../domain/conversation-session.js';
 import { isConversationAgentBusy } from './conversation-activity.js';
 import { requireConversationWorkflowReview, resolveConversationWorkflowDetails, type ConversationWorkflowReviewInput } from '../domain/conversation-workflow-details.js';
 import { conversationWorkflowsEnabled } from './workspace-policy.js';
+import { conversationEmployeeChoices, employeeInfoCard, resolveConversationEmployee, resolveEmployeeInfo, type ConversationEmployeeView, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput } from '../domain/conversation-employee.js';
 
 export const name = 'composable-workforce';
 export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
@@ -134,12 +135,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     isDeliverySession,
     ownsPendingTurn: agent => {
       const workspace = workspaceForSession(agent.id);
-      return Boolean(workspace && conversationWorkflowsEnabled(workspace) && resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId);
+      if (!workspace) return false;
+      return conversationWorkflowsEnabled(workspace)
+        ? Boolean(resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId)
+        : Boolean(resolveConversationEmployee(store.snapshot(), workspace.id, agent.id).conversationEmployee);
     },
     prepare: async (agent, turnKey, requestText, signal) => {
       await syncProjects();
       const workspace = workspaceForSession(agent.id);
-      if (!workspace || !conversationWorkflowsEnabled(workspace)) return undefined;
+      if (!workspace) return undefined;
+      if (!conversationWorkflowsEnabled(workspace)) {
+        const resident = resolveConversationEmployee(store.snapshot(), workspace.id, agent.id);
+        if (!resident.conversationEmployee) return undefined;
+        if (resident.unavailableReason) throw new Error(resident.unavailableReason);
+        return runtime.openEmployeeConversationTurn(agent, turnKey, requestText, resident, signal);
+      }
       const view = resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id);
       if (!view.instanceId) return undefined;
       if (view.unavailableReason) throw new Error(view.unavailableReason);
@@ -204,6 +214,20 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     const workspace = await requireProjectConversation(projectId, sessionId);
     if (!conversationWorkflowsEnabled(workspace)) throw new Error('Chat 工作区不提供工作流服务，请通过 @ 调用独立员工');
   };
+  const requireResidentConversation = async (projectId: string, sessionId: string) => {
+    const workspace = await requireProjectConversation(projectId, sessionId);
+    if (conversationWorkflowsEnabled(workspace)) throw new Error('只有 Chat 工作区支持常驻此对话，请在项目中使用工作流负责人');
+  };
+  const residentView = (sessionId: string): ConversationEmployeeView => {
+    const state = store.snapshot(); const workspace = workspaceForSession(sessionId);
+    const enabled = Boolean(workspace && !conversationWorkflowsEnabled(workspace) && !isDeliverySession(sessionId));
+    const base = { enabled, busy: conversationIsBusy(sessionId), revision: state.revision, sessionId, projectId: workspace?.id ?? null };
+    if (!enabled || !workspace) return { ...base, conversationEmployee: null, choices: [] };
+    const resolved = resolveConversationEmployee(state, workspace.id, sessionId);
+    return { ...base, conversationEmployee: resolved.conversationEmployee, choices: conversationEmployeeChoices(state, workspace.id),
+      ...(resolved.employee ? { employee: employeeInfoCard(resolved.employee) } : {}),
+      ...(resolved.unavailableReason ? { unavailableReason: resolved.unavailableReason } : {}) };
+  };
   const requireStandaloneRun = (id: string) => {
     if (store.snapshot().runs.find(run => run.id === id)?.conversationWorkflow) throw new Error('请在原生项目对话的工作流详情中验收或取消此交付');
     if (store.snapshot().runs.find(run => run.id === id)?.workflow) throw new Error('请在项目工作流中验收或取消此步骤');
@@ -229,6 +253,20 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return work.command(action, payload, options as WorkCommandOptions);
     }
     switch (action) {
+      case 'conversation.employee.select': {
+        const projectId = string(payload.projectId, '项目 ID'); const sessionId = string(payload.sessionId, '对话 ID');
+        await requireResidentConversation(projectId, sessionId);
+        await store.setConversationEmployee(payload as unknown as SelectConversationEmployeeInput, options);
+        const sessionReopened = runtime.needsCompletedSessionHandoff(sessionId) ? await runtime.handoffCompletedSession(sessionId) : false;
+        return { ...residentView(sessionId), sessionReopened };
+      }
+      case 'conversation.employee.clear': {
+        const projectId = string(payload.projectId, '项目 ID'); const sessionId = string(payload.sessionId, '对话 ID');
+        await requireResidentConversation(projectId, sessionId);
+        await store.clearConversationEmployee(payload as unknown as ClearConversationEmployeeInput, options);
+        const sessionReopened = runtime.needsCompletedSessionHandoff(sessionId) ? await runtime.handoffCompletedSession(sessionId) : false;
+        return { ...residentView(sessionId), sessionReopened };
+      }
       case 'employee.conversation.resume': {
         await requireProjectConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
         return { sessionReopened: await runtime.handoffCompletedSession(string(payload.sessionId, '对话 ID')) };
@@ -388,6 +426,18 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const sessionId = SessionId(string(url.searchParams.get('sessionId'), '会话 ID'));
         const workspace = workspaceForSession(sessionId);
         json(res, 200, { projectId: workspace?.id ?? null, ...(workspace && !conversationWorkflowsEnabled(workspace) ? { standaloneOnly: true } : {}) }); return;
+      }
+      if (req.method === 'GET' && route === '/conversation-employee') {
+        await syncProjects();
+        json(res, 200, residentView(string(url.searchParams.get('sessionId'), '对话 ID'))); return;
+      }
+      if (req.method === 'GET' && route === '/employee-info') {
+        await syncProjects();
+        const sessionId = string(url.searchParams.get('sessionId'), '对话 ID'); const workspace = workspaceForSession(sessionId);
+        if (!workspace || conversationWorkflowsEnabled(workspace) || isDeliverySession(sessionId)) throw new Error('请在 Chat 原生对话中查看独立员工资料');
+        const input = { ...(url.searchParams.has('employeeId') ? { employeeId: string(url.searchParams.get('employeeId'), '员工 ID') } : {}),
+          ...(url.searchParams.has('templateId') ? { templateId: string(url.searchParams.get('templateId'), '自由职业人 ID') } : {}) };
+        json(res, 200, resolveEmployeeInfo(store.snapshot(), workspace.id, input)); return;
       }
       if (req.method === 'GET' && route === '/conversation-workflow') {
         await syncProjects();

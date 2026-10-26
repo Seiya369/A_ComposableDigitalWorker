@@ -105,6 +105,27 @@ const lease = (id = 'owner-one', extra: Partial<NativeWorkflowLease> = {}): Nati
   id, prompt: `WORKFLOW_OWNER_CONTEXT:${id}`, model: { provider: 'fixture', model: id }, ...extra,
 });
 
+for (const toolsMode of ['native', 'ptc'] as const) test(`light consultation uses public scoped restrictions and an empty authoritative assembly (${toolsMode})`, async () => {
+  let consult = true, executed = 0;
+  const f = await fixture([
+    request => { assert.equal(request.tools?.length ?? 0, 0); return call('native_fixture'); },
+    request => { assert.match(JSON.stringify(request), /轻咨询/); return text('consult done'); },
+    request => { assert.ok(request.tools?.length); return text('native restored'); },
+  ], { isDeliverySession: () => false, prepare: async () => consult ? lease('consult', { toolPolicy: 'consult' }) : undefined }, { toolsMode });
+  const remove = f.ctx.tools.register(tool('native_fixture', async () => { executed++; return 'SHOULD_NOT_EXECUTE'; }));
+  try {
+    await f.send('CONSULT_ORIGINAL');
+    assert.equal(executed, 0, 'even an unsolicited or historical tool call is rejected');
+    assert.equal(f.adapter.requests.length, 2);
+    assert.ok(f.agent.ctx.tools.get('native_fixture', f.agent), 'restriction released at turn end');
+    consult = false;
+    await f.send('NATIVE_FOLLOWUP');
+    assert.equal(f.adapter.requests.length, 3);
+    assert.equal(f.ctx.agents.list().length, 1, 'same native conversation');
+    assert.match(JSON.stringify(f.adapter.requests[2]), /CONSULT_ORIGINAL/);
+  } finally { remove(); await f.cleanup(); }
+});
+
 test('first native request has frozen owner context and tools while complete native prompt and history stay intact', async () => {
   const prepared: Array<{ key: string; request: string }> = [];
   const results: SessionEvent[][] = [];

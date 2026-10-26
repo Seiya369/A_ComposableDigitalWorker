@@ -128,7 +128,7 @@ function inputsFor(state: WorkforceState, group: Group, space: KnowledgeSpace): 
   }
 
   for (const run of state.runs) {
-    if (run.projectId !== space.projectId || !members.has(run.employeeId) || !completed.has(run.status)) continue;
+    if (run.conversationEmployee?.mode === 'consult' || run.projectId !== space.projectId || !members.has(run.employeeId) || !completed.has(run.status)) continue;
     const workflowAttempt = run.workflow ? state.workflowRuns?.find(flow => flow.id === run.workflow!.workflowRunId)?.steps.find(step => step.stepId === run.workflow!.stepId)?.attempts.find(attempt => attempt.runId === run.id) : undefined;
     if (space.memberId) {
       if (run.employeeId !== space.memberId) continue;

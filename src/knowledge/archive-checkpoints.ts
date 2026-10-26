@@ -37,7 +37,7 @@ function checkpointEntries(state: WorkforceState, space: KnowledgeSpace, memberI
   if (space.kind !== 'project' || !space.projectId) return [];
   const projectId = space.projectId;
   const members = new Set(space.memberId ? memberIds.filter(id => id === space.memberId) : memberIds);
-  const runs = new Map(state.runs.filter(run => run.projectId === projectId).map(run => [run.id, run]));
+  const runs = new Map(state.runs.filter(run => run.projectId === projectId && run.conversationEmployee?.mode !== 'consult').map(run => [run.id, run]));
   const records = new Map<string, { stage: unknown; children: ReturnType<typeof childRecord>[] }>();
   const tasks = (state.workState?.tasks ?? []).filter(task => task.projectId === projectId);
   const taskById = new Map(tasks.map(task => [task.id, task]));

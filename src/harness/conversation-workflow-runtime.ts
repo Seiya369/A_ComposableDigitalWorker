@@ -19,6 +19,8 @@ export interface NativeWorkflowLease {
   /** An explicit task-budget reservation; undefined preserves the native output setting. */
   maxTokens?: number;
   tools?: readonly ToolDefinition[];
+  /** Explicit consultation: no new tool schemas/catalog, and no tool execution. */
+  toolPolicy?: 'consult';
   beforeStep?: (step: NativeConversationStep) => Promise<void>;
   guard?: (execution: ToolExecution) => string | undefined;
   afterTool?: (execution: ToolDispatchExecution, result: ToolExecutionResult) => Promise<void>;
@@ -222,10 +224,16 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
       signal?.throwIfAborted();
       if (closed || turn.ended) throw new Error('工作流对话服务已关闭');
       const lease = turn.lease;
+      if (lease?.toolPolicy === 'consult') {
+        // Official per-Agent capability scope also tells the native skill hook
+        // to omit its catalog. Own-layer/PTC exemptions require a guard too.
+        turn.toolDisposers.push(turn.agent.ctx.tools.restrict({ allow: [] }));
+        turn.toolDisposers.push(turn.agent.ctx.tools.guard(() => '轻咨询不执行工具；请在常驻菜单切换到工具执行'));
+      }
       turn.roleDefinition = lease && workflowContextDefinition(lease.prompt, lease.contextKey);
       turn.taskDefinition = lease?.taskContext ? workflowContextDefinition(lease.taskContext, turn.roleDefinition?.version) : undefined;
       retire(turn.agent, turn.roleDefinition, turn.taskDefinition);
-      if (lease) for (const definition of lease.tools ?? []) {
+      if (lease && lease.toolPolicy !== 'consult') for (const definition of lease.tools ?? []) {
         if (turn.agent.ctx.tools.get(definition.name, turn.agent)) throw new Error(`工作流工具与现有工具重名：${definition.name}`);
         turn.toolDisposers.push(turn.agent.ctx.tools.register({
           ...definition,
@@ -240,7 +248,11 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     return turn.preparing;
   };
   const withModel = (assembly: PromptAssembly, turn: TurnState): PromptAssembly => {
-    const result = turn.lease ? { ...assembly, variables: { ...assembly.variables, provider: turn.lease.model.provider, model: turn.lease.model.model } } : assembly;
+    // PromptAssembly.tools is the documented authoritative schema surface.
+    // Do not mutate the immutable LLM request or the native model stream.
+    const result = turn.lease ? { ...assembly,
+      ...(turn.lease.toolPolicy === 'consult' ? { tools: [] } : {}),
+      variables: { ...assembly.variables, provider: turn.lease.model.provider, model: turn.lease.model.model } } : assembly;
     turn.assembly = result;
     return result;
   };

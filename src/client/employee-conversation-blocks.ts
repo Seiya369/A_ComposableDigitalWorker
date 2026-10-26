@@ -4,7 +4,7 @@ import type { WorkforceRun } from '../domain/types.js';
 type Block = { readonly reason: string };
 interface BlockStore { getSnapshot(): Block | undefined; subscribe(listener: () => void): () => void }
 interface BlockRegistry { set(sessionId: string, block: Block | undefined): void; storeFor(sessionId: string): BlockStore }
-type Delivery = Pick<WorkforceRun, 'sessionId' | 'status' | 'parentRunId' | 'conversationWorkflow' | 'workflow' | 'workTaskId'>;
+type Delivery = Pick<WorkforceRun, 'sessionId' | 'status' | 'parentRunId' | 'conversationWorkflow' | 'conversationEmployee' | 'workflow' | 'workTaskId'>;
 
 /** Public ComposerBlocks protects a one-shot delivery until its Host owner is released. */
 export function createEmployeeConversationBlocks(registry: BlockRegistry, reason: () => string, isActive: () => boolean = () => true) {

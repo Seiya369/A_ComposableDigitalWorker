@@ -10,6 +10,7 @@ import type { ExportSelection, ImportOptions, ImportTarget, ImportPreview, Impor
 import type { SaveWorkflowTemplateInput, WorkflowTemplate, TeamTemplate } from './types.js';
 import { cancelProjectTeams, installProjectTeam } from './project-team.js';
 import { selectConversationWorkflow, selectConversationWorkflowStep, validateConversationWorkflowRun, reviewConversationWorkflowRun, conversationWorkflowLibraryNeedsSync, synchronizeConversationWorkflowLibrary, type SelectConversationWorkflowInput, type SelectConversationWorkflowStepInput, type ConversationWorkflowView } from './conversation-workflow.js';
+import { selectConversationEmployee, clearConversationEmployee, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput, type ResolvedConversationEmployee } from './conversation-employee.js';
 import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, ProjectTeam, SetProjectTeamKnowledgeInput } from './types.js';
 import { invariant, textField, validateRelativePath, validateState, WorkforceError } from './validation.js';
 import type { CreateEmployeeInput, CreateProjectEmployeesInput, CreateRunInput, EmployeeTemplate, MemoryRecord, MutationOptions, ProjectEmployee, ReviewRunInput, RunStatus, SaveEmployeeConfigurationInput, SaveMemoryInput, SaveProjectInput, SaveTeamInput, SaveTemplateInput, UpdateEmployeeInput, UpdateRunInput, WorkforceRun, WorkforceState } from './types.js';
@@ -221,6 +222,15 @@ export class WorkforceStore {
     };
     return this.mutate({}, state => existing(state) ?? this.addEmployee(state, input), existing);
   }
+  /** Explicit binding and optional standalone admission share one atomic commit. */
+  setConversationEmployee(input: SelectConversationEmployeeInput, options: MutationOptions = {}): Promise<ResolvedConversationEmployee> {
+    input = clone(input); options = clone(options);
+    return this.mutate(options, state => ({ ...selectConversationEmployee(state, input, options, draft => this.addEmployee(state, draft)), revision: state.revision + 1 }));
+  }
+  clearConversationEmployee(input: ClearConversationEmployeeInput, options: MutationOptions = {}): Promise<ResolvedConversationEmployee> {
+    input = clone(input); options = clone(options);
+    return this.mutate(options, state => ({ ...clearConversationEmployee(state, input, options), revision: state.revision + 1 }));
+  }
   /** Confirm the entire staffing draft once; no partial team or global template edit is persisted. */
   createProjectEmployees(input: CreateProjectEmployeesInput, options: MutationOptions = {}): Promise<ProjectEmployee[]> {
     input = clone(input);
@@ -336,7 +346,7 @@ export class WorkforceStore {
     patch = clone(patch); options = clone(options);
     return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); if (patch.name !== undefined) e.name = patch.name; if (patch.modules !== undefined) e.modules = patch.modules; if (patch.status !== undefined) e.status = patch.status; if (patch.managerId === null) delete e.managerId; else if (patch.managerId !== undefined) e.managerId = patch.managerId; e.version++; e.updatedAt = now(); return e; });
   }
-  deleteEmployee(id: string, options: MutationOptions = {}): Promise<void> { return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); invariant(!state.projectTeams?.some(team => team.members.some(member => member.employeeId === id)), '该员工属于项目团队，请暂停员工以保留团队和工作流关系'); invariant(!state.employees.some(other => other.managerId === id), '请先调整下属的汇报关系'); invariant(!state.workState?.tasks.some(task => task.employeeId === id), '该员工已有项目任务，请保留员工并暂停以保护任务历史'); invariant(!state.runs.some(r => r.employeeId === id) && !state.memories.some(m => m.employeeId === id), '该员工已有工作或记忆记录，请暂停员工以保留历史'); state.employees = state.employees.filter(other => other.id !== id); }); }
+  deleteEmployee(id: string, options: MutationOptions = {}): Promise<void> { return this.mutate(options, state => { const e = required(state.employees, id, '员工'); checkVersion(e, options); invariant(!state.conversationEmployees?.some(binding => binding.employeeId === id), '该员工正在常驻对话，请先退出常驻'); invariant(!state.projectTeams?.some(team => team.members.some(member => member.employeeId === id)), '该员工属于项目团队，请暂停员工以保留团队和工作流关系'); invariant(!state.employees.some(other => other.managerId === id), '请先调整下属的汇报关系'); invariant(!state.workState?.tasks.some(task => task.employeeId === id), '该员工已有项目任务，请保留员工并暂停以保护任务历史'); invariant(!state.runs.some(r => r.employeeId === id) && !state.memories.some(m => m.employeeId === id), '该员工已有工作或记忆记录，请暂停员工以保留历史'); state.employees = state.employees.filter(other => other.id !== id); }); }
   listMemories(projectId: string, employeeId?: string): MemoryRecord[] {
     required(this.state.projects, projectId, '项目'); if (employeeId) invariant(this.state.employees.some(e => e.id === employeeId && e.projectId === projectId), '不能读取其他项目员工的记忆');
     return clone(this.state.memories.filter(m => m.projectId === projectId && (m.scope === 'project' || (employeeId !== undefined && m.employeeId === employeeId))));
@@ -359,9 +369,15 @@ export class WorkforceStore {
       const parent = input.parentRunId ? state.runs.find(run => run.id === input.parentRunId && run.projectId === input.projectId) : undefined;
       if (parent?.conversationWorkflow && !input.conversationWorkflow) input.conversationWorkflow = clone(parent.conversationWorkflow);
       validateConversationWorkflowRun(state, input);
+      if (input.conversationEmployee) {
+        const binding = state.conversationEmployees?.find(entry => entry.sessionId === input.conversationEmployee!.sessionId && entry.projectId === input.projectId);
+        if (!binding || binding.employeeId !== e.id || binding.mode !== input.conversationEmployee.mode || binding.version !== input.conversationEmployee.bindingVersion) throw new WorkforceError('CONFLICT', '常驻员工已更新，请刷新后重试');
+        invariant(!input.parentRunId, '常驻员工工作必须由原生对话发起');
+      }
       const date = now(); const entry: WorkforceRun = { id: randomUUID(), projectId: input.projectId, employeeId: e.id,
         request: input.request, status: 'queued', employeeSnapshot: clone(e), artifacts: [], version: 1, createdAt: date, updatedAt: date,
-        ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}), ...(input.conversationWorkflow ? { conversationWorkflow: input.conversationWorkflow } : {}) };
+        ...(input.parentRunId ? { parentRunId: input.parentRunId } : {}), ...(input.conversationWorkflow ? { conversationWorkflow: input.conversationWorkflow } : {}),
+        ...(input.conversationEmployee ? { conversationEmployee: clone(input.conversationEmployee) } : {}) };
       state.runs.push(entry); return entry;
     });
   }
@@ -379,6 +395,21 @@ export class WorkforceStore {
       if (run.status === 'running' && !run.startedAt) run.startedAt = now(); if (['failed', 'cancelled'].includes(run.status) && !run.finishedAt) run.finishedAt = now();
       run.version++; run.updatedAt = now(); return run;
     });
+  }
+  /** Consulting finishes in the native conversation; no artifact review is invented. */
+  completeConversationConsultation(id: string, result: Pick<UpdateRunInput, 'output' | 'usage' | 'finishedAt'>): Promise<WorkforceRun> {
+    result = clone(result);
+    return this.mutate({}, state => {
+      const run = required(state.runs, id, '工作');
+      invariant(run.conversationEmployee?.mode === 'consult', '只有常驻员工咨询可通过此入口完成');
+      invariant(run.status === 'running', '只有正在执行的咨询可以完成');
+      invariant(run.artifacts.length === 0 && run.acceptance === undefined, '咨询不能包含工作交付或验收记录');
+      run.status = 'succeeded';
+      if (result.output !== undefined) run.output = result.output;
+      if (result.usage !== undefined) run.usage = result.usage;
+      run.finishedAt = result.finishedAt ?? now(); run.updatedAt = now(); run.version++;
+      return run;
+    }, state => state.runs.find(run => run.id === id && run.conversationEmployee?.mode === 'consult' && run.status === 'succeeded'));
   }
   reviewRun(id: string, input: ReviewRunInput, options: MutationOptions = {}): Promise<WorkforceRun> {
     input = clone(input); options = clone(options);

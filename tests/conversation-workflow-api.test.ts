@@ -16,6 +16,7 @@ import { KnowledgeEngine } from '../src/knowledge/engine.js';
 import { WorkforceRuntime, type RunRequest } from '../src/harness/runtime.js';
 import type { WorkTask } from '../src/work/types.js';
 import type { ConversationWorkflowDetails, ConversationWorkflowReviewInput } from '../src/domain/conversation-workflow-details.js';
+import type { ConversationEmployeeView } from '../src/domain/conversation-employee.js';
 
 /** The real authenticated route is exercised with official services represented by fixtures. */
 async function fixture(t: { after(fn: () => Promise<void>): void }, options: { legacyHistory?: boolean; modernHistory?: boolean; activeModernHistory?: boolean; blockedHistory?: boolean; failRuntimeCleanup?: boolean; chatWorkspace?: boolean; projectTitle?: string; pausedLegacyFlow?: boolean } = {}) {
@@ -658,4 +659,72 @@ test('own native delivery from an unselected workflow gives precise return guida
   const other = await f.details('chat-b', { runId: modern.id }); assert.notEqual(other.status, 200);
   assert.match(other.body.error!, /交付不属于当前对话或工作流/); assert.doesNotMatch(other.body.error!, /软件工程|方案/);
   const after = await f.state(); assert.deepEqual(after.runs, f.history); assert.equal(JSON.parse(before).runs[0].status, modern.status);
+});
+
+async function residentView(origin: string, sessionId = 'chat-a') {
+  const response = await fetch(`${origin}/digital-workers/api/conversation-employee?sessionId=${encodeURIComponent(sessionId)}`);
+  return { status: response.status, body: await response.json() as ConversationEmployeeView & { error?: string } };
+}
+
+test('Chat resident employee selection is explicit, scoped, atomic and model-free; local card is read-only', async t => {
+  const f = await fixture(t, { chatWorkspace: true });
+  t.mock.method(WorkforceRuntime.prototype, 'start', async () => { throw new Error('RESIDENT_SELECTION_MUST_NOT_CALL_MODEL'); });
+  const before = await readFile(f.file, 'utf8');
+  const initial = await residentView(f.origin);
+  assert.equal(initial.status, 200, initial.body.error); assert.equal(initial.body.enabled, true);
+  assert.equal(initial.body.conversationEmployee, null); assert.equal(initial.body.employee, undefined);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  const card = await fetch(`${f.origin}/digital-workers/api/employee-info?${new URLSearchParams({ sessionId: 'chat-a', templateId: f.architect.id })}`);
+  assert.equal(card.status, 200); const info = await card.json() as Record<string, unknown>;
+  assert.equal(info.name, f.architect.name); assert.equal(info.id, undefined); assert.equal(info.modules, undefined);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  const payload = { projectId: f.project.id, sessionId: 'chat-a', templateId: f.architect.id, mode: 'consult' };
+  const selected = await f.command('conversation.employee.select', payload, { expectedRevision: initial.body.revision, expectedVersion: 0 });
+  assert.equal(selected.status, 200, selected.body.error);
+  const view = (await residentView(f.origin)).body;
+  assert.equal(view.conversationEmployee?.mode, 'consult'); assert.equal(view.employee?.name, f.architect.name);
+  assert.equal((await residentView(f.origin, 'chat-b')).body.conversationEmployee, null);
+  const state = await f.state(); assert.equal(state.employees.length, 1); assert.equal(state.runs.length, 0);
+  assert.equal(state.projectTeams?.length ?? 0, 0); assert.equal(state.conversationWorkflows?.instances.length ?? 0, 0);
+  const stale = await f.command('conversation.employee.select', { ...payload, mode: 'execute' }, { expectedRevision: initial.body.revision, expectedVersion: 0 });
+  assert.equal(stale.status, 409);
+  await f.command('employee.update', { id: view.conversationEmployee!.employeeId, input: { status: 'paused' } }, {});
+  await f.command('template.archive', { id: f.architect.id }, {});
+  const unavailable = (await residentView(f.origin)).body;
+  assert.match(unavailable.unavailableReason!, /暂停/); assert.ok(unavailable.conversationEmployee);
+  const cleared = await f.command('conversation.employee.clear', { projectId: f.project.id, sessionId: 'chat-a' }, { expectedRevision: unavailable.revision, expectedVersion: unavailable.conversationEmployee!.version });
+  assert.equal(cleared.status, 200, cleared.body.error);
+  assert.equal((await residentView(f.origin)).body.conversationEmployee, null);
+  assert.equal((await f.state()).employees.length, 1);
+});
+
+test('resident command checks real Chat ownership, delivery ownership and session-local busy state', async t => {
+  const f = await fixture(t, { chatWorkspace: true, legacyHistory: true });
+  const payload = { projectId: f.project.id, sessionId: 'chat-a', templateId: f.architect.id, mode: 'consult' };
+  const attempt = async (input = payload) => f.command('conversation.employee.select', input, { expectedRevision: (await f.state()).revision, expectedVersion: 0 });
+  const before = await readFile(f.file, 'utf8');
+  for (const sessionId of ['foreign-chat', 'unknown-chat', 'legacy-child']) assert.notEqual((await attempt({ ...payload, sessionId })).status, 200);
+  f.setQueuedIdle('chat-a', 'nextTurn'); assert.notEqual((await attempt()).status, 200);
+  assert.equal((await residentView(f.origin)).body.busy, true);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  assert.equal((await attempt({ ...payload, sessionId: 'chat-b' })).status, 200, 'another conversation remains independently selectable');
+  f.setQueuedIdle('chat-a'); f.setApprovalNotice('chat-a');
+  assert.equal((await attempt()).status, 200, 'permission notices are not active user work');
+  f.duplicateSession(); const duplicateBefore = await readFile(f.file, 'utf8');
+  assert.notEqual((await residentView(f.origin)).status, 200);
+  assert.notEqual((await f.command('conversation.employee.clear', { projectId: f.project.id, sessionId: 'chat-a' }, { expectedRevision: (await f.state()).revision, expectedVersion: 1 })).status, 200);
+  assert.equal(await readFile(f.file, 'utf8'), duplicateBefore);
+});
+
+test('ordinary projects and unowned sessions never expose or admit Chat resident employee services', async t => {
+  const f = await fixture(t, { projectTitle: 'Chat' });
+  const initial = await residentView(f.origin); assert.equal(initial.status, 200); assert.equal(initial.body.enabled, false);
+  assert.equal(initial.body.conversationEmployee, null); assert.deepEqual(initial.body.choices, []);
+  const before = await readFile(f.file, 'utf8');
+  for (const action of ['conversation.employee.select', 'conversation.employee.clear']) {
+    const selected = await f.command(action, { projectId: f.project.id, sessionId: 'chat-a', templateId: f.architect.id, mode: 'consult' }, { expectedRevision: initial.body.revision, expectedVersion: 0 });
+    assert.notEqual(selected.status, 200); assert.match(selected.body.error!, /Chat/);
+  }
+  const foreignCard = await fetch(`${f.origin}/digital-workers/api/employee-info?${new URLSearchParams({ sessionId: 'unknown-chat', templateId: f.architect.id })}`);
+  assert.notEqual(foreignCard.status, 200); assert.equal(await readFile(f.file, 'utf8'), before);
 });

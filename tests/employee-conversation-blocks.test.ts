@@ -33,9 +33,10 @@ test('existing standalone work-order history is seeded without binding unrelated
     { sessionId: 'child', parentRunId: 'parent', status: 'succeeded' },
     { sessionId: 'workflow', workflow: {} as never, status: 'succeeded' },
     { sessionId: 'task', workTaskId: 'task-id', status: 'failed' },
+    { sessionId: 'resident', status: 'running', conversationEmployee: { sessionId: 'resident', mode: 'consult', bindingVersion: 1 } },
   ]);
   assert.ok(f.read('completed-delivery')); assert.ok(f.read('active-delivery'));
-  for (const id of ['child', 'workflow', 'task', 'ordinary-chat']) assert.equal(f.read(id), undefined);
+  for (const id of ['child', 'workflow', 'task', 'resident', 'ordinary-chat']) assert.equal(f.read(id), undefined);
   f.guard.observe('completed-delivery', false); assert.equal(f.read('completed-delivery'), undefined, 'a historical native session is released once Host reports no employee owner');
   f.guard.dispose();
 });

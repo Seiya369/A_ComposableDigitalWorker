@@ -33,6 +33,17 @@ const entries = (state: WorkforceState, target: KnowledgeSpace = privateSpace) =
 const checkpoint = (state: WorkforceState, target: KnowledgeSpace = privateSpace) => knowledgeArchiveCheckpoint(state, target, ['alice', 'bob']);
 const accept = (value: WorkforceRun): void => { value.status = 'succeeded'; value.acceptance = { decision: 'accepted', reviewer: 'Owner', note: 'Reviewed', at }; };
 
+test('resident light consultations never create automatic long-term archive checkpoints', () => {
+  const state = fixture(), before = checkpoint(state);
+  for (const status of ['succeeded', 'failed', 'cancelled'] as const) state.runs.push(run(`consult-${status}`, 'alice', status, {
+    conversationEmployee: { sessionId: 'chat-session', mode: 'consult', bindingVersion: 1 }, output: 'An ordinary short answer',
+  }));
+  assert.equal(checkpoint(state), before);
+  assert.deepEqual(entries(state), []);
+  state.runs.push(run('execute', 'alice', 'succeeded', { conversationEmployee: { sessionId: 'chat-session', mode: 'execute', bindingVersion: 2 } }));
+  assert.equal(entries(state).length, 1, 'execution retains ordinary archive policy');
+});
+
 test('task completion waits for the authoritative task and run to agree instead of each intermediate turn or transaction', () => {
   const state = fixture(); const attempt = run('attempt', 'alice', 'running', { workTaskId: 'task' });
   state.runs.push(attempt); const item = task('task', 'running', attempt.id); state.workState!.tasks.push(item);

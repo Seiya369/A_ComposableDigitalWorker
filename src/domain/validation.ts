@@ -7,6 +7,7 @@ import { validateWorkflowRuns } from '../workflow/validation.js';
 import { validateWorkflowTemplates } from './workflow-template.js';
 import { validateProjectWork } from '../work/validation.js';
 import { validateConversationWorkflows } from './conversation-workflow.js';
+import { validateConversationEmployees } from './conversation-employee.js';
 
 function object(value: unknown, label: string): asserts value is Record<string, unknown> {
   invariant(value !== null && typeof value === 'object' && !Array.isArray(value), `${label} 必须为对象`);
@@ -159,10 +160,14 @@ export function validateState(value: unknown): asserts value is WorkforceState {
     if (r.activity !== undefined) { object(r.activity, '运行阶段'); oneOf(r.activity.stage, ['preparing-model', 'preparing-knowledge', 'preparing-skills', 'requesting', 'streaming', 'tools'], '运行阶段'); timestamp(r.activity.since, '阶段开始时间'); }
     if (r.startedAt !== undefined) timestamp(r.startedAt, '开始时间'); if (r.finishedAt !== undefined) timestamp(r.finishedAt, '结束时间');
     if (r.acceptance !== undefined) { object(r.acceptance, '验收'); oneOf(r.acceptance.decision, ['accepted', 'rejected'], '验收结论'); textField(r.acceptance.reviewer, '验收人'); textField(r.acceptance.note, '验收备注', true); timestamp(r.acceptance.at, '验收时间'); }
-    if (r.status === 'succeeded') invariant(r.acceptance?.decision === 'accepted', '工作必须验收后才能成功');
+    if (r.status === 'succeeded') {
+      if (r.conversationEmployee?.mode === 'consult') invariant(r.acceptance === undefined && r.artifacts.length === 0, '咨询不能包含工作交付或验收记录');
+      else invariant(r.acceptance?.decision === 'accepted', '工作必须验收后才能成功');
+    }
   }
   validateHierarchy(state.runs.map(r => ({ id: r.id, ...(r.parentRunId ? { parent: r.parentRunId } : {}) })), '工作');
   validateWorkflowRuns(state);
   validateProjectWork(state);
   validateConversationWorkflows(state);
+  validateConversationEmployees(state);
 }

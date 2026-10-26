@@ -1,6 +1,7 @@
 import type { WorkflowRun, WorkflowStepRequirements, WorkflowTaskLink } from '../workflow/types.js';
 import type { ProjectWorkState } from '../work/types.js';
 import type { ConversationWorkflowState, ConversationWorkflowRunLink } from './conversation-workflow.js';
+import type { ConversationEmployeeBinding, ConversationEmployeeRunLink } from './conversation-employee.js';
 /** Domain data is JSON-only. IDs remain stable when names or paths change. */
 export interface ResponsibilitiesModule {
   mission: string;
@@ -239,6 +240,8 @@ export interface WorkforceRun {
   workflow?: WorkflowTaskLink;
   /** Conversation workflow owner attempt; independent of the legacy automatic runner. */
   conversationWorkflow?: ConversationWorkflowRunLink;
+  /** A same-conversation resident employee attempt, independent of workflow deliveries. */
+  conversationEmployee?: ConversationEmployeeRunLink;
   /** Stable project task; this run is one retained execution attempt. */
   workTaskId?: string;
   sessionId?: string;
@@ -274,6 +277,8 @@ export interface WorkforceState {
   workState?: ProjectWorkState;
   /** Opt-in conversation routing; absent on existing installations until selected. */
   conversationWorkflows?: ConversationWorkflowState;
+  /** Explicit Chat-only choices; mentions and profile upgrades never populate this. */
+  conversationEmployees?: ConversationEmployeeBinding[];
 }
 export interface StaffingBatchReceipt {
   requestId: string;
@@ -340,7 +345,7 @@ export interface SaveMemoryInput {
   content: string;
   source: MemorySource;
 }
-export interface CreateRunInput { projectId: string; employeeId: string; request: string; parentRunId?: string; conversationWorkflow?: ConversationWorkflowRunLink }
+export interface CreateRunInput { projectId: string; employeeId: string; request: string; parentRunId?: string; conversationWorkflow?: ConversationWorkflowRunLink; conversationEmployee?: ConversationEmployeeRunLink }
 export interface UpdateRunInput {
   status?: Exclude<RunStatus, 'succeeded'>;
   sessionId?: string;
