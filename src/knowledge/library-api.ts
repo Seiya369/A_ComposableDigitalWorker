@@ -1,5 +1,5 @@
 import type { EmployeeTemplate, ModelModule, ProjectEmployee } from '../domain/types.js';
-import type { KnowledgeEntry, KnowledgeSnapshot, KnowledgeSource } from './types.js';
+import type { KnowledgeCompilationAttempt, KnowledgeEntry, KnowledgeSnapshot, KnowledgeSource } from './types.js';
 import type { KnowledgeArchivePolicy, KnowledgeArchivePolicyChange } from './archive-policy.js';
 export type { AutoArchiveCategory, KnowledgeArchivePolicy } from './archive-policy.js';
 
@@ -42,6 +42,8 @@ export interface KnowledgeLibraryView {
   categories: Array<{ id: KnowledgeSourceCategory; label: string; count: number }>;
   sources: KnowledgeSource[];
   snapshot?: KnowledgeSnapshot;
+  /** Last 50 immutable attempts from this authorized library; omitted by older hosts. */
+  compilationAttempts?: KnowledgeCompilationAttempt[];
   status: KnowledgeLibraryStatus;
   supportedExtensions: string[];
   maxFileBytes: number;

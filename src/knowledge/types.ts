@@ -92,6 +92,18 @@ export interface KnowledgeCompilationTrace {
   modelCalls: number;
   usage?: { reportedCalls: number; inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
 }
+/** Immutable accounting only: no prompts, source bodies, credentials or raw provider errors. */
+export interface KnowledgeCompilationAttempt {
+  schemaVersion: 1;
+  id: string;
+  startedAt: string;
+  finishedAt: string;
+  outcome: 'published' | 'failed' | 'cancelled' | 'superseded';
+  sourceFingerprint: string;
+  version?: number;
+  /** Missing/partially reported usage remains unknown, never inferred as zero. */
+  trace?: KnowledgeCompilationTrace;
+}
 export interface KnowledgeSnapshot extends KnowledgeCompilation {
   version: number;
   sourceFingerprint: string;
@@ -107,6 +119,8 @@ export interface KnowledgeCompileRequest {
   previous?: KnowledgeSnapshot;
   model: ModelModule;
   signal: AbortSignal;
+  /** Accounting observer receives snapshots even if a later stage fails or is cancelled. */
+  onTrace?: (trace: KnowledgeCompilationTrace) => void;
 }
 export interface KnowledgeCompiler {
   (request: KnowledgeCompileRequest): Promise<KnowledgeCompilation>;

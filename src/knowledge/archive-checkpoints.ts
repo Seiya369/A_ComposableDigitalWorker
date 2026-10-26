@@ -25,6 +25,15 @@ const revision = (value?: DeliverableRevision) => value ? {
 
 /** A checkpoint is a business stage, independent of native Session/Turn activity. */
 export function knowledgeArchiveCheckpointEntries(state: WorkforceState, space: KnowledgeSpace, memberIds: string[]): Array<[string, string]> {
+  return checkpointEntries(state, space, memberIds, false);
+}
+
+/** Paid synthesis follows explicit acceptance, not each failed/cancelled chat turn. */
+export function knowledgeCompilationCheckpointEntries(state: WorkforceState, space: KnowledgeSpace, memberIds: string[]): Array<[string, string]> {
+  return checkpointEntries(state, space, memberIds, true);
+}
+
+function checkpointEntries(state: WorkforceState, space: KnowledgeSpace, memberIds: string[], compilation: boolean): Array<[string, string]> {
   if (space.kind !== 'project' || !space.projectId) return [];
   const projectId = space.projectId;
   const members = new Set(space.memberId ? memberIds.filter(id => id === space.memberId) : memberIds);
@@ -60,12 +69,14 @@ export function knowledgeArchiveCheckpointEntries(state: WorkforceState, space: 
     } : {}),
   });
   for (const task of tasks) {
+    if (compilation && task.status !== 'accepted' && task.status !== 'needs-revalidation') continue;
     if (!members.has(task.employeeId) || !taskReady(task)) continue;
     records.set(`task:${task.id}`, { stage: taskStage(task, true), children: [] });
   }
   for (const flow of workflows) {
     if (flow.projectTeamId !== space.teamId) continue;
     for (const step of flow.steps) {
+      if (compilation && step.status !== 'accepted') continue;
       const owner = flow.definition.steps.find(item => item.id === step.stepId)?.employeeId;
       if (!owner || !members.has(owner) || !workflowReady(step.status, step.attempts.at(-1)?.runId, flow.id, step.stepId, owner)) continue;
       records.set(`workflow:${flow.id}:${step.stepId}`, { stage: {
@@ -76,12 +87,14 @@ export function knowledgeArchiveCheckpointEntries(state: WorkforceState, space: 
   }
   for (const run of runs.values()) {
     if (run.parentRunId || run.workTaskId || run.workflow || !members.has(run.employeeId) || !rootStages.has(run.status)) continue;
+    if (compilation && (run.status !== 'succeeded' || run.acceptance?.decision !== 'accepted')) continue;
     records.set(`run:${run.id}`, { stage: { kind: 'run', result: runVerdict(run) }, children: [] });
   }
   for (const run of runs.values()) {
     if (!run.parentRunId || !members.has(run.employeeId) || !childStages.has(run.status)) continue;
     const root = delegationRoot(run, runs);
     if (!root) continue;
+    if (compilation && (root.status !== 'succeeded' || root.acceptance?.decision !== 'accepted')) continue;
     let phase: { key: string; stage: unknown } | undefined;
     if (root.workTaskId) {
       const task = taskById.get(root.workTaskId);

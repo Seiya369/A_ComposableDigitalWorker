@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { KnowledgeRepository, knowledgeRootFor } from '../src/knowledge/repository.js';
-import type { KnowledgeCompilation, KnowledgeSpace } from '../src/knowledge/types.js';
+import type { KnowledgeCompilation, KnowledgeCompilationAttempt, KnowledgeSpace } from '../src/knowledge/types.js';
 
 const team: KnowledgeSpace = { kind: 'template', teamId: 'research' };
 const input = { id: 'meeting', title: 'Meeting', content: '\uFEFFFirst\r\nSecond\0', provenance: 'task:one', verified: false };
@@ -71,6 +71,36 @@ test('publish validates accurate references and atomically preserves versioned c
   const second = await repo.publish(team, compilation(2), nextFingerprint);
   assert.equal(second.version, 2);
   assert.deepEqual(await repo.read(team, 'B', 'principle', 1), first.entries[0]);
+});
+
+test('compilation accounting remains immutable, scoped and bounded without retaining prompts or credentials', async t => {
+  const repo = await fixture(t);
+  await repo.ensure(team);
+  const fingerprint = await repo.fingerprint(team);
+  const attempt = (index: number): KnowledgeCompilationAttempt => ({ schemaVersion: 1, id: `attempt-${String(index).padStart(3, '0')}`,
+    startedAt: new Date(Date.UTC(2026, 9, 26, 0, 0, index)).toISOString(), finishedAt: new Date(Date.UTC(2026, 9, 26, 0, 0, index, 100)).toISOString(),
+    outcome: 'failed', sourceFingerprint: fingerprint, trace: { revision: 'strict-incremental-v1', changedSourceIds: ['meeting'], removedSourceIds: [], modelCalls: 1 } });
+  for (let index = 0; index < 52; index++) await repo.recordCompilationAttempt(team, { ...attempt(index), prompt: 'SECRET_PROMPT', credential: 'SECRET_CREDENTIAL' } as KnowledgeCompilationAttempt);
+  const recent = await repo.compilationAttempts(team);
+  assert.equal(recent.length, 50);
+  assert.equal(recent[0]!.id, 'attempt-051'); assert.equal(recent.at(-1)!.id, 'attempt-002');
+  assert.equal(recent[0]!.trace?.usage, undefined);
+  assert.doesNotMatch(JSON.stringify(recent), /SECRET_PROMPT|SECRET_CREDENTIAL/);
+  assert.deepEqual(await repo.compilationAttempts({ ...team, memberId: 'other' }), []);
+  await assert.rejects(repo.recordCompilationAttempt(team, { ...attempt(51), outcome: 'cancelled' }), /immutable/i);
+  assert.equal((await repo.compilationAttempts(team, 1))[0]!.outcome, 'failed');
+});
+
+test('each committed knowledge version retains its own compiler trace', async t => {
+  const repo = await fixture(t); await repo.ingest(team, input);
+  const trace = (inputTokens: number): NonNullable<KnowledgeCompilation['compilationTrace']> => ({ revision: 'strict-incremental-v1', changedSourceIds: ['meeting'], removedSourceIds: [], modelCalls: 1,
+    usage: { reportedCalls: 1, inputTokens, outputTokens: 10 } });
+  const first = await repo.publish(team, { ...compilation(), compilationTrace: trace(50) }, await repo.fingerprint(team));
+  await repo.ingest(team, { ...input, content: 'Updated\nEvidence' });
+  const second = await repo.publish(team, { ...compilation(2), compilationTrace: trace(75) }, await repo.fingerprint(team));
+  assert.equal((await repo.compilationTrace(team, first.version))?.usage?.inputTokens, 50);
+  assert.equal((await repo.compilationTrace(team, second.version))?.usage?.inputTokens, 75);
+  await assert.rejects(repo.compilationTrace(team, second.version + 1), /published/i);
 });
 
 test('source namespace IDs are encoded and uncommitted snapshot files stay invisible', async t => {

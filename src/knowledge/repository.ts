@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { chmod, lstat, mkdir, open, readdir, rename, rmdir, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { KnowledgeCitation, KnowledgeCompilation, KnowledgeConceptGraph, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import type { KnowledgeCitation, KnowledgeCompilation, KnowledgeCompilationAttempt, KnowledgeCompilationTrace, KnowledgeConceptGraph, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 import { KNOWLEDGE_SOURCE_CATEGORIES, normalizeKnowledgeCategory } from './library-api.js';
 import { knowledgeCategoryForInput, LEGACY_KNOWLEDGE_CATEGORY_DIRECTORIES } from './categories.js';
 import type { WikiLibraryView } from './wiki-types.js';
@@ -41,6 +41,32 @@ const bounded = (value: unknown, label: string, bytes: number, allowEmpty = fals
   check(Buffer.byteLength(value) <= bytes, `${label} is too large`);
   return value;
 };
+function accountingTrace(trace: KnowledgeCompilationTrace): KnowledgeCompilationTrace {
+  const count = (value: number) => { check(Number.isSafeInteger(value) && value >= 0, 'Invalid compilation accounting count'); return value; };
+  check(trace?.revision === 'strict-incremental-v1', 'Invalid compilation accounting revision');
+  check(Array.isArray(trace.changedSourceIds) && trace.changedSourceIds.length <= 10_000 && Array.isArray(trace.removedSourceIds) && trace.removedSourceIds.length <= 10_000, 'Invalid compilation source accounting');
+  const modelCalls = count(trace.modelCalls);
+  const usage = trace.usage ? {
+    reportedCalls: count(trace.usage.reportedCalls), inputTokens: count(trace.usage.inputTokens), outputTokens: count(trace.usage.outputTokens),
+    ...Object.fromEntries(['totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'].flatMap(key => {
+      const value = trace.usage![key as keyof NonNullable<KnowledgeCompilationTrace['usage']>]; return value === undefined ? [] : [[key, count(value)]];
+    })),
+  } : undefined;
+  check(!usage || usage.reportedCalls <= modelCalls, 'Compilation reported calls exceed attempted calls');
+  return { revision: trace.revision, modelCalls, changedSourceIds: trace.changedSourceIds.map(identifier), removedSourceIds: trace.removedSourceIds.map(identifier),
+    ...(trace.model ? { model: { provider: bounded(trace.model.provider, 'Accounting provider', 256), model: bounded(trace.model.model, 'Accounting model', 256),
+      ...(trace.model.reasoningEffort === undefined ? {} : { reasoningEffort: bounded(trace.model.reasoningEffort, 'Accounting effort', 64) }) } } : {}),
+    ...(usage ? { usage } : {}) };
+}
+function accountingAttempt(value: KnowledgeCompilationAttempt): KnowledgeCompilationAttempt {
+  check(value?.schemaVersion === 1, 'Invalid compilation attempt schema');
+  for (const date of [value.startedAt, value.finishedAt]) check(typeof date === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(date) && new Date(date).toISOString() === date, 'Invalid compilation attempt timestamp');
+  check(value.finishedAt >= value.startedAt, 'Invalid compilation attempt interval');
+  check(['published', 'failed', 'cancelled', 'superseded'].includes(value.outcome), 'Invalid compilation attempt outcome');
+  check(typeof value.sourceFingerprint === 'string' && /^[a-f0-9]{64}$/.test(value.sourceFingerprint), 'Invalid compilation source fingerprint');
+  return { schemaVersion: 1, id: component(value.id), startedAt: value.startedAt, finishedAt: value.finishedAt, outcome: value.outcome, sourceFingerprint: value.sourceFingerprint,
+    ...(value.version === undefined ? {} : { version: versionNumber(value.version) }), ...(value.trace ? { trace: accountingTrace(value.trace) } : {}) };
+}
 
 export const knowledgeRootFor = (statePath: string): string => resolve(dirname(statePath), 'knowledge', basename(statePath));
 
@@ -226,6 +252,47 @@ export class KnowledgeRepository {
     await this.root();
     for (const layer of ['A-sources', 'B-knowledge', 'C-overview']) await this.directory(join(path, layer));
     for (const category of KNOWLEDGE_SOURCE_CATEGORIES) await this.directory(join(path, '分类目录', category.label));
+  }
+
+  /** One immutable accounting record per completed attempt; never stores model/user text. */
+  async recordCompilationAttempt(space: KnowledgeSpace, input: KnowledgeCompilationAttempt): Promise<void> {
+    const record = accountingAttempt(input);
+    await this.locked(async () => {
+      const directory = join(await this.spacePath(space), 'compilation-attempts');
+      const path = join(directory, `${record.id}.json`);
+      const previous = await this.json<KnowledgeCompilationAttempt>(path);
+      if (previous) check(JSON.stringify(previous) === JSON.stringify(record), 'Compilation attempt accounting is immutable');
+      else await this.write(path, record);
+      const indexPath = join(directory, 'index.json');
+      const index = await this.json<{ schemaVersion: 1; items: Array<{ id: string; finishedAt: string }> }>(indexPath);
+      check(index === undefined || (index.schemaVersion === 1 && Array.isArray(index.items) && index.items.length <= 50), 'Invalid compilation accounting index');
+      const items = [...(index?.items ?? []).filter(item => item.id !== record.id), { id: record.id, finishedAt: record.finishedAt }]
+        .sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || b.id.localeCompare(a.id)).slice(0, 50);
+      await this.write(indexPath, { schemaVersion: 1, items });
+    });
+  }
+
+  /** Bounded view of this one already-authorized library, newest completions first. */
+  async compilationAttempts(space: KnowledgeSpace, limit = 50): Promise<KnowledgeCompilationAttempt[]> {
+    check(Number.isSafeInteger(limit) && limit >= 1 && limit <= 50, 'Invalid compilation history limit');
+    const path = join(await this.spacePath(space, true), 'compilation-attempts');
+    const index = await this.json<{ schemaVersion: 1; items: Array<{ id: string; finishedAt: string }> }>(join(path, 'index.json'));
+    if (!index) return [];
+    check(index.schemaVersion === 1 && Array.isArray(index.items) && index.items.length <= 50, 'Invalid compilation accounting index');
+    const records: KnowledgeCompilationAttempt[] = [];
+    for (const item of index.items.slice(0, limit)) {
+      const value = await this.json<KnowledgeCompilationAttempt>(join(path, `${component(item.id)}.json`));
+      if (value) records.push(accountingAttempt(value));
+    }
+    return records.sort((a, b) => b.finishedAt.localeCompare(a.finishedAt) || b.id.localeCompare(a.id)).slice(0, limit);
+  }
+
+  async compilationTrace(space: KnowledgeSpace, version: number): Promise<KnowledgeCompilationTrace | undefined> {
+    versionNumber(version);
+    const manifest = await this.manifest(space);
+    check(manifest !== undefined && manifest.publishedVersions.includes(version), 'Knowledge trace version is not published');
+    const trace = await this.json<KnowledgeCompilationTrace>(join(await this.spacePath(space, true), 'compilation-traces', `v${version}.json`));
+    return trace ? accountingTrace(trace) : manifest.version === version && manifest.compilationTrace ? accountingTrace(manifest.compilationTrace) : undefined;
   }
 
   /** Missing policy preserves historical admission defaults without creating a file. */
@@ -662,6 +729,7 @@ export class KnowledgeRepository {
         ? { schemaVersion: 1, overview: compilation.overview, conceptGraph: compilation.conceptGraph }
         : compilation.overview;
       await this.write(join(path, 'C-overview', `v${version}.json`), storedOverview);
+      if (compilation.compilationTrace) await this.write(join(path, 'compilation-traces', `v${version}.json`), accountingTrace(compilation.compilationTrace));
       signal?.throwIfAborted();
       await this.write(join(path, 'snapshot.json'), { ...manifest, publishedVersions: [...(previous?.publishedVersions ?? []), version] }, signal);
       return { ...compilation, ...manifest };

@@ -1,10 +1,10 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { WorkforceStore } from '../domain/store.js';
 import type { EmployeeModules, EmployeeTemplate, ModelModule, ProjectEmployee, WorkforceState } from '../domain/types.js';
 import { WorkforceError } from '../domain/errors.js';
 import { KnowledgeRepository } from './repository.js';
 import { knowledgeNavigation, knowledgeSnapshotCitations } from './navigation.js';
-import type { KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
+import type { KnowledgeCompilationAttempt, KnowledgeCompilationTrace, KnowledgeCompiler, KnowledgeEntry, KnowledgeInput, KnowledgeSnapshot, KnowledgeSource, KnowledgeSpace } from './types.js';
 import type { ContextDocument } from './context.js';
 import { KNOWLEDGE_SOURCE_CATEGORIES, type KnowledgeArchivePolicyRequest, type KnowledgeLibraryTarget, type KnowledgeLibraryView, type KnowledgeRemoveRequest, type KnowledgeRemoveResult, type KnowledgeUploadRequest, type KnowledgeUploadResult } from './library-api.js';
 import { KNOWLEDGE_UPLOAD_EXTENSIONS, KNOWLEDGE_UPLOAD_LIMITS, extractKnowledgeUpload, prepareKnowledgeUploads, type PreparedKnowledgeUpload } from './ingestion.js';
@@ -13,7 +13,7 @@ import { LLM_WIKI_ENGINE } from './wiki-runtime.js';
 import { planIncrementalKnowledge } from './incremental.js';
 import { knowledgeCategoryForInput } from './categories.js';
 import { defaultKnowledgeArchivePolicy, isAutoArchiveCategory, validateKnowledgeArchivePolicyChange, type KnowledgeArchivePolicy } from './archive-policy.js';
-import { isExplicitKnowledgeInput, knowledgeArchiveCheckpointEntries } from './archive-checkpoints.js';
+import { isExplicitKnowledgeInput, knowledgeArchiveCheckpointEntries, knowledgeCompilationCheckpointEntries } from './archive-checkpoints.js';
 import { bundledSoftwareKnowledge } from './software-knowledge.js';
 
 type Library = 'team' | 'employee';
@@ -402,7 +402,7 @@ export class KnowledgeEngine {
         this.explicitObserved.set(spaceKey, explicitFingerprint);
         let phaseChanged = false;
         const previousPhases = this.checkpoints.get(spaceKey) ?? new Map<string, string>();
-        for (const [id, value] of knowledgeArchiveCheckpointEntries(state, plan.space, plan.group.members.map(member => member.id))) {
+        for (const [id, value] of knowledgeCompilationCheckpointEntries(state, plan.space, plan.group.members.map(member => member.id))) {
           if (this.checkpoints.has(spaceKey) && previousPhases.get(id) !== value) phaseChanged = true;
           previousPhases.set(id, value);
         }
@@ -478,19 +478,36 @@ export class KnowledgeEngine {
     this.failures.delete(spaceKey);
     this.cancelStaleCompilation();
     if (controller.signal.aborted) { this.active.delete(spaceKey); return; }
+    const attemptId = randomUUID();
+    const startedAt = new Date().toISOString();
+    let trace: KnowledgeCompilationTrace | undefined;
+    let outcome: KnowledgeCompilationAttempt['outcome'] = 'superseded';
+    let version: number | undefined;
     try {
       const compilation = sources.length
-        ? await abortable(this.compiler({ space: request.space, sources, previous, model: model ?? { mode: 'inherit' }, signal: controller.signal }), controller.signal)
+        ? await abortable(this.compiler({ space: request.space, sources, previous, model: model ?? { mode: 'inherit' }, signal: controller.signal,
+          onTrace: value => { trace = structuredClone(value); } }), controller.signal)
         : { entries: [], overview: [], conceptGraph: { schemaVersion: 1 as const, concepts: [], relations: [] }, compilationTrace: { revision: 'strict-incremental-v1' as const, changedSourceIds: [], removedSourceIds: previous?.sourceManifest?.map(source => source.id) ?? [], modelCalls: 0 } };
+      trace = compilation.compilationTrace ?? trace;
       this.cancelStaleCompilation();
       if (this.disposed || this.closing || controller.signal.aborted) return;
       if ((await this.repository.archivePolicy(request.space)).version !== policyVersion) return;
-      await this.repository.publish(request.space, compilation, fingerprint, controller.signal, previous?.version ?? null);
+      const published = await this.repository.publish(request.space, trace && !compilation.compilationTrace ? { ...compilation, compilationTrace: trace } : compilation, fingerprint, controller.signal, previous?.version ?? null);
+      outcome = 'published'; version = published.version;
       this.retry.delete(spaceKey);
       this.failures.delete(spaceKey);
     } catch (error) {
+      outcome = controller.signal.aborted ? 'cancelled' : 'failed';
       if (!controller.signal.aborted && !this.disposed) { this.retry.add(spaceKey); this.failures.set(spaceKey, error instanceof Error ? error.message : String(error)); this.report(error); }
-    } finally { if (this.active.get(spaceKey) === active) this.active.delete(spaceKey); }
+    } finally {
+      if (controller.signal.aborted && outcome !== 'published') outcome = 'cancelled';
+      try {
+        await this.repository.recordCompilationAttempt(request.space, { schemaVersion: 1, id: attemptId, startedAt,
+          finishedAt: new Date(Math.max(Date.parse(startedAt), Date.now())).toISOString(), outcome, sourceFingerprint: fingerprint,
+          ...(version === undefined ? {} : { version }), ...(trace ? { trace } : {}) });
+      } catch (error) { this.report(error); }
+      if (this.active.get(spaceKey) === active) this.active.delete(spaceKey);
+    }
   }
   /** Explicitly drain events, including repository sources admitted by the runtime. */
   async flush(): Promise<void> {
@@ -608,6 +625,7 @@ export class KnowledgeEngine {
     let snapshot = enabled ? await this.repository.snapshot(plan.space) : undefined;
     if (snapshot && knowledgeSnapshotCitations(snapshot).some(citation => !sources.some(source => source.id === citation.sourceId))) snapshot = undefined;
     const fingerprint = enabled ? await this.repository.fingerprint(plan.space) : '';
+    const compilationAttempts = enabled ? await this.repository.compilationAttempts(plan.space) : [];
     if (enabled && (!this.spaceActive(plan.space) || this.closing || this.disposed)) return this.library(resolved.target);
     const model = planModel(plan);
     const error = this.failures.get(key(plan.space)) ?? (enabled && sources.length && !model ? '团队资料管理员需要唯一负责人及可用模型，请检查团队汇报关系与模型配置' : undefined);
@@ -615,7 +633,7 @@ export class KnowledgeEngine {
     return { target: resolved.target, enabled, title: resolved.title, libraries: resolved.libraries, archivePolicy: await this.repository.archivePolicy(plan.space),
       compiler: { role: plan.space.memberId ? 'employee-shadow' : 'team-librarian', model },
       categories: KNOWLEDGE_SOURCE_CATEGORIES.map(category => ({ ...category, count: sources.filter(source => (source.category ?? 'reference') === category.id).length })),
-      sources, ...(snapshot ? { snapshot } : {}), status: { state, ...(enabled && error ? { error } : {}) },
+      sources, ...(snapshot ? { snapshot } : {}), compilationAttempts, status: { state, ...(enabled && error ? { error } : {}) },
       supportedExtensions: [...KNOWLEDGE_UPLOAD_EXTENSIONS], maxFileBytes: KNOWLEDGE_UPLOAD_LIMITS.maxFileBytes, maxUploadBytes: KNOWLEDGE_UPLOAD_LIMITS.maxUploadBytes };
   }
   /** Every view is derived from one already-authorized library, never a project-wide index. */
@@ -791,10 +809,14 @@ export class KnowledgeEngine {
       this.requested.add(key(space));
     });
   }
-  /** Task startup may synthesize only this caller's authorized stale libraries. */
-  async prepareFor(employee: ProjectEmployee): Promise<void> {
+  /** Available mode admits local evidence without model work or team-wide model waits. */
+  async prepareFor(employee: ProjectEmployee, options: { mode?: 'available' | 'compile' } = {}): Promise<void> {
     if (!this.started) await this.start();
     if (this.closing || this.disposed) return;
+    if (options.mode === 'available') {
+      await this.enqueue(() => this.reconcile(false, true));
+      return;
+    }
     await this.enqueue(async () => {
       for (const space of this.employeeSpaces(employee)) {
         const snapshot = await this.repository.snapshot(space);

@@ -56,9 +56,96 @@ test('strict automatic compilation waits through running and awaiting-review, th
   assert.equal((await f.repository.snapshot(f.space))!.version, version);
 });
 
+test('failed and cancelled consultation attempts archive locally without paid compilation until explicit retry', async t => {
+  const f = await fixture(t);
+  const failed = await f.run(); await f.store.updateRun(failed.id, { status: 'failed', error: 'Budget stopped the consultation' });
+  await f.engine.flush();
+  assert.equal(f.calls.length, 0, 'a failed question must not start another model job to describe its failure');
+  const cancelled = await f.run(); await f.store.updateRun(cancelled.id, { status: 'cancelled' });
+  await f.engine.flush();
+  assert.equal(f.calls.length, 0);
+  const archived = await f.repository.sources(f.space);
+  assert.ok(archived.some(source => source.id === `run:${failed.id}`));
+  assert.ok(archived.some(source => source.id === `run:${cancelled.id}`));
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
+  assert.equal(f.calls.length, 1, 'an explicit rebuild may compile the archived incidents together');
+});
+
+test('available preparation preserves authorized A navigation without cold-start model compilation', async t => {
+  const f = await fixture(t);
+  await f.engine.ingestFor(f.employee, { id: 'authorized-reference', title: 'Reference', content: 'PRIVATE_SOURCE_BODY', provenance: 'runtime-authorized', verified: false });
+  await f.engine.prepareFor(f.employee, { mode: 'available' });
+  assert.equal(f.calls.length, 0);
+  assert.equal(await f.repository.snapshot(f.space), undefined);
+  const navigation = await f.engine.overviewDocumentsFor(f.employee);
+  assert.ok(navigation.some(item => item.title === 'Reference'));
+  assert.doesNotMatch(JSON.stringify(navigation), /PRIVATE_SOURCE_BODY/);
+  await f.engine.prepareFor(f.employee);
+  assert.equal(f.calls.length, 1, 'explicit compiling preparation remains available');
+});
+
+test('available preparation returns while the team compilation queue is still occupied', async t => {
+  let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
+  let release!: () => void; const blocked = new Promise<void>(resolve => { release = resolve; });
+  const f = await fixture(t, false, async request => { entered(); await blocked; return compilation(request); });
+  t.after(async () => { release(); });
+  await f.engine.upload({ target: f.target, files: [{ name: 'reference.md', base64: Buffer.from('Explicit reference').toString('base64') }] });
+  await started;
+  const preparing = f.engine.prepareFor(f.employee, { mode: 'available' });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const ready = await Promise.race([preparing.then(() => true), new Promise<boolean>(resolve => { timer = setTimeout(() => resolve(false), 2000); })]);
+    assert.equal(ready, true, 'ordinary turns cannot wait on an in-flight knowledge model');
+    assert.equal(f.calls.length, 1);
+  } finally { clearTimeout(timer); release(); await preparing; }
+  await f.engine.flush();
+});
+
+test('failed and successful compiler attempts retain scoped accounting while sources and errors stay out of the ledger', async t => {
+  let attempt = 0;
+  const f = await fixture(t, false, async request => {
+    request.onTrace?.({ revision: 'strict-incremental-v1', modelCalls: 1, changedSourceIds: request.sources.map(source => source.id), removedSourceIds: [],
+      usage: { reportedCalls: 1, inputTokens: 5, outputTokens: 3, cacheReadTokens: 10 } });
+    if (++attempt === 1) throw new Error('SECRET_PROVIDER_DETAIL');
+    return compilation(request);
+  });
+  const run = await f.run(); await f.store.updateRun(run.id, { status: 'failed', error: 'PRIVATE_SOURCE_BODY' }); await f.engine.flush();
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
+  const failed = await f.engine.library(f.target);
+  assert.equal(failed.compilationAttempts?.length, 1);
+  assert.equal(failed.compilationAttempts![0]!.outcome, 'failed');
+  assert.equal(failed.compilationAttempts![0]!.trace?.usage?.cacheReadTokens, 10);
+  assert.doesNotMatch(JSON.stringify(failed.compilationAttempts), /SECRET_PROVIDER_DETAIL|PRIVATE_SOURCE_BODY/);
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
+  const success = await f.engine.library(f.target);
+  assert.deepEqual(success.compilationAttempts?.map(item => item.outcome), ['published', 'failed']);
+  assert.equal(success.compilationAttempts![0]!.version, success.snapshot?.version);
+  assert.equal((await f.repository.compilationTrace(f.space, success.snapshot!.version))?.usage?.inputTokens, 5);
+  const other = await f.store.createEmployee({ projectId: f.project.id, templateId: f.employee.templateId });
+  assert.deepEqual((await f.engine.library({ ...f.target, employeeId: other.id })).compilationAttempts, []);
+});
+
+test('cancelled compilation persists attempted calls with unknown usage instead of claiming zero tokens', async t => {
+  let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
+  const f = await fixture(t, false, async request => {
+    request.onTrace?.({ revision: 'strict-incremental-v1', modelCalls: 1, changedSourceIds: request.sources.map(source => source.id), removedSourceIds: [] });
+    entered();
+    await new Promise<void>((_resolve, reject) => request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true }));
+    return compilation(request);
+  });
+  const run = await f.run(); await f.store.updateRun(run.id, { status: 'failed' }); await f.engine.flush();
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await started;
+  await f.engine.dispose();
+  const attempts = await f.repository.compilationAttempts(f.space);
+  assert.equal(attempts.length, 1); assert.equal(attempts[0]!.outcome, 'cancelled');
+  assert.equal(attempts[0]!.trace?.modelCalls, 1); assert.equal(attempts[0]!.trace?.usage, undefined);
+});
+
 test('a failed strict compilation waits for manual retry or a relevant new stage', async t => {
   const f = await fixture(t, true); const run = await f.run();
   await f.store.updateRun(run.id, { status: 'failed', error: 'Business task failed' });
+  await f.engine.flush(); assert.equal(f.calls.length, 0);
+  await f.engine.upload({ target: f.target, files: [], retry: true });
   await f.engine.flush(); assert.equal(f.calls.length, 1);
   await f.store.updateEmployee(f.employee.id, { name: 'Unrelated edit' });
   await f.engine.flush(); await f.engine.prepareFor(f.employee); await f.engine.flush();
@@ -66,12 +153,17 @@ test('a failed strict compilation waits for manual retry or a relevant new stage
   await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
   assert.equal(f.calls.length, 2, 'explicit retry remains available');
   const next = await f.run(); await f.store.updateRun(next.id, { status: 'cancelled' }); await f.engine.flush();
-  assert.equal(f.calls.length, 3, 'a new relevant terminal task phase may retry the changed source set');
+  assert.equal(f.calls.length, 2, 'cancellation cannot automatically retry a failed paid compiler');
+  const accepted = await f.run(); await f.store.updateRun(accepted.id, { status: 'running' });
+  await f.store.updateRun(accepted.id, { status: 'awaiting-review', output: 'Reviewed result' });
+  await f.store.reviewRun(accepted.id, { decision: 'accepted', reviewer: 'Owner' }); await f.engine.flush();
+  assert.equal(f.calls.length, 3, 'an explicit acceptance may compile the changed source set');
 });
 
 test('archive switches suppress new automatic admission and retain existing evidence without model calls', async t => {
   const f = await fixture(t); const first = await f.run();
   await f.store.updateRun(first.id, { status: 'failed', error: 'Original incident' }); await f.engine.flush();
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
   const before = await f.repository.sources(f.space); const snapshot = await f.repository.snapshot(f.space);
   await f.engine.updateArchivePolicy({ target: f.target, category: 'incident/reflection-proposal', enabled: false, expectedVersion: 1 });
   assert.equal(f.calls.length, 1); assert.deepEqual(await f.repository.sources(f.space), before); assert.deepEqual(await f.repository.snapshot(f.space), snapshot);
@@ -80,8 +172,10 @@ test('archive switches suppress new automatic admission and retain existing evid
   await f.engine.updateArchivePolicy({ target: f.target, category: 'incident/reflection-proposal', enabled: true, expectedVersion: 2 });
   await f.engine.flush(); assert.equal(f.calls.length, 1, 'enabling alone does not schedule model catch-up');
   const third = await f.run(); await f.store.updateRun(third.id, { status: 'cancelled' }); await f.engine.flush();
-  assert.equal(f.calls.length, 2);
+  assert.equal(f.calls.length, 1);
   assert.ok((await f.repository.sources(f.space)).some(source => source.id === `run:${second.id}`));
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
+  assert.equal(f.calls.length, 2);
 });
 
 test('explicit confirmed knowledge updates immediately without inventing a task phase', async t => {
@@ -101,6 +195,7 @@ test('disabled task and incident archives retain owned task and result history t
   await work.command('work.saveDeliverable', { projectId: f.project.id, taskId: task.id, id: result.id, title: result.title, content: 'Original task output' });
   await f.store.transaction(state => { const item = state.workState!.tasks.find(item => item.id === task.id)!; item.status = 'blocked'; item.error = 'Original task failure'; item.version++; });
   await f.engine.flush();
+  await f.engine.upload({ target: f.target, files: [], retry: true }); await f.engine.flush();
   const before = await f.repository.sources(f.space);
   const snapshot = await f.repository.snapshot(f.space);
   assert.ok(snapshot);
@@ -176,6 +271,7 @@ test('usage and version notifications cannot cancel the only compilation of a st
   const f = await fixture(t, false, async request => { entered(); await ready; return compilation(request); });
   t.after(() => { release(); return Promise.resolve(); });
   const run = await f.run(); await f.store.updateRun(run.id, { status: 'failed', error: 'Stable task failure' });
+  await f.engine.upload({ target: f.target, files: [], retry: true });
   await started;
   await f.store.transaction(state => { const item = state.runs.find(item => item.id === run.id)!; item.version++; item.updatedAt = new Date().toISOString(); item.usage = { inputTokens: 100, outputTokens: 20 }; });
   assert.equal(f.calls[0]!.signal.aborted, false);

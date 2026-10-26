@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis';
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm';
-import type { KnowledgeCompilation, KnowledgeCompiler } from '../knowledge/types.js';
+import type { KnowledgeCompilation, KnowledgeCompilationTrace, KnowledgeCompiler } from '../knowledge/types.js';
 import { listEmployeeModels } from './model-catalog.js';
 import { resolveEmployeeModelSelection } from '../domain/model-catalog.js';
 import type { WikiRuntime } from '../knowledge/wiki-types.js';
@@ -57,7 +57,11 @@ export function createKnowledgeCompiler(ctx: Context, limits: Partial<KnowledgeC
   const compile: KnowledgeCompiler = async request => {
     request.signal.throwIfAborted();
     const plan = planIncrementalKnowledge(request.sources, request.previous);
-    if (!plan.needsModel) return mergeIncrementalKnowledge(plan, { entries: [], overview: [], conceptGraph: { schemaVersion: 1, concepts: [], relations: [] } });
+    if (!plan.needsModel) {
+      const compilationTrace: KnowledgeCompilationTrace = { revision: 'strict-incremental-v1', changedSourceIds: plan.changedSources.map(source => source.id), removedSourceIds: plan.removedSourceIds, modelCalls: 0 };
+      request.onTrace?.(compilationTrace);
+      return { ...mergeIncrementalKnowledge(plan, { entries: [], overview: [], conceptGraph: { schemaVersion: 1, concepts: [], relations: [] } }), compilationTrace };
+    }
     const model = request.model.mode === 'inherit' ? resolveEmployeeModelSelection(request.model, await listEmployeeModels(ctx)) : request.model;
     if (model.mode !== 'override' || !model.provider || !model.model) throw new Error(request.space.memberId ? '员工影子整理员所用模型不可用，请检查员工模型配置' : '团队负责人当前所用模型不可用，请检查模型配置');
     const provider = model.provider; const modelId = model.model;
@@ -76,14 +80,28 @@ export function createKnowledgeCompiler(ctx: Context, limits: Partial<KnowledgeC
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(new Error('资料管理员编纂超时')), config.timeoutMs);
     const signal = AbortSignal.any([request.signal, timeout.signal]);
-    const usages: Array<{ inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number }> = [];
+    type Usage = { inputTokens: number; outputTokens: number; totalTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number };
+    const usages = new Map<number, Usage>();
     let modelCalls = 0;
+    const trace = (): KnowledgeCompilationTrace => {
+      const reported = [...usages.values()];
+      const usage = reported.length ? {
+        reportedCalls: reported.length,
+        inputTokens: reported.reduce((sum, item) => sum + item.inputTokens, 0),
+        outputTokens: reported.reduce((sum, item) => sum + item.outputTokens, 0),
+        ...Object.fromEntries(['totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'].flatMap(field => reported.every(item => item[field as keyof Usage] !== undefined) ? [[field, reported.reduce((sum, item) => sum + (item[field as keyof Usage] ?? 0), 0)]] : [])),
+      } : undefined;
+      return { revision: 'strict-incremental-v1', model: { provider, model: modelId, ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}) },
+        changedSourceIds: plan.changedSources.map(source => source.id), removedSourceIds: plan.removedSourceIds, modelCalls, ...(usage ? { usage } : {}) };
+    };
+    const reportTrace = () => { try { request.onTrace?.(trace()); } catch { /* Accounting observers cannot alter model work. */ } };
     const generate = async (stage: 'Wiki 分析' | '知识生成' | '证据对齐修正', system: string, text: string): Promise<string> => {
       let output = '';
       let finalBlocks = '';
       let stopped = false;
-      let usage: typeof usages[number] | undefined;
-      modelCalls++;
+      let usage: Usage | undefined;
+      const call = ++modelCalls;
+      reportTrace();
       for await (const chunk of ctx.llm.stream({
         provider, model: modelId,
         ...(model.reasoningEffort ? { reasoningEffort: ReasoningEffortId(model.reasoningEffort) } : {}),
@@ -94,8 +112,10 @@ export function createKnowledgeCompiler(ctx: Context, limits: Partial<KnowledgeC
         if (chunk.type === 'text-delta') output += chunk.text;
         if (chunk.type === 'block-end' && chunk.block.type === 'text') finalBlocks += chunk.block.text;
         if (chunk.type === 'usage') {
-          if (Object.values(chunk.usage).some(value => value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 0))) throw new Error('资料管理员返回的用量统计无效');
+          if (![chunk.usage.inputTokens, chunk.usage.outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)
+            || Object.values(chunk.usage).some(value => value !== undefined && (!Number.isSafeInteger(value) || Number(value) < 0))) throw new Error('资料管理员返回的用量统计无效');
           usage = { ...chunk.usage };
+          usages.set(call, usage); reportTrace();
         }
         if (Buffer.byteLength(output || finalBlocks, 'utf8') > config.maxInputBytes) throw new Error('资料管理员输出超过大小上限');
         if (chunk.type === 'finish') {
@@ -105,7 +125,6 @@ export function createKnowledgeCompiler(ctx: Context, limits: Partial<KnowledgeC
       }
       signal.throwIfAborted();
       if (!stopped) throw new Error('资料管理员未返回完整结束标记');
-      if (usage) usages.push(usage);
       return output || finalBlocks;
     };
     try {
@@ -157,13 +176,7 @@ export function createKnowledgeCompiler(ctx: Context, limits: Partial<KnowledgeC
         merged = mergeIncrementalKnowledge(plan, corrected);
         if (graphEvidenceAlignmentIssues(merged, request.sources, plan.retained).length) throw new Error('图谱引用范围仍未被关联知识覆盖，保留上一版知识');
       }
-      const usage = usages.length ? {
-        reportedCalls: usages.length,
-        inputTokens: usages.reduce((sum, item) => sum + item.inputTokens, 0),
-        outputTokens: usages.reduce((sum, item) => sum + item.outputTokens, 0),
-        ...Object.fromEntries(['totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'].flatMap(field => usages.every(item => item[field as keyof typeof item] !== undefined) ? [[field, usages.reduce((sum, item) => sum + (item[field as keyof typeof item] ?? 0), 0)]] : [])),
-      } : undefined;
-      return { ...merged, compilationTrace: { revision: 'strict-incremental-v1', model: { provider, model: modelId, ...(model.reasoningEffort ? { reasoningEffort: model.reasoningEffort } : {}) }, changedSourceIds: plan.changedSources.map(source => source.id), removedSourceIds: plan.removedSourceIds, modelCalls, ...(usage ? { usage } : {}) } };
+      return { ...merged, compilationTrace: trace() };
     } finally { clearTimeout(timer); }
   };
   return Object.assign(compile, { conceptGraphVersion: 1 as const, incrementalVersion: 1 as const });

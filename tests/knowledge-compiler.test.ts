@@ -49,6 +49,35 @@ test('failed or oversized Wiki analysis never reaches the generation/publication
   }
 });
 
+test('compiler reports incurred usage even when generation fails after a successful analysis', async () => {
+  let calls = 0;
+  const traces: NonNullable<KnowledgeCompilation['compilationTrace']>[] = [];
+  const ctx = { llm: { async *stream() {
+    calls++;
+    if (calls === 2) throw new Error('Provider failed before reporting usage');
+    yield { type: 'text-delta', index: 0, text: 'Candidate analysis' };
+    yield { type: 'usage', usage: { inputTokens: 25, outputTokens: 10, cacheReadTokens: 100, totalTokens: 135 } };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } } };
+  const compiler = createKnowledgeCompiler(ctx as never, {}, { async analysisPrompt() { return 'Analysis method'; } });
+  await assert.rejects(compiler({ ...request(), onTrace: trace => { traces.push(structuredClone(trace)); } }), /Provider failed/);
+  const last = traces.at(-1)!;
+  assert.equal(last.modelCalls, 2);
+  assert.deepEqual(last.usage, { reportedCalls: 1, inputTokens: 25, outputTokens: 10, cacheReadTokens: 100, totalTokens: 135 });
+  assert.equal(traces[0]!.usage, undefined, 'an unreported model call is unknown, not zero-cost');
+});
+
+test('reported usage survives a provider finish error and repeated usage snapshots are not double counted', async () => {
+  const traces: NonNullable<KnowledgeCompilation['compilationTrace']>[] = [];
+  const ctx = { llm: { async *stream() {
+    yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 2 } };
+    yield { type: 'usage', usage: { inputTokens: 5, outputTokens: 8 } };
+    yield { type: 'finish', reason: { kind: 'max-tokens' } };
+  } } };
+  await assert.rejects(createKnowledgeCompiler(ctx as never)({ ...request(), onTrace: trace => { traces.push(trace); } }), /未完整结束/);
+  assert.deepEqual(traces.at(-1)!.usage, { reportedCalls: 1, inputTokens: 5, outputTokens: 8 });
+});
+
 test('Wiki analysis and generation share the total timeout and caller cancellation', async () => {
   for (const cancel of [false, true]) {
     let calls = 0;
