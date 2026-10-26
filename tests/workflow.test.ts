@@ -10,7 +10,7 @@ import { WorkflowRepository } from '../src/workflow/repository.js';
 import { WorkflowEngine } from '../src/workflow/engine.js';
 import type { WorkflowCommandInput } from '../src/workflow/types.js';
 
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, allowProject?: (projectId: string) => boolean) {
   const root = await mkdtemp(resolve(tmpdir(), 'workforce-flow-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(resolve(root, 'project'));
@@ -32,13 +32,60 @@ async function fixture(t: TestContext) {
     },
     cancel: async (id: string) => { const task = store.snapshot().runs.find(task => task.id === id)!; if (['queued', 'running', 'blocked'].includes(task.status)) await store.updateRun(id, { status: 'cancelled' }); },
   };
-  const engine = new WorkflowEngine(repository, executor, error => errors.push(error));
+  const engine = new WorkflowEngine(repository, executor, error => errors.push(error), allowProject);
   t.after(() => engine.dispose());
   const get = () => store.snapshot().workflowRuns![0]!;
   const control = (action: WorkflowCommandInput['action'], extra: Partial<WorkflowCommandInput> = {}) => repository.control({ projectId: project.id, id: get().id, commandId: randomUUID(), expectedVersion: get().version, action, ...extra });
   const complete = async (output = '已验收交接内容') => { await store.updateRun(starts.at(-1)!, { status: 'awaiting-review', output }); await engine.idle(); };
   return { root, store, repository, engine, executor, input, get, control, starts, errors, complete, installed };
 }
+
+test('disabled project actions never advance pending workflows or start previously reserved employees', async t => {
+  const f = await fixture(t); await f.repository.start(f.input);
+  assert.equal(f.repository.actions()[0]?.kind, 'advance');
+  assert.deepEqual(f.repository.actions(() => false), []);
+  await f.repository.advance(f.get().id);
+  const task = f.store.snapshot().runs[0]!;
+  assert.equal(task.status, 'queued');
+  assert.deepEqual(f.repository.actions(), [{ kind: 'start', id: task.id }]);
+  assert.deepEqual(f.repository.actions(() => false), []);
+});
+
+test('disabled scheduler leaves retained flow state untouched and never starts or retries an employee', async t => {
+  const f = await fixture(t, () => false); await f.repository.start(f.input);
+  const before = await readFile(f.store.filePath, 'utf8');
+  await f.engine.start(); await f.engine.idle();
+  assert.deepEqual(f.starts, []); assert.equal(f.store.snapshot().runs.length, 0);
+  assert.deepEqual(f.errors, [], 'policy exclusion must be filtered before executor failure/retry scheduling');
+  assert.equal(await readFile(f.store.filePath, 'utf8'), before);
+  await f.store.transaction(() => undefined); await f.engine.idle();
+  assert.deepEqual(f.starts, []); assert.equal(f.store.snapshot().runs.length, 0);
+  assert.deepEqual(f.errors, []);
+});
+
+test('cancelled disabled flows still expose abort and late-delivery reconciliation actions', async t => {
+  const f = await fixture(t); await f.repository.start(f.input); await f.repository.advance(f.get().id);
+  const task = f.store.snapshot().runs[0]!;
+  await f.store.updateRun(task.id, { status: 'running' }); await f.control('cancel');
+  assert.deepEqual(f.repository.actions(() => false), [{ kind: 'cancel', id: task.id }]);
+  await f.store.updateRun(task.id, { status: 'awaiting-review', output: '取消时已在途的交付' });
+  assert.deepEqual(f.repository.actions(() => false), [{ kind: 'advance', id: f.get().id }]);
+  await f.repository.advance(f.get().id);
+  assert.equal(f.store.snapshot().runs[0]!.status, 'cancelled');
+  assert.equal(f.store.snapshot().runs.length, 1, 'cleanup never dispatches a successor');
+});
+
+test('disabled scheduler can still stop an already-running task after the user cancels its retained flow', async t => {
+  const f = await fixture(t, () => false); await f.repository.start(f.input);
+  await f.engine.start(); await f.engine.idle();
+  await f.repository.advance(f.get().id); await f.engine.idle();
+  const task = f.store.snapshot().runs[0]!;
+  await f.store.updateRun(task.id, { status: 'running' }); await f.engine.idle();
+  await f.control('cancel'); await f.engine.idle();
+  assert.equal(f.store.snapshot().runs[0]!.status, 'cancelled');
+  assert.equal(f.get().status, 'cancelled');
+  assert.deepEqual(f.starts, []); assert.deepEqual(f.errors, []);
+});
 
 test('workflow start is idempotent, snapshots definitions, and rejects foreign/stale requests', async t => {
   const f = await fixture(t);

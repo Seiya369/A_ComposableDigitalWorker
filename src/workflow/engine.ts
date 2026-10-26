@@ -8,7 +8,8 @@ export class WorkflowEngine {
   private stopped = true;
   private draining?: Promise<void>;
   private retryTimer?: ReturnType<typeof setTimeout>;
-  constructor(readonly repository: WorkflowRepository, private readonly executor: WorkflowExecutor, private readonly onError: (error: unknown) => void) {}
+  constructor(readonly repository: WorkflowRepository, private readonly executor: WorkflowExecutor, private readonly onError: (error: unknown) => void,
+    private readonly allowProject?: (projectId: string) => boolean) {}
   async start(): Promise<void> {
     if (!this.stopped) return;
     await this.repository.recover();
@@ -23,7 +24,7 @@ export class WorkflowEngine {
     this.draining = Promise.resolve().then(async () => {
       while (this.dirty && !this.stopped) {
         this.dirty = false;
-        for (const action of this.repository.actions()) {
+        for (const action of this.repository.actions(this.allowProject)) {
           if (this.stopped) break;
           try {
             if (action.kind === 'advance') await this.repository.advance(action.id);

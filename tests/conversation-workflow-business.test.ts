@@ -71,7 +71,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, scripts: Con
   const adapter = new ScriptedAdapter(scripts); ctx.llm.registerAdapter(['fixture'], adapter);
   ctx.systemPrompt.section({ name: 'native-identity', order: 0, text: 'NATIVE_COMPLETE_SYSTEM', complete: true });
   const attached: string[] = [];
-  const workspace = { sessionIds: attached, attachSession: async (sessionId: string) => { attached.push(sessionId); } };
+  const workspace = { path: root, sessionIds: attached, attachSession: async (sessionId: string) => { attached.push(sessionId); } };
   ctx.provide('workspaceRegistry', { get: (id: string) => id === project.id ? workspace : undefined } as never);
   const runtime = new WorkforceRuntime(ctx, store, new Map([['fixture-required', { id: 'fixture-required', name: 'Required role method', description: 'Required skill', path: '/fixture/SKILL.md', content: 'ROLE_SKILL_SENTINEL' }]]), config, knowledge);
   const nativeHandles: AgentHandle[] = [];
@@ -104,8 +104,18 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, scripts: Con
     const run = rootRun(); if (run) await runtime.wait(run.id);
   };
   t.after(async () => { await dispose(); await runtime.dispose(); await Promise.all(nativeHandles.map(handle => handle.dispose())); await rm(root, { recursive: true, force: true }); });
-  return { root, store, project, ctx, adapter, runtime, native, send, view, employee, rootRun, createNative, attached, errors, dispose };
+  return { root, store, project, ctx, adapter, runtime, native, send, view, employee, rootRun, createNative, attached, errors, dispose, workspace };
 }
+
+test('a stale inherited Chat workflow cannot reserve an owner or reach a model even when a caller bypasses host routing', async t => {
+  const f = await fixture(t, [() => text('must not execute a Chat workflow')]);
+  f.workspace.path = join(f.root, 'Chat');
+  const before = f.store.snapshot();
+  await f.send('ordinary Chat text must not run the inherited workflow');
+  assert.equal(f.adapter.requests.length, 0);
+  assert.deepEqual(f.store.snapshot(), before);
+  assert.match(JSON.stringify(f.native.session.snapshotEvents()), /Chat 工作区不提供工作流服务/);
+});
 
 test('ordinary native turns load the owner model, step, skill and C knowledge while retaining one native conversation', async t => {
   let prepared = 0;

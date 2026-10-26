@@ -37,6 +37,7 @@ import { registerConversationWorkflowRuntime } from './conversation-workflow-run
 import { isLegacyStandaloneRun } from '../domain/conversation-session.js';
 import { isConversationAgentBusy } from './conversation-activity.js';
 import { requireConversationWorkflowReview, resolveConversationWorkflowDetails, type ConversationWorkflowReviewInput } from '../domain/conversation-workflow-details.js';
+import { conversationWorkflowsEnabled } from './workspace-policy.js';
 
 export const name = 'composable-workforce';
 export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
@@ -108,7 +109,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const knowledge = new KnowledgeEngine(store, new KnowledgeRepository(knowledgeRootFor(store.filePath)), createKnowledgeCompiler(ctx, {}, wiki), error => ctx.logger.error(error), wiki);
   const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => Object.hasOwn(DEFAULT_RUNTIME_CONFIG, key))), knowledge);
   const workflows = new WorkflowRepository(store);
-  const workflowEngine = new WorkflowEngine(workflows, runtime, error => ctx.logger.error(error));
+  const workflowEngine = new WorkflowEngine(workflows, runtime, error => ctx.logger.error(error), projectId => {
+    const workspace = ctx.workspaceRegistry.list().find(item => item.id === projectId);
+    return Boolean(workspace && conversationWorkflowsEnabled(workspace));
+  });
   const work = new WorkService(store);
   const workEngine = new WorkEngine(work, runtime, error => ctx.logger.error(error));
   // Historical standalone roots are ordinary project conversations again. Only
@@ -130,12 +134,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     isDeliverySession,
     ownsPendingTurn: agent => {
       const workspace = workspaceForSession(agent.id);
-      return Boolean(workspace && resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId);
+      return Boolean(workspace && conversationWorkflowsEnabled(workspace) && resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId);
     },
     prepare: async (agent, turnKey, requestText, signal) => {
       await syncProjects();
       const workspace = workspaceForSession(agent.id);
-      if (!workspace) return undefined;
+      if (!workspace || !conversationWorkflowsEnabled(workspace)) return undefined;
       const view = resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id);
       if (!view.instanceId) return undefined;
       if (view.unavailableReason) throw new Error(view.unavailableReason);
@@ -173,7 +177,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     await syncProjects();
     // Bootstrap the requested default software team once. Removing an employee is a project choice,
     // and restarting the local service must not silently add that employee back.
-    if (firstSetup && !store.snapshot().employees.some(employee => employee.projectId === workspace.id && employee.templateId === ARCHITECT_TEMPLATE_ID)) await store.instantiateTeam(workspace.id, SOFTWARE_TEAM_ID);
+    if (firstSetup && conversationWorkflowsEnabled(workspace) && !store.snapshot().employees.some(employee => employee.projectId === workspace.id && employee.templateId === ARCHITECT_TEMPLATE_ID)) await store.instantiateTeam(workspace.id, SOFTWARE_TEAM_ID);
   } else await syncProjects();
   await knowledge.start();
   await workflowEngine.start();
@@ -183,12 +187,22 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     await syncProjects();
     if (!ctx.workspaceRegistry.list().some(workspace => workspace.id === projectId)) throw new Error('项目文件夹已被移除');
   };
-  const requireConversation = async (projectId: string, sessionId: string) => {
+  const requireProjectConversation = async (projectId: string, sessionId: string) => {
     await requireProject(projectId);
     const workspace = workspaceForSession(sessionId);
     if (!workspace || workspace.id !== projectId) throw new Error('对话不属于当前项目');
     if (isDeliverySession(sessionId)) throw new Error('交付记录不能切换对话工作流，请返回项目对话');
     if (conversationIsBusy(sessionId)) throw new Error('当前对话正在执行或有待处理消息，请等待本轮结束再切换工作流或步骤');
+    return workspace;
+  };
+  const requireWorkflowProject = async (projectId: string) => {
+    await requireProject(projectId);
+    const workspace = ctx.workspaceRegistry.list().find(item => item.id === projectId)!;
+    if (!conversationWorkflowsEnabled(workspace)) throw new Error('Chat 工作区不提供工作流服务，请通过 @ 调用独立员工');
+  };
+  const requireConversation = async (projectId: string, sessionId: string) => {
+    const workspace = await requireProjectConversation(projectId, sessionId);
+    if (!conversationWorkflowsEnabled(workspace)) throw new Error('Chat 工作区不提供工作流服务，请通过 @ 调用独立员工');
   };
   const requireStandaloneRun = (id: string) => {
     if (store.snapshot().runs.find(run => run.id === id)?.conversationWorkflow) throw new Error('请在原生项目对话的工作流详情中验收或取消此交付');
@@ -215,6 +229,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       return work.command(action, payload, options as WorkCommandOptions);
     }
     switch (action) {
+      case 'employee.conversation.resume': {
+        await requireProjectConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
+        return { sessionReopened: await runtime.handoffCompletedSession(string(payload.sessionId, '对话 ID')) };
+      }
       case 'conversation.workflow.resume': {
         await requireConversation(string(payload.projectId, '项目 ID'), string(payload.sessionId, '对话 ID'));
         return { sessionReopened: await runtime.handoffCompletedSession(string(payload.sessionId, '对话 ID')) };
@@ -279,9 +297,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       case 'employee.delete': return store.deleteEmployee(string(payload.id, '员工 ID'), options);
       case 'memory.save': return store.saveMemory(payload as unknown as SaveMemoryInput, options);
       case 'memory.delete': return store.deleteMemory(string(payload.id, '记忆 ID'), options);
-      case 'workflow.save': await requireProject(string(payload.projectId, '项目 ID')); return workflows.saveDefinition(payload as unknown as SaveProjectWorkflowInput);
-      case 'workflow.start': await requireProject(string(payload.projectId, '项目 ID')); return workflows.start(payload as unknown as StartWorkflowInput);
-      case 'workflow.control': await requireProject(string(payload.projectId, '项目 ID')); return workflows.control(payload as unknown as WorkflowCommandInput);
+      case 'workflow.save': await requireWorkflowProject(string(payload.projectId, '项目 ID')); return workflows.saveDefinition(payload as unknown as SaveProjectWorkflowInput);
+      case 'workflow.start': await requireWorkflowProject(string(payload.projectId, '项目 ID')); return workflows.start(payload as unknown as StartWorkflowInput);
+      case 'workflow.control':
+        if (payload.action === 'cancel') await requireProject(string(payload.projectId, '项目 ID'));
+        else await requireWorkflowProject(string(payload.projectId, '项目 ID'));
+        return workflows.control(payload as unknown as WorkflowCommandInput);
       case 'run.review': return store.reviewRun(requireStandaloneRun(string(payload.id, '工作单 ID')), record(payload.input) as unknown as ReviewRunInput, options);
       case 'run.cancel': await runtime.cancel(requireStandaloneRun(string(payload.id, '工作单 ID'))); return { cancelled: true };
       default: throw new Error(`未知操作：${action}`);
@@ -366,7 +387,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         await syncProjects();
         const sessionId = SessionId(string(url.searchParams.get('sessionId'), '会话 ID'));
         const workspace = workspaceForSession(sessionId);
-        json(res, 200, { projectId: workspace?.id ?? null }); return;
+        json(res, 200, { projectId: workspace?.id ?? null, ...(workspace && !conversationWorkflowsEnabled(workspace) ? { standaloneOnly: true } : {}) }); return;
       }
       if (req.method === 'GET' && route === '/conversation-workflow') {
         await syncProjects();
@@ -376,12 +397,17 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         if (!workspace || isDeliverySession(sessionId)) {
           json(res, 200, { sessionId, projectId: null, selection: 'inherit', instanceId: null, steps: [], choices: [], revision: state.revision }); return;
         }
+        if (!conversationWorkflowsEnabled(workspace)) {
+          json(res, 200, { sessionId, projectId: workspace.id, selection: 'inherit', instanceId: null,
+            workflowEnabled: false, steps: [], choices: [], activeEmployeeIds: [], relatedOwnerIds: [], revision: state.revision,
+            busy: conversationIsBusy(sessionId), sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId) }); return;
+        }
         const view = resolveConversationWorkflow(state, workspace.id, sessionId);
         const busy = conversationIsBusy(sessionId);
         const progressBusy = Boolean(view.instanceId && state.runs.some(run => run.conversationWorkflow?.instanceId === view.instanceId && ['queued', 'running', 'blocked'].includes(run.status)));
         const activeRun = state.runs.findLast(run => run.sessionId === sessionId && ['queued', 'running', 'blocked'].includes(run.status));
         const labels = { 'preparing-model': '准备岗位模型', 'preparing-knowledge': '读取已有知识', 'preparing-skills': '载入岗位技能', requesting: '等待模型响应', streaming: '模型正在生成', tools: '正在调用工具' };
-        json(res, 200, { ...view, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy, progressBusy,
+        json(res, 200, { ...view, workflowEnabled: true, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy, progressBusy,
           ...(activeRun?.activity ? { activity: { ...activeRun.activity, label: labels[activeRun.activity.stage] } } : {}),
           sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId),
           steps: view.steps.map(step => ({ ...step, employeeName: state.employees.find(employee => employee.id === step.employeeId)?.name })) }); return;
@@ -390,7 +416,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         await syncProjects();
         const sessionId = string(url.searchParams.get('sessionId'), '对话 ID');
         const workspace = workspaceForSession(sessionId); const state = store.snapshot();
-        if (!workspace || isDeliverySession(sessionId)) {
+        if (!workspace || isDeliverySession(sessionId) || !conversationWorkflowsEnabled(workspace)) {
           json(res, 200, { projectId: null, sessionId, revision: state.revision, instanceId: null, steps: [], history: [], historyTotal: 0, tasks: [], tasksTotal: 0 }); return;
         }
         const view = resolveConversationWorkflow(state, workspace.id, sessionId);
@@ -417,9 +443,24 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       if (req.method === 'POST' && route === '/run') {
         const body = await readBody(req, bodyLimit);
         await syncProjects();
-        const input: RunRequest = { projectId: string(body.projectId, '项目 ID'), employeeId: string(body.employeeId, '员工 ID'), request: string(body.request, '任务') };
+        const projectId = string(body.projectId, '项目 ID');
+        const request = string(body.request, '任务');
         if (body.parentRunId !== undefined) throw new Error('用户入口不能指定父工作单');
-        if (body.sourceSessionId !== undefined) input.sourceSessionId = string(body.sourceSessionId, '来源会话 ID');
+        await requireProject(projectId);
+        const workspace = ctx.workspaceRegistry.list().find(item => item.id === projectId)!;
+        const sourceSessionId = body.sourceSessionId === undefined ? undefined : string(body.sourceSessionId, '来源会话 ID');
+        if (sourceSessionId && workspaceForSession(sourceSessionId)?.id !== projectId) throw new Error('来源对话不属于当前项目');
+        if ((body.employeeId === undefined) === (body.templateId === undefined)) throw new Error('请选择一个员工实例或自由职业人');
+        let employeeId: string;
+        if (body.templateId !== undefined) {
+          if (conversationWorkflowsEnabled(workspace) || !sourceSessionId) throw new Error('只有 Chat 对话可直接 @ 自由职业人');
+          employeeId = (await store.ensureStandaloneEmployee({ projectId, templateId: string(body.templateId, '自由职业人 ID') })).id;
+        } else {
+          employeeId = string(body.employeeId, '员工 ID');
+          const employee = store.snapshot().employees.find(item => item.id === employeeId && item.projectId === projectId);
+          if (!conversationWorkflowsEnabled(workspace) && (!employee || employee.teamInstanceId || employee.managerId)) throw new Error('Chat 只调用独立员工，请从自由职业人库选择');
+        }
+        const input: RunRequest = { projectId, employeeId, request, ...(sourceSessionId ? { sourceSessionId } : {}) };
         const run = await runtime.start(input);
         json(res, 202, { run }); return;
       }

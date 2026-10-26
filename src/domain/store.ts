@@ -206,6 +206,21 @@ export class WorkforceStore {
     const entry: ProjectEmployee = { id: randomUUID(), projectId: input.projectId, name: input.name ?? t.name, templateId: t.id, templateName: t.name, templateVersion: t.version, modules: clone(t.modules), version: 1, status: t.status === 'ready' ? 'active' : 'paused', createdAt: date, updatedAt: date, ...(input.managerId ? { managerId: input.managerId } : {}), ...(teamInstanceId ? { teamInstanceId } : {}) }; state.employees.push(entry); return entry;
   }
   createEmployee(input: CreateEmployeeInput, options: MutationOptions = {}): Promise<ProjectEmployee> { input = clone(input); return this.mutate(options, state => this.addEmployee(state, input)); }
+  /** Explicit standalone mention admission; listing templates never creates employees. */
+  ensureStandaloneEmployee(input: Pick<CreateEmployeeInput, 'projectId' | 'templateId'>): Promise<ProjectEmployee> {
+    input = clone(input);
+    const existing = (state: WorkforceState) => {
+      required(state.projects, input.projectId, '项目');
+      const template = required(state.templates, input.templateId, '模板');
+      invariant(template.status === 'ready', '请先完善并启用自由职业人');
+      const candidates = state.employees.filter(employee => employee.projectId === input.projectId
+        && employee.templateId === input.templateId && !employee.teamInstanceId && !employee.managerId);
+      const employee = candidates.find(item => item.status === 'active') ?? candidates[0];
+      invariant(!employee || employee.status === 'active', '该独立员工已暂停，请先启用');
+      return employee;
+    };
+    return this.mutate({}, state => existing(state) ?? this.addEmployee(state, input), existing);
+  }
   /** Confirm the entire staffing draft once; no partial team or global template edit is persisted. */
   createProjectEmployees(input: CreateProjectEmployeesInput, options: MutationOptions = {}): Promise<ProjectEmployee[]> {
     input = clone(input);

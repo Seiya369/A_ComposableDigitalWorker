@@ -73,7 +73,7 @@ export class WorkflowRepository {
     });
   }
   /** Return work implied by durable state, without emitting writes for idle workflows. */
-  actions(): WorkflowAction[] {
+  actions(allowProject?: (projectId: string) => boolean): WorkflowAction[] {
     const state = this.persistence.snapshot();
     return (state.workflowRuns ?? []).flatMap<WorkflowAction>(flow => {
       if (flow.status === 'cancelled') return flow.steps.flatMap<WorkflowAction>(step => {
@@ -81,6 +81,9 @@ export class WorkflowRepository {
         if (task?.status === 'awaiting-review' && step.status !== 'accepted') return [{ kind: 'advance' as const, id: flow.id }];
         return task && ['queued', 'running', 'blocked'].includes(task.status) ? [{ kind: 'cancel' as const, id: task.id }] : [];
       });
+      // A disabled workspace retains history without dispatch or retry churn.
+      // Cancelled flows above still drain aborts and reconcile in-flight results.
+      if (allowProject && !allowProject(flow.projectId)) return [];
       if (flow.status === 'succeeded') return [];
       const step = currentStep(flow);
       const task = lastTask(state, step);

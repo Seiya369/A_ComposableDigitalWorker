@@ -13,15 +13,18 @@ import type { WorkforceRun, WorkforceState } from '../src/domain/types.js';
 import { WorkflowRepository } from '../src/workflow/repository.js';
 import { WorkService } from '../src/work/service.js';
 import { KnowledgeEngine } from '../src/knowledge/engine.js';
+import { WorkforceRuntime, type RunRequest } from '../src/harness/runtime.js';
 import type { WorkTask } from '../src/work/types.js';
 import type { ConversationWorkflowDetails, ConversationWorkflowReviewInput } from '../src/domain/conversation-workflow-details.js';
 
 /** The real authenticated route is exercised with official services represented by fixtures. */
-async function fixture(t: { after(fn: () => Promise<void>): void }, options: { legacyHistory?: boolean; modernHistory?: boolean; activeModernHistory?: boolean; blockedHistory?: boolean; failRuntimeCleanup?: boolean } = {}) {
+async function fixture(t: { after(fn: () => Promise<void>): void }, options: { legacyHistory?: boolean; modernHistory?: boolean; activeModernHistory?: boolean; blockedHistory?: boolean; failRuntimeCleanup?: boolean; chatWorkspace?: boolean; projectTitle?: string; pausedLegacyFlow?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'conversation-workflow-http-')); const file = join(root, 'state.json');
   let hostCleanupRegistered = false;
   t.after(() => hostCleanupRegistered ? Promise.resolve() : rm(root, { recursive: true, force: true }));
-  const store = await WorkforceStore.open(file); const project = await store.saveProject({ id: 'project-a', name: '项目甲', rootPath: root });
+  const projectPath = options.chatWorkspace ? join(root, 'Chat') : root;
+  if (options.chatWorkspace) await mkdir(projectPath);
+  const store = await WorkforceStore.open(file); const project = await store.saveProject({ id: 'project-a', name: options.projectTitle ?? '项目甲', rootPath: projectPath });
   await mkdir(join(root, 'other')); const other = await store.saveProject({ id: 'project-b', name: '项目乙', rootPath: join(root, 'other') });
   const architect = store.snapshot().templates[0]!;
   const developer = await store.saveTemplate({ name: '开发人员', modules: architect.modules, status: 'ready' });
@@ -80,6 +83,15 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
     history.push(options.activeModernHistory ? await store.updateRun(ownerRun.id, { status: 'blocked', error: '受控验证：当前负责人仍在处理' })
       : await store.updateRun(ownerRun.id, { status: 'awaiting-review', output: '保留原生对话产生的交付，等待人工验收' }));
   }
+  if (options.pausedLegacyFlow) {
+    const installed = await store.configureProjectTeam({ projectId: project.id, teamId: team.id, teamVersion: team.version, templateVersions });
+    const repository = new WorkflowRepository(store);
+    const definition = await repository.saveDefinition({ projectId: project.id, projectTeamId: installed.id, expectedVersion: 0,
+      workflow: { id: 'paused-chat-flow', templateWorkflowId: 'paused-chat-source', name: '历史暂停流程', steps: [{ id: 'paused-step', name: '历史待执行步骤', employeeId: installed.members[0]!.employeeId, instruction: '不应自动执行' }] } });
+    const flow = await repository.start({ projectId: project.id, projectTeamId: installed.id, workflowId: definition.id,
+      workflowVersion: definition.version!, requestId: 'paused-chat-flow-fixture', request: '旧流程仅允许取消' });
+    await repository.control({ projectId: project.id, id: flow.id, commandId: 'pause-before-fixture-start', expectedVersion: flow.version, action: 'pause' });
+  }
   let workspaces = [{ id: project.id, title: project.name, path: project.rootPath, sessionIds: [...new Set(['chat-a', 'chat-b', ...history.map(run => run.sessionId!)])] },
     { id: other.id, title: other.name, path: other.rootPath, sessionIds: ['foreign-chat'] }];
   const runningSessions = new Set<string>();
@@ -109,7 +121,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   const state = async (): Promise<WorkforceState> => { const response = await fetch(`${origin}/digital-workers/api/state`); assert.equal(response.status, 200); return response.json() as Promise<WorkforceState>; };
   const view = async (sessionId: string) => {
     const response = await fetch(`${origin}/digital-workers/api/conversation-workflow?sessionId=${encodeURIComponent(sessionId)}`);
-    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; sessionHandoffRequired?: boolean; error?: string } };
+    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; workflowEnabled?: boolean; sessionHandoffRequired?: boolean; error?: string } };
   };
   const command = async (action: string, payload: unknown, options: unknown) => {
     const response = await fetch(`${origin}/digital-workers/api/command`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ action, payload, options }) });
@@ -125,7 +137,11 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
     const response = await fetch(`${origin}/digital-workers/api/conversation-workflow/review`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
     return { status: response.status, body: await response.json() as ConversationWorkflowDetails & { error?: string; code?: string } };
   };
-  return { root, file, project, other, architect, workflow, history, state, view, select, command, details, review,
+  const run = async (payload: unknown) => {
+    const response = await fetch(`${origin}/digital-workers/api/run`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    return { status: response.status, body: await response.json() as { run?: WorkforceRun; error?: string } };
+  };
+  return { root, file, origin, project, other, architect, workflow, history, state, view, select, command, details, review, run,
     dispose: () => ctx.fiber.dispose(),
     setRunning(sessionId: string, value: boolean) { if (value) runningSessions.add(sessionId); else runningSessions.delete(sessionId); },
     setQueuedIdle(sessionId: string, lane?: 'nextTurn' | 'nextStep') { if (lane) queuedIdleSessions.set(sessionId, lane); else queuedIdleSessions.delete(sessionId); },
@@ -170,6 +186,181 @@ test('production conversation routes derive the native project and preserve defa
   assert.equal((await f.view('chat-a')).body.instanceId, selected.body.result.instanceId);
   assert.equal((await f.view('chat-b')).body.selection, 'override');
   assert.equal((await f.state()).runs.length, 0, 'selection installs snapshots but never invokes a model');
+});
+
+test('Chat directory excludes workflow service even with a retained default while preserving native project scope for mentions', async t => {
+  const f = await fixture(t, { chatWorkspace: true, modernHistory: true });
+  const before = await readFile(f.file, 'utf8'); const state = await f.state();
+  assert.ok(state.conversationWorkflows?.defaults.some(entry => entry.projectId === f.project.id), 'fixture retains a previously installed default');
+  const view = await f.view('chat-a');
+  assert.equal(view.status, 200, view.body.error);
+  assert.equal(view.body.workflowEnabled, false);
+  assert.equal(view.body.projectId, f.project.id, 'Chat keeps its native project identity for explicit employee mentions');
+  assert.equal(view.body.instanceId, null);
+  assert.equal(view.body.owner, undefined);
+  assert.deepEqual(view.body.steps, []);
+  assert.deepEqual(view.body.choices, []);
+  assert.equal(view.body.sessionHandoffRequired, false);
+  const inherited = await f.view('chat-b');
+  assert.equal(inherited.body.workflowEnabled, false);
+  assert.equal(inherited.body.instanceId, null, 'another conversation cannot inherit the retained default');
+  const details = await f.details('chat-a');
+  assert.equal(details.status, 200, details.body.error);
+  assert.equal(details.body.instanceId, null);
+  assert.deepEqual(details.body.steps, []);
+  assert.deepEqual(details.body.history, []);
+  const scope = await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=chat-a`);
+  assert.equal(scope.status, 200);
+  assert.deepEqual(await scope.json(), { projectId: f.project.id, standaloneOnly: true });
+  const foreignScope = await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=foreign-chat`);
+  assert.deepEqual(await foreignScope.json(), { projectId: f.other.id }, 'Chat policy cannot leak into another workspace');
+  const missingScope = await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=unknown-chat`);
+  assert.deepEqual(await missingScope.json(), { projectId: null });
+  assert.equal(await readFile(f.file, 'utf8'), before, 'policy projection does not delete old installs, deliveries or selections');
+  f.duplicateSession();
+  assert.notEqual((await f.view('chat-a')).status, 200, 'ambiguous membership still fails closed instead of being treated as Chat');
+  assert.notEqual((await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=chat-a`)).status, 200);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+});
+
+test('Chat workflow mutation and review endpoints reject retained configuration without changing user state', async t => {
+  const f = await fixture(t, { chatWorkspace: true, modernHistory: true });
+  const state = await f.state(); const instance = state.conversationWorkflows!.instances[0]!;
+  const run = f.history.find(entry => entry.conversationWorkflow)!;
+  const before = await readFile(f.file, 'utf8');
+  const team = state.projectTeams![0]!; const definition = team.workflows[0]!;
+  for (const result of [
+    await f.command('workflow.save', { projectId: f.project.id, projectTeamId: team.id, expectedVersion: definition.version,
+      workflow: { ...definition, name: '不得保存到Chat的流程' } }, {}),
+    await f.command('workflow.start', { projectId: f.project.id, projectTeamId: team.id, workflowId: definition.id,
+      workflowVersion: definition.version, requestId: 'forbidden-chat-start', request: '不得在Chat运行' }, {}),
+    await f.select('chat-a'),
+    await f.select('chat-a', null),
+    await f.command('conversation.workflow.step', { projectId: f.project.id, sessionId: 'chat-a', stepId: 'build', instanceVersion: instance.version }, { expectedRevision: state.revision }),
+    await f.command('conversation.workflow.resume', { projectId: f.project.id, sessionId: 'chat-a' }, {}),
+    await f.review({ projectId: f.project.id, sessionId: 'chat-a', instanceId: instance.id, instanceVersion: instance.version,
+      stepId: instance.currentStepId!, runId: run.id, runVersion: run.version, decision: 'accepted', expectedRevision: state.revision }),
+  ]) {
+    assert.notEqual(result.status, 200, 'Chat cannot opt back into workflow service through a direct API request');
+    assert.match(result.body.error ?? '', /Chat.*工作流|工作流.*Chat/);
+  }
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  assert.deepEqual((await f.state()).runs, state.runs, 'old deliverables remain audit history rather than being accepted or cancelled');
+});
+
+test('Chat rejects resuming a legacy structured workflow but permits explicit cancellation without creating work', async t => {
+  const f = await fixture(t, { chatWorkspace: true, pausedLegacyFlow: true });
+  const initial = await f.state(); const flow = initial.workflowRuns!.find(entry => entry.workflowId === 'paused-chat-flow')!;
+  assert.equal(flow.status, 'paused'); assert.equal(initial.runs.length, 0);
+  const before = await readFile(f.file, 'utf8');
+  const resumed = await f.command('workflow.control', { projectId: f.project.id, id: flow.id,
+    commandId: 'forbidden-chat-resume', expectedVersion: flow.version, action: 'resume' }, {});
+  assert.notEqual(resumed.status, 200);
+  assert.match(resumed.body.error ?? '', /Chat.*工作流|工作流.*Chat/);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  const input = { projectId: f.project.id, id: flow.id, commandId: 'cancel-legacy-chat-flow', expectedVersion: flow.version, action: 'cancel' };
+  const cancelled = await f.command('workflow.control', input, {});
+  assert.equal(cancelled.status, 200, cancelled.body.error);
+  const after = await f.state();
+  assert.equal(after.workflowRuns!.find(entry => entry.id === flow.id)!.status, 'cancelled');
+  assert.equal(after.runs.length, 0, 'cancelling a retained legacy flow must not start an employee or model');
+  assert.equal((await f.command('workflow.control', input, {})).status, 200, 'the cancel receipt remains replayable');
+  const replayed = await f.state();
+  assert.deepEqual(replayed.workflowRuns, after.workflowRuns, 'retry does not duplicate workflow events or change cancellation');
+  assert.deepEqual(replayed.runs, after.runs);
+});
+
+test('fresh Chat template mentions create one standalone employee only on explicit run admission and reuse it', async t => {
+  const admitted: RunRequest[] = [];
+  t.mock.method(WorkforceRuntime.prototype, 'start', async (input: RunRequest) => {
+    admitted.push(structuredClone(input));
+    return { id: `captured-${admitted.length}`, projectId: input.projectId, employeeId: input.employeeId, status: 'queued' } as WorkforceRun;
+  });
+  const f = await fixture(t, { chatWorkspace: true }); const before = await f.state();
+  assert.equal(before.employees.length, 0);
+  const input = { projectId: f.project.id, templateId: f.architect.id, sourceSessionId: 'chat-a', request: '显式交给该自由职业人' };
+  const first = await f.run(input); assert.equal(first.status, 202, first.body.error);
+  const created = await f.state();
+  assert.equal(created.employees.length, 1);
+  const employee = created.employees[0]!;
+  assert.equal(employee.templateId, f.architect.id); assert.equal(employee.projectId, f.project.id);
+  assert.equal(employee.teamInstanceId, undefined); assert.equal(employee.managerId, undefined);
+  assert.deepEqual(employee.modules, f.architect.modules);
+  assert.deepEqual(created.projectTeams, before.projectTeams);
+  assert.deepEqual(created.conversationWorkflows, before.conversationWorkflows);
+  assert.equal((await f.run({ ...input, request: '再次明确调用相同员工' })).status, 202);
+  assert.equal((await f.state()).employees.length, 1);
+  assert.equal(admitted.length, 2);
+  assert.ok(admitted.every(entry => entry.employeeId === employee.id && entry.sourceSessionId === 'chat-a'));
+  assert.ok(admitted.every(entry => !entry.conversationWorkflow && !entry.workflow), 'explicit mentions never acquire workflow ownership');
+});
+
+test('Chat template admission avoids old workflow members and preserves standalone employee custom configuration', async t => {
+  const admitted: RunRequest[] = [];
+  t.mock.method(WorkforceRuntime.prototype, 'start', async (input: RunRequest) => {
+    admitted.push(structuredClone(input));
+    return { id: `captured-${admitted.length}`, projectId: input.projectId, employeeId: input.employeeId, status: 'queued' } as WorkforceRun;
+  });
+  const f = await fixture(t, { chatWorkspace: true, modernHistory: true });
+  const before = await f.state(); const teamMember = before.employees.find(employee => employee.templateId === f.architect.id && employee.teamInstanceId)!;
+  assert.ok(teamMember);
+  const beforeRejected = await readFile(f.file, 'utf8');
+  assert.notEqual((await f.run({ projectId: f.project.id, employeeId: teamMember.id, sourceSessionId: 'chat-a', request: '不允许自动调用流程成员' })).status, 202);
+  assert.equal(await readFile(f.file, 'utf8'), beforeRejected);
+  assert.equal(admitted.length, 0);
+  const input = { projectId: f.project.id, templateId: f.architect.id, sourceSessionId: 'chat-a', request: '仅调用独立自由职业人' };
+  assert.equal((await f.run(input)).status, 202);
+  const created = await f.state();
+  const standalone = created.employees.find(employee => employee.templateId === f.architect.id && !employee.teamInstanceId && !employee.managerId)!;
+  assert.ok(standalone); assert.notEqual(standalone.id, teamMember.id);
+  const modules = structuredClone(standalone.modules); modules.responsibilities.mission = '保留这个独立员工的项目专属职责';
+  const updated = await f.command('employee.update', { id: standalone.id, input: { name: '自定义独立员工', modules } }, { expectedVersion: standalone.version });
+  assert.equal(updated.status, 200, updated.body.error);
+  assert.equal((await f.run(input)).status, 202);
+  const after = await f.state(); const kept = after.employees.find(employee => employee.id === standalone.id)!;
+  assert.equal(after.employees.length, created.employees.length);
+  assert.equal(kept.name, '自定义独立员工'); assert.deepEqual(kept.modules, modules);
+  assert.ok(admitted.every(entry => entry.employeeId === standalone.id));
+  assert.deepEqual(after.projectTeams, before.projectTeams); assert.deepEqual(after.conversationWorkflows, before.conversationWorkflows);
+});
+
+test('template mention admission rejects invalid identity, source ownership and unavailable templates before any write', async t => {
+  const admitted: RunRequest[] = [];
+  t.mock.method(WorkforceRuntime.prototype, 'start', async (input: RunRequest) => {
+    admitted.push(structuredClone(input));
+    return { id: 'unexpected-run', projectId: input.projectId, employeeId: input.employeeId, status: 'queued' } as WorkforceRun;
+  });
+  const f = await fixture(t, { chatWorkspace: true });
+  for (const [name, status] of [['未启用自由职业人', 'draft'], ['已归档自由职业人', 'archived']] as const) {
+    const response = await f.command('template.save', { name, status, modules: f.architect.modules }, {});
+    assert.equal(response.status, 200, response.body.error);
+  }
+  const initial = await f.state(); const before = await readFile(f.file, 'utf8');
+  const base = { projectId: f.project.id, templateId: f.architect.id, sourceSessionId: 'chat-a', request: '不得错误产生工作单' };
+  const { templateId: _template, ...withoutIdentity } = base;
+  for (const payload of [
+    { ...base, employeeId: 'another-identity' }, withoutIdentity,
+    { ...base, sourceSessionId: 'foreign-chat' }, { ...base, sourceSessionId: 'unknown-chat' },
+    { ...base, sourceSessionId: undefined }, { ...base, parentRunId: 'forged-parent' },
+    { ...base, projectId: f.other.id, sourceSessionId: 'foreign-chat' },
+    ...initial.templates.filter(template => ['draft', 'archived'].includes(template.status)).map(template => ({ ...base, templateId: template.id })),
+  ]) {
+    const response = await f.run(payload);
+    assert.notEqual(response.status, 202, JSON.stringify(payload));
+    assert.ok(response.body.error);
+    assert.equal(await readFile(f.file, 'utf8'), before, 'invalid mention cannot create an employee, workflow or work order');
+  }
+  assert.equal(admitted.length, 0);
+});
+
+test('display title Chat does not disable workflows for another real project directory', async t => {
+  const f = await fixture(t, { projectTitle: 'Chat' });
+  const view = await f.view('chat-a');
+  assert.equal(view.body.workflowEnabled, true);
+  assert.ok(view.body.choices.some(choice => choice.id === f.workflow.id));
+  assert.equal((await f.select()).status, 200);
+  const scope = await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=chat-a`);
+  assert.deepEqual(await scope.json(), { projectId: f.project.id });
 });
 
 test('production conversation commands require native session ownership and CAS before any write', async t => {

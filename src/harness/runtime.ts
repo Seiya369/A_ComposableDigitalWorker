@@ -30,6 +30,7 @@ import { WorkService } from '../work/service.js';
 import type { KnowledgeEngine } from '../knowledge/engine.js';
 import { A_ACTIVATION_REASONS, createContextPacket, DEFAULT_CONTEXT_LIMITS, type AActivationReason, type ContextCursor, type ContextDocument, type ContextLimits, type ContextPacket } from '../knowledge/context.js';
 import { compactKnowledgeSurface } from './knowledge-surface.js';
+import { conversationWorkflowsEnabled } from './workspace-policy.js';
 
 export type KnowledgeRuntime = Pick<KnowledgeEngine, 'spacesForEmployee' | 'overviewFor' | 'prepareFor' | 'ingestFor' | 'readFor' | 'searchFor'> & Partial<Pick<KnowledgeEngine, 'overviewDocumentsFor'>>;
 
@@ -268,6 +269,7 @@ export class WorkforceRuntime {
     try {
       const admitted = this.admission.then(async () => {
         if (this.stopped) throw new Error('数字员工运行服务已关闭');
+        this.assertWorkflowProject(view.projectId);
         signal?.throwIfAborted();
         if (view.sessionId !== agent.id || !this.ctx.workspaceRegistry.get(WorkspaceId(view.projectId))?.sessionIds.includes(agent.id)) throw new Error('对话不属于当前项目');
         const start = agent.session.snapshotEvents().findLast(event => event.type === 'turn/start');
@@ -421,6 +423,7 @@ export class WorkforceRuntime {
     const admitted = this.admission.then(async () => {
       if (this.stopped) throw new Error('数字员工运行服务已关闭');
       const run = this.requireRun(runId);
+      if (run.workflow || run.conversationWorkflow) this.assertWorkflowProject(run.projectId);
       if (!run.workflow && !run.workTaskId) throw new Error('只能启动已登记的项目任务或工作流任务');
       const state = this.store.snapshot();
       const flow = run.workflow && state.workflowRuns?.find(flow => flow.id === run.workflow!.workflowRunId && flow.projectId === run.projectId);
@@ -522,10 +525,18 @@ export class WorkforceRuntime {
   }
 
   /** Both snapshot and live authority must allow each action, throughout the delegation ancestry. */
+  private assertWorkflowProject(projectId: string): void {
+    const workspace = this.ctx.workspaceRegistry.get(WorkspaceId(projectId));
+    const project = this.store.listProjects().find(item => item.id === projectId);
+    const path = workspace?.path ?? project?.rootPath;
+    if (!path || !conversationWorkflowsEnabled({ path })) throw new Error('Chat 工作区不提供工作流服务，请通过 @ 调用独立员工');
+  }
+
   private authorities(run: WorkforceRun): ProjectEmployee[] {
     const state = this.store.snapshot();
     const employees = state.employees;
     return [run, ...this.ancestors(run)].flatMap(attempt => {
+      if (attempt.workflow || attempt.conversationWorkflow) this.assertWorkflowProject(attempt.projectId);
       const external = this.live.get(attempt.id)?.externalAgent;
       if (external && !this.ctx.workspaceRegistry.get(WorkspaceId(run.projectId))?.sessionIds.includes(external.id)) throw new Error('当前对话已不属于该项目');
       if (attempt.workflow && state.workflowRuns?.find(flow => flow.id === attempt.workflow!.workflowRunId)?.status === 'cancelled') throw new Error('所属工作流已取消');
