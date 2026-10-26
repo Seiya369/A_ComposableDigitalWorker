@@ -295,11 +295,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留；官方V4还禁止闭轮后替换工具结果，因此空闲卸载时旧记忆工具结果保留，不能声称已从共享历史完全擦除。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.2.1 是带保留项的验收候选，不能标记为无保留合规成品。** 可选处理方案见[持久会话清理边界](docs/architecture/session-retention.md)。详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.2.1-plugin.1.md)。
+**会话保留策略（已结项）：** 根据用户 2026-10-26 的明确决定，原生会话使用 DSH 官方可恢复归档隐藏即可，日志、原始消息及闭轮工具历史允许保留，不要求物理删除。它们不再列为卸载未满足项或发布阻塞；插件运行能力、专属文件和配置仍须按归属清理。本次不批量归档现有会话。详见 [ADR-004](docs/decisions/004-session-archive-retention.md)与[会话保留说明](docs/architecture/session-retention.md)。[既有归档验收记录](integration/verification-0.2.1-plugin.1.md)保留当时标准，相关删除保留项按本决定结项；归档哈希及预发布状态不变。
 
 ### 验证状态与已知限制
 
-0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.1.md)。
+0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.1.md)，会话保留标准按 [ADR-004](docs/decisions/004-session-archive-retention.md) 更新。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -311,7 +311,7 @@ node /installed/plugin/scripts/plugin.mjs purge \
 | --- | --- |
 | 类型检查与构建 | 通过 |
 | 自动化测试 | 领域、知识库、工作流与界面回归；最终统计见版本验收记录 |
-| 真实归档安装、移除、重装与清理 | 15 项生命周期检查通过；原生会话持久记录保留项见上文 |
+| 真实归档安装、移除、重装与清理 | 15 项生命周期检查通过；原生会话按上文策略保留 |
 | 跨版本升级 | 官方 alpha.2 / 插件 0.27.0 → rc.3 / 插件 0.29.0，保留自定义岗位定义与库对象 |
 | 官方原生界面与对话工作流 | Web 29 项检查通过；macOS Desktop 实机安装、保存、卸载和重装通过 |
 | 宿主程序完整性 | 27,607 个程序文件前后总哈希一致 |
@@ -633,11 +633,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Official V4 also forbids tool-result replacements outside an open turn, so idle uninstall retains historical memory-tool results and cannot claim complete erasure from shared history. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.2.1 is a validation candidate with this exception, not an unqualified compliant release.** See [session-retention options](docs/architecture/session-retention.md), [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.2.1-plugin.1.md).
+**Session retention policy — closed:** on 2026-10-26, the user accepted official recoverable archiving to hide sessions. DSH may retain logs, messages and closed-turn tool history; physical deletion is no longer required or an uninstall/release blocker. Plugin runtime resources and explicitly owned files/configuration must still be cleaned. This decision performs no bulk archiving. See [ADR-004](docs/decisions/004-session-archive-retention.md) and [session retention](docs/architecture/session-retention.md). The [existing archive acceptance record](integration/verification-0.2.1-plugin.1.md) preserves its historical criteria; its deletion exceptions are now closed. Archive hashes and prerelease status remain unchanged.
 
 ### Verification status and limitations
 
-Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.1.md) for exact results and remaining exceptions.
+Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.1.md) for exact results and [ADR-004](docs/decisions/004-session-archive-retention.md) for the updated retention criteria.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 
@@ -649,7 +649,7 @@ The latest code audit and archive verification used an official release, isolate
 | --- | --- |
 | Type checking and build | Passed |
 | Automated tests | Domain, knowledge, workflow and UI regressions; exact totals are in the version acceptance record |
-| Real archive installation, removal, reinstallation, cleanup | 15 lifecycle checks passed; session-persistence exception above remains |
+| Real archive installation, removal, reinstallation, cleanup | 15 lifecycle checks passed; native sessions follow the retention policy above |
 | Official native UI and conversation workflows | 29 native conversation checks and8new UI/knowledge persistence checks |
 | Host program integrity | Identical aggregate hash across 27,607 program files before and after |
 

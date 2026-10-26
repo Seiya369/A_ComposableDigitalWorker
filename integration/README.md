@@ -66,9 +66,9 @@ DSH_INSTALLATION_MANIFEST=/official/install/node_modules/@deepseek-ai/dsh/packag
 
 用户项目文件夹、交付成果、用户主动导出的 `.json`、宿主共享会话历史、凭据、模型设置和其他插件数据均保留。员工原生会话属于宿主可查看的历史，不直接改动宿主 session 存储。完整清理指本插件可执行功能与专属配置/状态/自建服务被清除，不声称抹除宿主历史中的所有痕迹。
 
-### 完全卸载尚未满足项
+### 原生会话保留（删除任务已结项）
 
-官方 `dsh-session-persistence@0.2.1-rc.3` 没有会话持久记录删除接口（见官方同版本 README 的“已知限制”）。员工工作单创建的原生会话历史由宿主管理，本插件不能证明其中所有记录均属于可丢弃数据，也不能绕过官方接口直接清理存储。因此，本版本已验证插件运行能力、专属文件与配置级完整清理，但 **ADR-001 中插件专属持久记录的全部清理仍未满足**；此包属于有此保留项的验收候选，不能标记为无保留合规成品。共享会话、凭据和用户成果按规范保留。后续需要上游提供按归属删除的官方能力，再增加真实员工执行后的清理验收；当前不直接修改宿主数据库或会话文件。
+用户 2026-10-26 明确接受使用 DSH 官方可恢复归档隐藏会话，不要求物理删除。原生会话日志、原始消息及闭轮工具历史由宿主保留，不再列为完整卸载未满足项或发布阻塞；持久会话删除任务已结项。归档按用户选择通过原生入口执行，默认拒绝活动会话，明确选择停止活动时才按官方规则请求停止。本次不批量归档现有会话，不改宿主数据库或会话文件，也不再安排删除接口或存储替代方案。插件运行能力、专属配置/文件及自建服务仍须清理；共享凭据和用户成果保留。见 [ADR-004](../docs/decisions/004-session-archive-retention.md)。
 
 脚本本身没有创建缓存或专属日志目录；官方插件管理器生成的共享 pnpm 缓存、操作日志和 profile 锁文件由宿主管理并保留。构建和验收产生的仓库 `artifacts/` 是交付资料，亦不由卸载脚本删除。
 
@@ -99,11 +99,11 @@ node scripts/plugin.mjs purge --home "$HOME/.dsh" --profile desktop \
 # 核对范围后，将 --dry-run 替换为 --host-stopped 执行。
 ```
 
-The same ownership rules and native-session retention exception apply on Desktop. Full cleanup does not uninstall the shared DSH Desktop app or erase its shared shell preferences, credentials, sessions, or user workspaces.
+The same ownership and accepted native-session retention policy applies on Desktop. Official recoverable archiving is sufficient; physical deletion is not an uninstall requirement. Full cleanup does not uninstall the shared DSH Desktop app or erase its shared shell preferences, credentials, sessions, or user workspaces. See [ADR-004](../docs/decisions/004-session-archive-retention.md).
 
 ## 默认内容显式更新 / Explicit default update
 
-新安装只创建1条软件工程流程，并持久生成6岗位及团队的来源可追溯专业知识图谱。原有安装不自动重置或静默覆盖定制。解压包中的 `lib/upgrade-software-defaults.js` 支持 `--state /absolute/plugin/state.json --dry-run`；退出使用该状态的宿主后以 `--host-stopped` 执行，备份旧文件并在一次版本校验事务中更新。只改变已知原始默认库及未执行、未定制的采用实例；员工ID/模块、记忆、会话选择与历史保留。已执行或定制对象报告跳过。完整清理会移除插件专属图谱；宿主共享原生会话保留项继续适用。
+新安装只创建1条软件工程流程，并持久生成6岗位及团队的来源可追溯专业知识图谱。原有安装不自动重置或静默覆盖定制。解压包中的 `lib/upgrade-software-defaults.js` 支持 `--state /absolute/plugin/state.json --dry-run`；退出使用该状态的宿主后以 `--host-stopped` 执行，备份旧文件并在一次版本校验事务中更新。只改变已知原始默认库及未执行、未定制的采用实例；员工ID/模块、记忆、会话选择与历史保留。已执行或定制对象报告跳过。完整清理会移除插件专属图谱；宿主原生会话按已接受的保留策略处理。
 
 Fresh installs include one engineering workflow and source-backed professional graphs for the six roles and shared team. Existing profiles preserve custom definitions. The packaged explicit upgrade tool backs up state and uses a single version-checked transaction after the host stops; customized/executed adoptions remain unchanged with a skip reason. Plugin-owned graphs follow the same cleanup lifecycle.
 

@@ -74,7 +74,8 @@
     "docs/decisions/003-host-aligned-versioning.md",
     "docs/architecture/session-retention.md",
     "build-support/version-lock.json",
-    "docs/architecture/chat-workspace.md"
+    "docs/architecture/chat-workspace.md",
+    "docs/decisions/004-session-archive-retention.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24",

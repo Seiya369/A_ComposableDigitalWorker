@@ -1,5 +1,11 @@
 # 更新记录
 
+## 2026-10-26 — 会话保留政策结项（仅文档）
+
+- 按用户明确决定，使用 DSH 官方可恢复归档隐藏会话即可；日志、消息及闭轮工具历史允许保留，物理删除不再是卸载未满足项或发布阻塞，持久会话删除任务结束。
+- 更新项目约束、双语 README 和 [ADR-004](docs/decisions/004-session-archive-retention.md)。插件运行能力与专属文件清理要求继续有效；不执行批量归档或删除，不更改既有安装包、哈希及历史验收记录。
+- Session deletion work is closed by user decision: official recoverable archiving is sufficient, and native history may remain. This documentation update changes no runtime behavior or immutable release assets.
+
 ## 0.2.1 / plugin.1 — 2026-10-26
 
 - Chat目录的原生对话退出工作流：移除底部选择器、顶部步骤/负责人，HTTP、运行时和后台调度同时限制，保留旧绑定及交付历史。
