@@ -92,8 +92,11 @@ export function retireWorkflowContexts(session: Session, events: readonly Sessio
   const observed = new Map(events.map(event => [event.seq, event]));
   const memoryCalls = new Map<string, { roleVersion?: string; taskVersion?: string }>();
   let roleVersion: string | undefined; let taskVersion: string | undefined;
+  let openTurn = false;
   for (const event of [...events].sort((a, b) => a.seq - b.seq)) {
-    if (event.type === 'user/message') {
+    if (event.type === 'turn/start') openTurn = true;
+    else if (event.type === 'turn/end' || event.type === 'session/end-seed') openTurn = false;
+    else if (event.type === 'user/message') {
       const message = event.data;
       if (message.source.kind === WORKFLOW_TASK_SOURCE && message.content.length) {
         roleVersion = message.source.roleVersion || undefined; taskVersion = message.source.version;
@@ -114,6 +117,11 @@ export function retireWorkflowContexts(session: Session, events: readonly Sessio
   for (const seq of [...session.surface.nodes]) {
     const event = observed.get(seq);
     if (event?.type === 'tool/result') {
+      // V4 persistence permits a tool/result replacement only inside a real
+      // open turn, even though the in-memory surface accepts it while idle.
+      // Keep closed-turn shared history rather than corrupt its durable log.
+      // A later native prepare can retire it before its next model request.
+      if (!openTurn) continue;
       const scope = memoryCalls.get(`${event.data.turn}:${event.data.step}:${event.data.message.source.callId}`);
       if (!scope || (role && scope.roleVersion === role.version && scope.taskVersion === task?.version)) continue;
       const message = session.deriveEventMessage(event);

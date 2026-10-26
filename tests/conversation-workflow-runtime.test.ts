@@ -5,7 +5,9 @@ import { Context } from '@deepseek-ai/cordis';
 import AgentRegistry, { installModelSelection, type AgentHandle, type ModelSelectionRef } from '@deepseek-ai/dsh-agent';
 import AgentLoop from '@deepseek-ai/dsh-agent-loop';
 import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm';
-import SessionStore, { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session';
+import SessionStore, { Session, SessionId, SessionLogOffset, type SessionEvent, type SessionHeader } from '@deepseek-ai/dsh-session';
+import { sessionFormatCatalog } from '@deepseek-ai/dsh-session-format-catalog';
+import type { SessionFormatEvent, SessionFormatHeader } from '@deepseek-ai/dsh-session-format';
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query';
 import SystemPrompt, { joinContextSections } from '@deepseek-ai/dsh-system-prompt';
@@ -13,7 +15,7 @@ import ToolRuntime, { type ToolDefinition } from '@deepseek-ai/dsh-tools';
 import { DeepSeekAdapter, resolveAdapterOptions } from '@deepseek-ai/dsh-llm-deepseek';
 import { registerConversationWorkflowRuntime, type ConversationWorkflowRuntimeDependencies, type NativeWorkflowLease } from '../src/harness/conversation-workflow-runtime.js';
 import { createContextPacket } from '../src/knowledge/context.js';
-import { workflowContextDefinition } from '../src/harness/native-workflow-context.js';
+import { retireWorkflowContexts, workflowContextDefinition } from '../src/harness/native-workflow-context.js';
 
 const text = (value: string): StreamChunk[] => [
   { type: 'block-start', index: 0, blockType: 'text' },
@@ -472,6 +474,17 @@ test('None awaiting the previous owner settlement survives unload before its pre
 const visibleText = (request: GenerateOptions): string => request.messages.flatMap(message => message.content
   .flatMap(block => block.type === 'text' ? [block.text] : [])).join('\n');
 const wireMessages = (request: GenerateOptions) => request.messages.map(message => ({ role: message.role, content: message.content }));
+const persistedRoundtrip = (session: Session, events: readonly SessionEvent[]): Session => {
+  const rows = JSON.parse(JSON.stringify([
+    sessionFormatCatalog.encodeCurrentHeader({ ...session.header, delegationDepth: session.header.delegationDepth ?? 0 } as unknown as SessionFormatHeader, session.inheritedEventCount),
+    ...events.map(event => sessionFormatCatalog.encodeCurrentEvent(event as unknown as SessionFormatEvent)),
+  ])) as unknown[];
+  const restore = sessionFormatCatalog.createRestore(rows[0], { recovery: 'strict', validation: 'current' });
+  for (const row of rows.slice(1)) restore.decodeRow(row);
+  const artifact = restore.finish();
+  return Session.fromRestore(session.id, artifact.events as unknown as readonly SessionEvent[], artifact.header as unknown as SessionHeader,
+    SessionLogOffset(artifact.inheritedEventCount), 'detached');
+};
 
 test('unchanged employee and knowledge definitions appear once and retain the preceding native request prefix', async () => {
   const roleBody = 'STABLE_EMPLOYEE_DEFINITION '.repeat(80);
@@ -811,8 +824,8 @@ test('switching employee retires private A/B tool bodies while unchanged turns r
   }
 });
 
-test('knowledge replacement, None and idle unload retire owned memory results without reinterpreting other tool payloads', async () => {
-  for (const boundary of ['knowledge-change', 'none', 'unload'] as const) {
+test('knowledge replacement and None retire owned memory results inside the next real turn without reinterpreting other tool payloads', async () => {
+  for (const boundary of ['knowledge-change', 'none'] as const) {
     let enabled = true; let knowledge = 'KNOWLEDGE_VERSION_ONE';
     const f = await fixture([() => call('worker_memory_write'), () => text('Delivered answer'), () => text('After boundary')], {
       isDeliverySession: () => false, prepare: async () => enabled ? lease('same-model', { prompt: 'SAME_EMPLOYEE', contextKey: 'same-employee',
@@ -821,12 +834,43 @@ test('knowledge replacement, None and idle unload retire owned memory results wi
     try {
       await f.send('before boundary');
       if (boundary === 'knowledge-change') knowledge = 'KNOWLEDGE_VERSION_TWO';
-      else if (boundary === 'none') enabled = false;
-      else await f.dispose();
+      else enabled = false;
       await f.send('after boundary');
       assert.equal(f.adapter.requests.length, 3);
       assert.doesNotMatch(visibleText(f.adapter.requests.at(-1)!), /PRIVATE_MEMORY_WRITE_RESULT/);
       assert.match(visibleText(f.adapter.requests.at(-1)!), /Delivered answer/);
+    } finally { await f.cleanup(); }
+  }
+});
+
+test('memory retirement survives official V4 persistence restore for real-turn None, idle None and closed-turn unload', async () => {
+  for (const boundary of ['none', 'idle-none', 'unload'] as const) {
+    let enabled = true;
+    const f = await fixture([() => call('worker_memory_search'), () => text('ORIGINAL_DELIVERED_ANSWER'), () => text('native continuation')], {
+      isDeliverySession: () => false, prepare: async () => enabled ? lease('same-model', { prompt: 'RETIRING_EMPLOYEE',
+        taskContext: 'RETIRING_C_KNOWLEDGE', tools: [tool('worker_memory_search', async () => 'RETAINED_PRIVATE_MEMORY_RESULT')] }) : undefined,
+    });
+    try {
+      await f.send('ORIGINAL_USER_REQUEST');
+      const originalEvents = f.agent.session.snapshotEvents();
+      assert.doesNotThrow(() => persistedRoundtrip(f.agent.session, originalEvents), 'the original real completed native turn is valid');
+      if (boundary === 'unload') await f.dispose();
+      else if (boundary === 'idle-none') { enabled = false; retireWorkflowContexts(f.agent.session, originalEvents); }
+      else { enabled = false; await f.send('native after None'); }
+      const events = f.agent.session.snapshotEvents();
+      const restored = persistedRoundtrip(f.agent.session, events);
+      const content = JSON.stringify(restored.deriveMessages());
+      assert.match(content, /ORIGINAL_USER_REQUEST/); assert.match(content, /ORIGINAL_DELIVERED_ANSWER/);
+      assert.doesNotMatch(content, /RETIRING_EMPLOYEE|RETIRING_C_KNOWLEDGE/);
+      if (boundary === 'none') assert.doesNotMatch(content, /RETAINED_PRIVATE_MEMORY_RESULT/);
+      else assert.match(content, /RETAINED_PRIVATE_MEMORY_RESULT/, 'closed-turn tool history is retained because official V4 forbids tool/result replacement outside a real turn');
+      assert.deepEqual(events.slice(0, originalEvents.length), originalEvents, 'neither restore nor retirement changes original audit entries');
+      if (boundary === 'idle-none') {
+        await f.send('continue after the idle selection');
+        const next = persistedRoundtrip(f.agent.session, f.agent.session.snapshotEvents());
+        assert.doesNotMatch(JSON.stringify(next.deriveMessages()), /RETAINED_PRIVATE_MEMORY_RESULT/, 'the next real turn safely retires deferred results before requesting the native model');
+        assert.doesNotMatch(visibleText(f.adapter.requests.at(-1)!), /RETAINED_PRIVATE_MEMORY_RESULT/);
+      }
     } finally { await f.cleanup(); }
   }
 });

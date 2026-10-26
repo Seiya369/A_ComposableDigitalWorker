@@ -71,7 +71,7 @@
 
 使用公开 `conversation.input.left` 和 `conversation.session.header.actions` 插槽、`system-prompt/assemble`、`agent/inbox/claimed`、`agent/pre-step`、`agent/request`、`session/event` 与单调工具 guard。每轮在同一原生 Agent 内冻结负责人并追加 required context，保留完整原生 preset，不创建重复用户消息。首次 assembly 注册每轮业务工具后仅通过公开 assemble 重组一次，以保留原生 PTC 和工具 schema。turn 结束释放工具和 lease，选择“无”不注入业务身份、工具或模型覆盖。卸载取消插件持有的活动轮次，等待结算并释放监听，不 dispose 宿主 Agent。
 
-0.30.0补充：稳定岗位/必备技能只保留一份，内容哈希无时间或run ID，动态知识用独立的原生snapshot消息；原生系统和工具更新模式不变。同步提供器使用公开deriveMessages，退役前经既有SessionController.inspect初读并接收session/event增量，不新增弃用同步事件读取。仅通过公开compaction/prune与surface替换退役插件快照和配对记忆工具载荷；保留原生内容及不可变审计。agent/assistant-stream只观察阶段，不拦截或重写流。完整历史窗口由DSH压缩管理；技能通过同一原生注册表和目录提供。
+0.30.0补充：稳定岗位/必备技能只保留一份，内容哈希无时间或run ID，动态知识用独立的原生snapshot消息；原生系统和工具更新模式不变。同步提供器使用公开deriveMessages，退役前经既有SessionController.inspect初读并接收session/event增量，不新增弃用同步事件读取。仅通过公开compaction/prune与surface替换退役插件快照和配对记忆工具载荷；工具结果仅在真实开放轮次中替换，闭轮卸载保留工具历史以满足官方V4持久化规则；保留原生内容及不可变审计。agent/assistant-stream只观察阶段，不拦截或重写流。完整历史窗口由DSH压缩管理；技能通过同一原生注册表和目录提供。
 
 没有标题上方整行的公开插槽，因此步骤条使用标题旁插槽；原生空白会话首次发言前不显示标题与步骤条。详见 [项目对话工作流](conversation-workflow.md)。
 
