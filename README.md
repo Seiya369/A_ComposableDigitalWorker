@@ -14,7 +14,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.1/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.1/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-plugin.1)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 
@@ -195,7 +195,9 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 #### 4. 在项目对话中选择工作流
 
-先在 DSH 中打开项目，再打开该项目的原生对话。输入区初始显示 **工作流：无**，菜单首项也是“无”。
+**Chat 目录例外：** 不显示或执行工作流。普通消息保持原生聊天；行首输入 `@` 可从自由职业人库选择单个员工，确认发送后创建或复用独立员工并打开独立工作单，无需团队或工作流。旧流程记录保留但不接管 Chat。识别依据为目录名而非展示标题，详见[Chat 工作区规则](docs/architecture/chat-workspace.md)。
+
+先在 DSH 中打开其他项目，再打开该项目的原生对话。输入区初始显示 **工作流：无**，菜单首项也是“无”。
 
 首次选择某个工作流时，会创建其项目团队、员工和人员关系，不执行任务。该项目首次非空选择会成为项目默认，并清除之前的空覆盖，让项目对话统一继承；之后在某个对话改选其他工作流或“无”，只改变该对话的选择。同项目、同工作流共享步骤进度与验收记录。
 
@@ -293,11 +295,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留；官方V4还禁止闭轮后替换工具结果，因此空闲卸载时旧记忆工具结果保留，不能声称已从共享历史完全擦除。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.2.1 是带保留项的验收候选，不能标记为无保留合规成品。** 可选处理方案见[持久会话清理边界](docs/architecture/session-retention.md)。详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.2.1.md)。
+**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留；官方V4还禁止闭轮后替换工具结果，因此空闲卸载时旧记忆工具结果保留，不能声称已从共享历史完全擦除。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.2.1 是带保留项的验收候选，不能标记为无保留合规成品。** 可选处理方案见[持久会话清理边界](docs/architecture/session-retention.md)。详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.2.1-plugin.1.md)。
 
 ### 验证状态与已知限制
 
-0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.2.1验收记录](integration/verification-0.2.1.md)。
+0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.1.md)。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -535,6 +537,8 @@ Open your project in DSH, then open one of its conversations. The input initiall
 
 Selecting a workflow creates its project team, employees, and reporting relationships without executing a task. The project's first non-empty selection becomes its default and clears earlier empty overrides so conversations inherit it. Later selections of a different workflow or **None** affect only that conversation. Conversations using the same workflow in the same project share step progress and review records.
 
+**Chat directory exception:** Chat has no workflow controls or execution. A leading `@` can choose a standalone employee or ready freelancer role without installing a team. Only explicit submission starts an independent work order; old workflow history remains inactive. Policy follows the actual directory basename, not its display title. See [Chat workspace behavior](docs/architecture/chat-workspace.md).
+
 Type normally to work with the current step owner; no `@` is needed. For a separate work order, type `@` at the beginning of a message and choose an enabled project employee. An `@` elsewhere retains DSH's native reference behavior.
 
 The header uses **gray** for pending, **blue** for current, and **white** for accepted steps. Selecting a step changes the current step and owner; it does not mark earlier steps complete. An active conversation keeps its owner frozen, while other idle conversations can select a workflow or None and use their corresponding owner. Shared progress and acceptance remain protected during related execution. The native header appears after the first message in an empty conversation.
@@ -629,11 +633,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Official V4 also forbids tool-result replacements outside an open turn, so idle uninstall retains historical memory-tool results and cannot claim complete erasure from shared history. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.2.1 is a validation candidate with this exception, not an unqualified compliant release.** See [session-retention options](docs/architecture/session-retention.md), [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.2.1.md).
+**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Official V4 also forbids tool-result replacements outside an open turn, so idle uninstall retains historical memory-tool results and cannot claim complete erasure from shared history. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.2.1 is a validation candidate with this exception, not an unqualified compliant release.** See [session-retention options](docs/architecture/session-retention.md), [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.2.1-plugin.1.md).
 
 ### Verification status and limitations
 
-Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [0.2.1 archive acceptance record](integration/verification-0.2.1.md) for exact results and remaining exceptions.
+Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.1.md) for exact results and remaining exceptions.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 

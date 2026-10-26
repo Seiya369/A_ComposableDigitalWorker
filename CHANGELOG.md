@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.2.1 / plugin.1 — 2026-10-26
+
+- Chat目录的原生对话退出工作流：移除底部选择器、顶部步骤/负责人，HTTP、运行时和后台调度同时限制，保留旧绑定及交付历史。
+- Chat可在行首@自由职业人或独立员工，只有确认发送才原子创建/复用独立实例，沿用员工模型、技能、知识和独立工作单；不自动安装团队，不绕过暂停状态。
+- 旧独立员工会话使用通用恢复入口，保留草稿/附件及导航保护；普通项目工作流不变。插件包版本保持0.2.1，以不可变构建标签和SHA区分更新。
+- Chat now supports native conversations and explicit standalone employee mentions, with no workflow controls or execution. Project workflows and retained history remain intact.
+
 ## 0.2.1 — 2026-10-26（跟随DSH主次补丁号）
 
 - 插件版本取已验收DSH的主次补丁号0.2.1，实际兼容宿主仍精确为0.2.1-rc.3，保留原0.30.0全部功能与数据。历史发布保持原号，不覆盖旧包。

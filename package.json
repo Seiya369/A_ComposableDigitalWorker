@@ -73,7 +73,8 @@
     "scripts/check-version-alignment.mjs",
     "docs/decisions/003-host-aligned-versioning.md",
     "docs/architecture/session-retention.md",
-    "build-support/version-lock.json"
+    "build-support/version-lock.json",
+    "docs/architecture/chat-workspace.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24",
