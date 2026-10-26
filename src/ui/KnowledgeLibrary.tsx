@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { EmployeeModules } from '../domain/types.js';
 import { KNOWLEDGE_SOURCE_CATEGORIES, type AutoArchiveCategory, type KnowledgeLibraryTarget, type KnowledgeLibraryView, type KnowledgeRemoveResult, type KnowledgeSourceCategory, type KnowledgeUploadFile } from '../knowledge/library-api.js';
-import type { KnowledgeCitation, KnowledgeEntry, KnowledgeSource } from '../knowledge/types.js';
+import type { KnowledgeCitation, KnowledgeCompilationTrace, KnowledgeEntry, KnowledgeSource } from '../knowledge/types.js';
 import type { WorkforceClient } from './client.js';
 import { useI18n } from './i18n.js';
 import { Icon } from './icons.js';
 import { KnowledgeGraph } from './KnowledgeGraph.js';
 import { SharedWikiGraph } from './SharedWikiGraph.js';
+import { ModelUsage } from './ModelUsage.js';
 
 const STATUS_LABELS: Record<KnowledgeLibraryView['status']['state'], string> = { disabled: '资料库已停用', empty: '等待投喂资料', pending: '等待整理', compiling: '正在整理', ready: '已整理', stale: '资料已更新 · 待整理', failed: '整理失败' };
 const targetKey = (target?: KnowledgeLibraryTarget) => target ? JSON.stringify([target.scope, target.projectId, target.employeeId, target.library, target.teamId]) : '';
@@ -188,6 +189,7 @@ export function KnowledgeLibrary({ client, target, onSourceRemoved, employeeVers
         </article> : null}</>}
     </div>
     <p className="wf-knowledge-flow" title={t("影子员工资料管理：A 原始资料 > B 知识重组 > C 概念综述")}>{t('影子员工资料管理：A 原始资料 > B 知识重组 > C 概念综述')}</p>
+    {view && <KnowledgeCompilationUsage view={view}/>}
     {materialsOpen && view && <dialog ref={materialDialog} className="wf-materials-dialog" aria-label={t("专业资料")} onKeyDown={event => { if (event.key === 'Escape' || event.key === 'Tab') event.stopPropagation(); }} onCancel={event => { event.preventDefault(); closeMaterials(); }} onClose={() => { setMaterialsOpen(false); setMaterialSource(undefined); materialOpener.current?.focus(); }}>
       <div className="wf-materials-heading"><h3>{t("专业资料")}</h3><button type="button" className="wf-icon-button" aria-label={t("关闭专业资料")} onClick={closeMaterials}><Icon name="close" size={16} /></button></div>
       <div className="wf-materials-actions">
@@ -205,6 +207,33 @@ export function KnowledgeLibrary({ client, target, onSourceRemoved, employeeVers
       </li>)}{professionalKnowledgeSources(view).length === 0 && <li className="wf-hint">{t("暂无专业资料")}</li>}</ul>}
     </dialog>}
   </section>;
+}
+
+const compilationOutcome = { published: '知识版本已发布', failed: '知识整理失败', cancelled: '知识整理已取消', superseded: '知识整理已被更新替代' };
+const compilationUsage = (trace?: KnowledgeCompilationTrace) => trace ? { ...trace.usage, modelCalls: trace.modelCalls } : undefined;
+
+/** A bounded ledger of reported calls, separate from user-facing business answers. */
+export function KnowledgeCompilationUsage({ view }: { view: KnowledgeLibraryView }) {
+  const { t, locale } = useI18n();
+  if (!view.enabled) return null;
+  const attempts = (view.compilationAttempts ?? []).slice(0, 50);
+  const previousTrace = view.snapshot?.compilationTrace && !attempts.some(attempt => attempt.outcome === 'published' && attempt.version === view.snapshot?.version)
+    ? view.snapshot.compilationTrace : undefined;
+  const date = (at: string) => { const parsed = new Date(at); return Number.isNaN(parsed.getTime()) ? t('时间未报告') : parsed.toLocaleString(locale === 'en' ? 'en-US' : 'zh-CN'); };
+  return <details className="wf-knowledge-compilation-usage" style={{ flexShrink: 0, maxHeight: 'min(40vh, 320px)', overflow: 'auto' }}>
+    <summary>{t('知识整理调用记录')}</summary>
+    <p>{t('知识整理另行使用模型，此处与业务对话分别展示。')}</p>
+    <p>{t('记录可能不完整，未报告用量不代表零消耗。')}</p>
+    {previousTrace && <section aria-label={t('当前知识版本 v{version} 的已有记录', { version: view.snapshot!.version })}>
+      <p>{t('当前知识版本 v{version} 的已有记录', { version: view.snapshot!.version })}</p>
+      <ModelUsage usage={compilationUsage(previousTrace)}/>
+    </section>}
+    {attempts.length ? <><p>{t('显示最近 {count} 次整理记录', { count: attempts.length })}</p><ol>{attempts.map(attempt => <li key={attempt.id} data-compilation-id={attempt.id}>
+      <details><summary><time dateTime={attempt.finishedAt}>{date(attempt.finishedAt)}</time> · {t(compilationOutcome[attempt.outcome])}{attempt.version !== undefined ? ` · v${attempt.version}` : ''}</summary>
+        {attempt.trace ? <ModelUsage usage={compilationUsage(attempt.trace)}/> : <p>{t('模型调用与用量未报告')}</p>}
+      </details>
+    </li>)}</ol></> : <p>{t('尚无已保留的整理调用记录。')}</p>}
+  </details>;
 }
 
 export function KnowledgeArchiveSwitch({ label, enabled, pending, disabled, unavailable, onChange }: { label: string; enabled: boolean; pending: boolean; disabled: boolean; unavailable?: string; onChange: () => void }) {

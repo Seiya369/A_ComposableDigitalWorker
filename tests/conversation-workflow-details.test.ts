@@ -77,6 +77,23 @@ test('delivery bodies are scoped and explicitly flag every size truncation while
   assert.equal(f.store.snapshot().runs.find(entry => entry.id === run.id)!.output!.length, 200_123, 'projection limits never alter original evidence');
 });
 
+test('delivery details expose only reported usage scalars and preserve unknown cache and total fields', async t => {
+  const f = await fixture(t); const run = await f.run();
+  const usage = { inputTokens: 40, outputTokens: 10, cacheReadTokens: 700, cacheWriteTokens: 0,
+    reasoningTokens: 5, totalTokens: 750, modelCalls: 2, reportedCalls: 2 };
+  await f.store.updateRun(run.id, { usage });
+  const state = f.store.snapshot();
+  Object.assign(state.runs.find(item => item.id === run.id)!.usage!, { provider: 'PRIVATE_USAGE_PROVIDER', secret: 'PRIVATE_USAGE_SECRET' });
+  const details = resolveConversationWorkflowDetails(state, f.project.id, 'chat-a');
+  assert.deepEqual(details.selectedStep!.latestDelivery!.usage, usage);
+  assert.doesNotMatch(JSON.stringify(details), /PRIVATE_USAGE_|employeeSnapshot/);
+  await f.store.updateRun(run.id, { usage: { inputTokens: 12, outputTokens: 3 } });
+  const legacy = f.details().selectedStep!.latestDelivery!.usage!;
+  assert.deepEqual(legacy, { inputTokens: 12, outputTokens: 3 });
+  assert.equal(Object.hasOwn(legacy, 'cacheReadTokens'), false);
+  assert.equal(Object.hasOwn(legacy, 'totalTokens'), false);
+});
+
 test('history includes only current workflow roots and this native conversation legacy roots', async t => {
   const f = await fixture(t); const root = await f.run({ sessionId: 'another-workflow-chat' });
   const childEmployee = f.details().selectedStep!.roster.find(person => person.name === '开发人员')!;

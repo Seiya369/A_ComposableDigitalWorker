@@ -151,7 +151,12 @@ export function validateState(value: unknown): asserts value is WorkforceState {
     if (r.parentRunId !== undefined) invariant(r.parentRunId !== r.id && state.runs.some(p => p.id === r.parentRunId && p.projectId === r.projectId), '父工作不能跨项目或指向自身');
     list(r.artifacts, '交付物'); const ids = new Set<string>(); for (const a of r.artifacts) { object(a, '交付物'); textField(a.id, '交付物 ID'); invariant(!ids.has(a.id as string), '交付物 ID 重复'); ids.add(a.id as string); textField(a.title, '交付物标题'); invariant(a.path !== undefined || a.content !== undefined, '交付物需要文件路径或文本内容'); if (a.path !== undefined) validateRelativePath(a.path, '交付物路径'); if (a.content !== undefined) textField(a.content, '交付物内容', true); }
     for (const key of ['sessionId', 'output', 'error'] as const) if (r[key] !== undefined) textField(r[key], `工作 ${key}`, key !== 'sessionId');
-    if (r.usage !== undefined) { object(r.usage, '用量'); integer(r.usage.inputTokens, '输入 token'); integer(r.usage.outputTokens, '输出 token'); }
+    if (r.usage !== undefined) {
+      object(r.usage, '用量'); integer(r.usage.inputTokens, '未命中输入 token'); integer(r.usage.outputTokens, '输出 token');
+      for (const field of ['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens', 'totalTokens', 'modelCalls', 'reportedCalls'] as const) if (r.usage[field] !== undefined) integer(r.usage[field], `用量 ${field}`);
+      if (r.usage.modelCalls !== undefined && r.usage.reportedCalls !== undefined) invariant(r.usage.reportedCalls <= r.usage.modelCalls, '已报告模型调用不能超过总调用');
+    }
+    if (r.activity !== undefined) { object(r.activity, '运行阶段'); oneOf(r.activity.stage, ['preparing-model', 'preparing-knowledge', 'preparing-skills', 'requesting', 'streaming', 'tools'], '运行阶段'); timestamp(r.activity.since, '阶段开始时间'); }
     if (r.startedAt !== undefined) timestamp(r.startedAt, '开始时间'); if (r.finishedAt !== undefined) timestamp(r.finishedAt, '结束时间');
     if (r.acceptance !== undefined) { object(r.acceptance, '验收'); oneOf(r.acceptance.decision, ['accepted', 'rejected'], '验收结论'); textField(r.acceptance.reviewer, '验收人'); textField(r.acceptance.note, '验收备注', true); timestamp(r.acceptance.at, '验收时间'); }
     if (r.status === 'succeeded') invariant(r.acceptance?.decision === 'accepted', '工作必须验收后才能成功');

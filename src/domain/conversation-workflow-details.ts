@@ -1,7 +1,7 @@
 import { resolveConversationWorkflow } from './conversation-workflow.js';
 import { isLegacyStandaloneRun } from './conversation-session.js';
 import { invariant, textField, WorkforceError } from './errors.js';
-import type { RunAcceptance, RunStatus, WorkforceRun, WorkforceState } from './types.js';
+import type { RunAcceptance, RunStatus, RunUsage, WorkforceRun, WorkforceState } from './types.js';
 import type { WorkTaskStatus } from '../work/types.js';
 import { CONFIRMED_ITEMS_LIMITS, parseConfirmedItemDeclarations, type ConfirmedItemDeclaration } from './confirmed-items.js';
 
@@ -15,6 +15,7 @@ export interface ConversationWorkflowDelivery extends ConversationWorkflowDelive
   output?: string; outputLength?: number; outputTruncated?: boolean;
   artifacts: Array<{ id: string; title: string; path?: string; mediaType?: string; content?: string; contentLength?: number; contentTruncated?: boolean }>;
   acceptance?: RunAcceptance; error?: string;
+  usage?: RunUsage;
   reviewable: boolean; reviewBlockedReason?: string;
 }
 export interface ConversationWorkflowConfirmedItem extends ConfirmedItemDeclaration {
@@ -95,7 +96,15 @@ function delivery(state: WorkforceState, run: WorkforceRun, steps: ConversationW
           ...(content.length < artifact.content!.length ? { contentTruncated: true } : {}) } : {}) };
     }),
     ...(run.acceptance ? { acceptance: { decision: run.acceptance.decision, reviewer: run.acceptance.reviewer, note: run.acceptance.note, at: run.acceptance.at } } : {}),
-    ...(run.error ? { error: run.error } : {}), reviewable: !blocked, ...(blocked ? { reviewBlockedReason: blocked } : {}) };
+    ...(run.error ? { error: run.error } : {}), ...(run.usage ? { usage: usageProjection(run.usage) } : {}),
+    reviewable: !blocked, ...(blocked ? { reviewBlockedReason: blocked } : {}) };
+}
+
+function usageProjection(usage: RunUsage): RunUsage {
+  const result: RunUsage = { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens };
+  for (const key of ['cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens', 'totalTokens', 'modelCalls', 'reportedCalls'] as const)
+    if (usage[key] !== undefined) result[key] = usage[key];
+  return result;
 }
 
 function confirmedItems(run: WorkforceRun): ConversationWorkflowConfirmedItem[] {

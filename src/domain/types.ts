@@ -216,6 +216,18 @@ export interface RunAcceptance {
   note: string;
   at: string;
 }
+/** DSH counters are disjoint: inputTokens excludes cached input. */
+export interface RunUsage {
+  inputTokens: number; outputTokens: number;
+  cacheReadTokens?: number; cacheWriteTokens?: number; reasoningTokens?: number;
+  /** Present only when every settled model call reported an authoritative total. */
+  totalTokens?: number;
+  modelCalls?: number; reportedCalls?: number;
+}
+export interface RunActivity {
+  stage: 'preparing-model' | 'preparing-knowledge' | 'preparing-skills' | 'requesting' | 'streaming' | 'tools';
+  since: string;
+}
 export interface WorkforceRun {
   id: string;
   projectId: string;
@@ -234,7 +246,8 @@ export interface WorkforceRun {
   acceptance?: RunAcceptance;
   error?: string;
   output?: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: RunUsage;
+  activity?: RunActivity;
   startedAt?: string;
   finishedAt?: string;
   version: number;
@@ -334,7 +347,8 @@ export interface UpdateRunInput {
   artifacts?: RunArtifact[];
   error?: string;
   output?: string;
-  usage?: { inputTokens: number; outputTokens: number };
+  usage?: RunUsage;
+  activity?: RunActivity;
   startedAt?: string;
   finishedAt?: string;
 }

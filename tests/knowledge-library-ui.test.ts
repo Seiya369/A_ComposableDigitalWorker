@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { KNOWLEDGE_SOURCE_CATEGORIES, type KnowledgeLibraryView } from '../src/knowledge/library-api.js';
-import { filterKnowledgeEntries, filterKnowledgeGraphSources, KnowledgeArchiveSwitch, KnowledgeLibrary, KnowledgeMarkdown, professionalKnowledgeSources, validateKnowledgeFiles } from '../src/ui/KnowledgeLibrary.js';
+import { filterKnowledgeEntries, filterKnowledgeGraphSources, KnowledgeArchiveSwitch, KnowledgeCompilationUsage, KnowledgeLibrary, KnowledgeMarkdown, professionalKnowledgeSources, validateKnowledgeFiles } from '../src/ui/KnowledgeLibrary.js';
 import { createWorkforceClient } from '../src/client/api.js';
 import { createBlankModules } from '../src/domain/seed.js';
 
@@ -20,6 +20,33 @@ const library = (): KnowledgeLibraryView => ({
     { id: 'first', title: '专业参考 API', content: '条件依赖版本', citations: [{ sourceId: 'reference', sourceVersion: 1, startLine: 1, endLine: 1 }] },
     { id: 'second', title: '参考标题但实际是失败观察', content: 'API 故障原因仍待核验', citations: [{ sourceId: 'incident', sourceVersion: 1, startLine: 1, endLine: 1 }] },
   ] },
+});
+
+test('knowledge compilation accounting keeps historical current trace visible without inventing missing attempts', () => {
+  const view = library();
+  view.compilationAttempts = [];
+  view.snapshot!.compilationTrace = { revision: 'strict-incremental-v1', changedSourceIds: ['PRIVATE_SOURCE'], removedSourceIds: [],
+    model: { provider: 'PRIVATE_PROVIDER', model: 'PRIVATE_MODEL' }, modelCalls: 2,
+    usage: { reportedCalls: 2, inputTokens: 5645, outputTokens: 9765, totalTokens: 15410 } };
+  const html = renderToStaticMarkup(createElement(KnowledgeCompilationUsage, { view }));
+  assert.match(html, /当前知识版本 v1 的已有记录/);
+  assert.match(html, /data-usage-field="totalTokens">15,410</);
+  assert.match(html, /记录可能不完整，未报告用量不代表零消耗/);
+  assert.doesNotMatch(html, /PRIVATE_/);
+});
+
+test('knowledge compilation accounting is bounded and distinguishes partial failed attempts from unknown usage', () => {
+  const view = library();
+  view.compilationAttempts = Array.from({ length: 51 }, (_, index) => ({ schemaVersion: 1, id: `attempt-${index}`,
+    startedAt: '2026-10-26T08:00:00.000Z', finishedAt: '2026-10-26T08:01:00.000Z', outcome: 'failed', sourceFingerprint: 'PRIVATE_FINGERPRINT',
+    ...(index === 0 ? { trace: { revision: 'strict-incremental-v1' as const, changedSourceIds: ['PRIVATE_SOURCE'], removedSourceIds: [], modelCalls: 3,
+      usage: { reportedCalls: 1, inputTokens: 20, outputTokens: 8, totalTokens: 28 } } } : {}) }));
+  const html = renderToStaticMarkup(createElement(KnowledgeCompilationUsage, { view }));
+  assert.equal((html.match(/data-compilation-id=/g) ?? []).length, 50);
+  assert.match(html, /知识整理另行使用模型，此处与业务对话分别展示/);
+  assert.match(html, /仅部分调用报告用量，已知数值是下限/);
+  assert.match(html, /模型调用与用量未报告/);
+  assert.doesNotMatch(html, /data-compilation-id="attempt-50"|PRIVATE_/);
 });
 
 test('knowledge category filtering follows cited evidence, including legacy source defaults', () => {

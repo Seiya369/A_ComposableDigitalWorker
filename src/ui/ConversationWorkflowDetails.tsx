@@ -4,6 +4,7 @@ import type { ConversationWorkflowDelivery, ConversationWorkflowDeliverySummary,
 import { Icon } from './icons.js';
 import { useI18n } from './i18n.js';
 import { ConversationWorkflowWiki } from './ConversationWorkflowWiki.js';
+import { ModelUsage } from './ModelUsage.js';
 import './conversation-workflow.css';
 import './conversation-workflow-details.css';
 
@@ -210,6 +211,7 @@ function DeliveryRecord({ value, onOpenSession }: { value: ConversationWorkflowD
   return <>
     <p className="wf-conversation-delivery-meta"><span>{value.employeeName} · {t(runLabel[value.status])}</span><time dateTime={value.updatedAt}>{date(value.updatedAt, locale)}</time></p>
     {value.error && <p role="status">{errorMessage(value.error)}</p>}
+    <ModelUsage usage={value.usage}/>
     {value.output && <details className="wf-conversation-delivery-response"><summary>{t('交付回复')}</summary><pre>{value.output}</pre>{value.outputTruncated && <p>{t('当前显示部分内容，原交付共 {count} 字符。', { count: value.outputLength ?? value.output.length })}</p>}</details>}
     {value.acceptance && <p className="wf-conversation-acceptance">{t(value.acceptance.decision === 'accepted' ? '验收通过' : '已退回')} · {value.acceptance.reviewer} · <time dateTime={value.acceptance.at}>{date(value.acceptance.at, locale)}</time>{value.acceptance.note && <span>{value.acceptance.note}</span>}</p>}
     {value.sessionId && onOpenSession && <button type="button" onClick={() => onOpenSession(value.sessionId!)}>{t('打开原对话')}</button>}

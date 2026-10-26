@@ -360,7 +360,7 @@ export class WorkforceStore {
       if (patch.status && state.projectTeams?.some(team => team.status === 'cancelled' && team.members.some(member => member.employeeId === run.employeeId))) patch.status = 'cancelled';
       const transitions: Record<RunStatus, RunStatus[]> = { queued: ['running', 'failed', 'cancelled'], running: ['blocked', 'awaiting-review', 'failed', 'cancelled'], blocked: ['running', 'failed', 'cancelled'], 'awaiting-review': ['running', 'failed', 'cancelled'], succeeded: [], failed: [], cancelled: [] };
       if (patch.status !== undefined && patch.status !== run.status) { invariant(transitions[run.status].includes(patch.status), `不能从 ${run.status} 转为 ${patch.status}`); run.status = patch.status; }
-      for (const key of ['sessionId', 'artifacts', 'error', 'output', 'usage', 'startedAt', 'finishedAt'] as const) if (patch[key] !== undefined) Object.assign(run, { [key]: patch[key] });
+      for (const key of ['sessionId', 'artifacts', 'error', 'output', 'usage', 'activity', 'startedAt', 'finishedAt'] as const) if (patch[key] !== undefined) Object.assign(run, { [key]: patch[key] });
       if (run.status === 'running' && !run.startedAt) run.startedAt = now(); if (['failed', 'cancelled'].includes(run.status) && !run.finishedAt) run.finishedAt = now();
       run.version++; run.updatedAt = now(); return run;
     });
