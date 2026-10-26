@@ -19,7 +19,7 @@ import { Icon } from '../ui/icons.js';
 import type { WorkforceClient } from '../ui/client.js';
 import type { WorkforceRun } from '../domain/types.js';
 import { createWorkforceClient, request, startEmployeeRun } from './api.js';
-import { createEmployeeMentionSource } from './mentions.js';
+import { createEmployeeMentionSource, type EmployeeMentionProject } from './mentions.js';
 import { createConversationWorkflowController } from './conversation-workflow.js';
 import { createConversationWorkflowTransport } from './conversation-workflow-transport.js';
 import { createConversationWorkflowDetailsClient } from './conversation-workflow-details.js';
@@ -64,9 +64,9 @@ export function apply(ctx:Context):void{
       }else ctx.layout.selectPanel('plugins' as MainPanelId);
     },
   });
-  const projectForSession=async(sessionId:string):Promise<string|undefined>=>{
-    const response=await request<{projectId?:string}>(`/session-project?sessionId=${encodeURIComponent(sessionId)}`);
-    return response.projectId;
+  const projectForSession=async(sessionId:string):Promise<EmployeeMentionProject|undefined>=>{
+    const response=await request<{projectId?:string; standaloneOnly?:boolean}>(`/session-project?sessionId=${encodeURIComponent(sessionId)}`);
+    return response.projectId ? response.standaloneOnly ? {projectId:response.projectId,standaloneOnly:true} : response.projectId : undefined;
   };
   const reopenNavigation=createConversationReopenNavigation({
     isCurrentConversation:sessionId=>ctx.layout.panelInfo.getSnapshot().activePanelId===null

@@ -1,6 +1,8 @@
 /** Presentation-only projection. Host admission and execution stay behind this transport. */
 export interface ConversationWorkflowSnapshot {
   projectId?: string;
+  /** False excludes workflow UI and mutations while preserving workspace identity. */
+  workflowEnabled?: boolean;
   sessionId: string;
   revision: number;
   selection: 'inherit' | 'override';
@@ -107,7 +109,7 @@ export function createConversationWorkflowController(
   }
   async function mutate(sessionId: string, operation: (snapshot: ConversationWorkflowSnapshot) => Promise<unknown>, changesProgress = false) {
     const target = entry(sessionId);
-    if (disposed || mutation || !target.state.snapshot || target.state.loading || target.state.snapshot.busy
+    if (disposed || mutation || !target.state.snapshot || target.state.snapshot.workflowEnabled === false || target.state.loading || target.state.snapshot.busy
       || (changesProgress && target.state.snapshot.progressBusy)) return false;
     const snapshot = target.state.snapshot;
     mutation = true;

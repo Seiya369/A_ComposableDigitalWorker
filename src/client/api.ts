@@ -1,11 +1,12 @@
 import type { WorkforceClient } from '../ui/client.js';
-import type { CreateRunInput, WorkforceRun, WorkforceState } from '../domain/types.js';
+import type { WorkforceRun, WorkforceState } from '../domain/types.js';
 import type { EmployeeModelCatalog } from '../domain/model-catalog.js';
 import type { EmployeeCapabilityCatalog } from '../domain/capability-catalog.js';
 import type { KnowledgeLibraryView, KnowledgeRemoveResult, KnowledgeUploadResult } from '../knowledge/library-api.js';
 import type { WikiLibraryView } from '../knowledge/wiki-types.js';
 import type { KnowledgeSource } from '../knowledge/types.js';
 import type { EmployeeRoleDraftResult } from '../domain/employee-role.js';
+import type { EmployeeMentionRunInput } from './mentions.js';
 
 export const API_PREFIX = '/digital-workers/api';
 
@@ -82,6 +83,6 @@ export function createWorkforceClient(options: { onChange?: () => void; onOpenNa
   };
 }
 
-export async function startEmployeeRun(input: CreateRunInput & { sourceSessionId: string }): Promise<WorkforceRun> {
+export async function startEmployeeRun(input: EmployeeMentionRunInput): Promise<WorkforceRun> {
   return (await request<{ run: WorkforceRun }>('/run', input)).run;
 }

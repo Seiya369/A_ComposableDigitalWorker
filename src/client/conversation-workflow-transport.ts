@@ -3,7 +3,7 @@ import type { ConversationWorkflowTransport } from './conversation-workflow.js';
 
 type NativeWorkflowView = Omit<ConversationWorkflowView, 'projectId' | 'steps' | 'owner'> & {
   owner?: { id: string; name: string };
-  projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean;
+  projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; workflowEnabled?: boolean;
   activity?: { stage: string; label: string; since?: string };
   sessionHandoffRequired?: boolean;
   steps: Array<ConversationWorkflowView['steps'][number] & { employeeName?: string }>;
@@ -37,7 +37,7 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
             // Host Agent disposal may retire this very slot and abort its GET.
             // The idempotent handoff must settle before deciding whether navigation can resume.
             const response = await request<{ result?: { sessionReopened?: boolean }; sessionReopened?: boolean }>('/command',
-              { action: 'conversation.workflow.resume', payload: { projectId: view.projectId, sessionId } });
+              { action: view.workflowEnabled === false ? 'employee.conversation.resume' : 'conversation.workflow.resume', payload: { projectId: view.projectId, sessionId } });
             if (!disposed) handedOff.add(sessionId);
             reopened(sessionId, response);
             return disposed ? view : request<NativeWorkflowView>(path);
@@ -47,7 +47,10 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
         view = await handoff;
       }
       if (!disposed && !signal?.aborted) views.set(sessionId, view);
+      if (view.workflowEnabled === false) return { sessionId, revision: view.revision, selection: view.selection, workflowEnabled: false,
+        ...(view.projectId ? { projectId: view.projectId } : {}), steps: [], choices: [] };
       return { sessionId, revision: view.revision, selection: view.selection,
+        ...(view.workflowEnabled !== undefined ? { workflowEnabled: view.workflowEnabled } : {}),
         ...(view.projectId ? { projectId: view.projectId } : {}),
         ...(view.workflowTemplateId ? { workflowTemplateId: view.workflowTemplateId } : {}),
         ...(view.name ? { workflowName: view.name } : {}),
@@ -68,6 +71,7 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
     },
     async selectWorkflow(sessionId, workflowTemplateId, snapshot) {
       const view = views.get(sessionId);
+      if (view?.workflowEnabled === false || snapshot.workflowEnabled === false) throw new Error('Chat 工作区不提供工作流服务');
       if (disposed || !view?.projectId || view.revision !== snapshot.revision || view.projectId !== snapshot.projectId) throw new Error('工作流配置已更新，请刷新后重新选择');
       const choice = workflowTemplateId ? view.choices.find(choice => choice.id === workflowTemplateId) : undefined;
       if (workflowTemplateId && (!choice || !choice.available)) throw new Error(choice?.unavailableReason || '工作流暂不可用');
@@ -78,6 +82,7 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
       return response;
     },
     async selectStep(sessionId, stepId, snapshot) {
+      if (views.get(sessionId)?.workflowEnabled === false || snapshot.workflowEnabled === false) throw new Error('Chat 工作区不提供工作流服务');
       if (disposed || !snapshot.projectId || snapshot.instanceVersion === undefined) throw new Error('请先选择工作流');
       options.beforeSelection?.(sessionId);
       const response = await request<{ result?: { sessionReopened?: boolean }; sessionReopened?: boolean }>('/command', { action: 'conversation.workflow.step', payload: { projectId: snapshot.projectId, sessionId, stepId, instanceVersion: snapshot.instanceVersion }, options: { expectedRevision: snapshot.revision } });

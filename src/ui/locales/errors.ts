@@ -1,5 +1,13 @@
 /** Host error messages are translated at display time; original persisted records are untouched. */
 export const errorsEn: Record<string, string> = {
+  'Chat 工作区不提供工作流服务，请通过 @ 调用独立员工': 'Workflows are unavailable in Chat. Use @ to call an independent employee.',
+  'Chat 工作区不提供工作流服务': 'Workflows are unavailable in Chat.',
+  'Chat 只调用独立员工，请从自由职业人库选择': 'Chat supports independent employees. Choose a role from the freelancer library.',
+  '只有 Chat 对话可直接 @ 自由职业人': 'Only Chat conversations can call a freelancer directly with @.',
+  '请选择一个员工实例或自由职业人': 'Choose either an employee instance or a freelancer.',
+  '请先完善并启用自由职业人': 'Complete and enable the freelancer first.',
+  '该独立员工已暂停，请先启用': 'This independent employee is paused. Enable it first.',
+  '来源对话不属于当前项目': 'The source conversation does not belong to this project.',
   '交付版本已更新，请刷新记录后重新查看': 'The delivery version has changed. Refresh its history and open it again.',
   '读取交付版本必须提供交付 ID 和有效版本': 'Reading a delivery version requires its ID and a valid version.',
   '请求失败 ({status})': 'Request failed ({status})',

@@ -45,7 +45,7 @@ export function ConversationWorkflowPicker(props: ConversationWorkflowProps) {
     setOpen(true);
   };
 
-  useEffect(() => { setOpen(false); }, [props.sessionId]);
+  useEffect(() => { setOpen(false); }, [props.sessionId, snapshot?.workflowEnabled]);
   useEffect(() => {
     if (!open) return;
     list.current?.focus();
@@ -80,12 +80,16 @@ export function ConversationWorkflowPicker(props: ConversationWorkflowProps) {
     else setActive(enabled[(Math.max(0, enabled.indexOf(active)) + delta + enabled.length) % enabled.length] ?? 0);
   };
 
+  const recoveryAlert = recoveryNotice && <span className="wf-conversation-workflow-recovery" role="alert"><span>{errorMessage(recoveryNotice)}</span><button type="button" onClick={() => props.recovery?.retry(props.sessionId)}>{t('刷新继续')}</button></span>;
+  // Restoring an old employee delivery may require preserving unsent attachments.
+  // Chat exposes only that generic recovery notice, never workflow controls.
+  if (snapshot?.workflowEnabled === false) return recoveryAlert ? <span className="wf-conversation-employee-recovery" style={{ position: 'relative' }}>{recoveryAlert}</span> : null;
   if (!loading && !snapshot?.projectId && !error) return null;
   return <div ref={root} className="wf-conversation-workflow-picker" onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); } }}>
     <button ref={trigger} type="button" className="wf-native-button wf-conversation-workflow-trigger" aria-label={workflowLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} disabled={busy || !snapshot?.projectId} title={activityLabel ? `${workflowLabel} · ${activityLabel}` : workflowLabel} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}>
       <Icon name="network" size={16}/><span role={activityLabel ? 'status' : undefined} aria-live={activityLabel ? 'polite' : undefined} data-stage={activityLabel ? snapshot?.activity?.stage : undefined}>{activityLabel ?? workflowLabel}</span><Icon name="chevron" size={12} className="wf-conversation-workflow-chevron"/>
     </button>
-    {recoveryNotice && <span className="wf-conversation-workflow-recovery" role="alert"><span>{errorMessage(recoveryNotice)}</span><button type="button" onClick={() => props.recovery?.retry(props.sessionId)}>{t('刷新继续')}</button></span>}
+    {recoveryAlert}
     {open && <div className="wf-conversation-workflow-menu">
       {error && <div className="wf-conversation-workflow-error" role="alert">{errorMessage(error)}<button type="button" onClick={() => void props.controller.refresh(props.sessionId)}>{t('重试')}</button></div>}
       <div id={menuId} ref={list} className="wf-conversation-workflow-options" role="listbox" aria-label={t('项目工作流')} aria-activedescendant={`${menuId}-option-${active}`} aria-busy={pending} tabIndex={-1} onKeyDown={onKeys}>
@@ -108,7 +112,7 @@ export function ConversationWorkflowSteps(props: ConversationWorkflowProps) {
   const [alignment, setAlignment] = useState({ offsetY: 0, aboveSpace: 0, showLabels: false, contactLeft: 0, contactWidth: 0, labelOffsets: {} as Record<string, number> });
   const [detailsOpen, setDetailsOpen] = useState(false);
   const arrowId = useId().replace(/:/g, '');
-  useEffect(() => { setDetailsOpen(false); }, [props.sessionId, snapshot?.workflowTemplateId]);
+  useEffect(() => { setDetailsOpen(false); }, [props.sessionId, snapshot?.workflowTemplateId, snapshot?.workflowEnabled]);
   useEffect(() => {
     if (!strip.current) return;
     const observer = new ResizeObserver(entries => setWidth(entries[0]?.contentRect.width ?? 0));
@@ -177,7 +181,7 @@ export function ConversationWorkflowSteps(props: ConversationWorkflowProps) {
     measure();
     return () => { resize.disconnect(); content.disconnect(); };
   }, [snapshot?.workflowTemplateId, snapshot?.currentStepId, snapshot?.steps, locale, width]);
-  if (!snapshot?.workflowTemplateId || !snapshot.steps.length) return null;
+  if (snapshot?.workflowEnabled === false || !snapshot?.workflowTemplateId || !snapshot.steps.length) return null;
   const total = snapshot.steps.length;
   const currentIndex = Math.max(0, snapshot.steps.findIndex(step => step.id === snapshot.currentStepId));
   const { start, count, beforeWidth, afterWidth } = selectConversationWorkflowWindow(total, width, currentIndex);

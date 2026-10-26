@@ -127,3 +127,18 @@ test('shared progress activity blocks step changes while an idle conversation ca
   assert.equal(await controller.selectWorkflow('idle-chat', null), true);
   assert.deepEqual(calls, ['workflow']);
 });
+
+test('disabled Chat workflow service never submits workflow or step selections', async t => {
+  const calls: string[] = [];
+  const controller = createConversationWorkflowController({
+    async load(sessionId) { return view(sessionId, { workflowEnabled: false, workflowTemplateId: 'stale-software', instanceVersion: 3,
+      currentStepId: 'build', steps: [{ id: 'build', name: '开发', status: 'current' }] }); },
+    async selectWorkflow() { calls.push('workflow'); }, async selectStep() { calls.push('step'); },
+  }, { pollMs: 100000 });
+  t.after(() => controller.dispose());
+  const stop = controller.subscribe('chat', () => {}); t.after(stop); await flush();
+  assert.equal(await controller.selectWorkflow('chat', null), false);
+  assert.equal(await controller.selectWorkflow('chat', 'software'), false);
+  assert.equal(await controller.selectStep('chat', 'build'), false);
+  assert.deepEqual(calls, []);
+});

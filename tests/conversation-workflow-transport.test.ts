@@ -119,3 +119,43 @@ test('busy retained sessions defer handoff and disposed UI cannot reopen after a
   dispose(); release(); await pending;
   assert.equal(posts, 1); assert.equal(callbacks, 0);
 });
+
+test('disabled Chat workflow projection keeps project identity but never accepts workflow mutations', async () => {
+  const posts: unknown[] = [];
+  const callbacks: string[] = [];
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>(_path: string, body?: unknown) => {
+    if (body) posts.push(body);
+    return native({ workflowEnabled: false, sessionHandoffRequired: false }) as T;
+  }, { beforeSelection: id => callbacks.push(id), onSessionReopened: id => callbacks.push(id) });
+  const snapshot = await transport.load('chat');
+  assert.equal(snapshot.projectId, 'project', 'project identity remains available to non-workflow features');
+  assert.equal(snapshot.workflowEnabled, false);
+  await assert.rejects(() => transport.selectWorkflow('chat', null, snapshot), /Chat|工作流服务/);
+  await assert.rejects(() => transport.selectWorkflow('chat', 'software', snapshot), /Chat|工作流服务/);
+  await assert.rejects(() => transport.selectStep('chat', 'build', snapshot), /Chat|工作流服务/);
+  assert.deepEqual(posts, []); assert.deepEqual(callbacks, []);
+  dispose();
+});
+
+
+test('Chat legacy employee handoff uses the generic employee action while workflow service stays disabled', async () => {
+  const posts: unknown[] = [], callbacks: string[] = [];
+  let busy = true; let required = true;
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>(_path: string, body?: unknown) => {
+    if (body) { posts.push(body); required = false; return { result: { sessionReopened: true } } as T; }
+    return native({ workflowEnabled: false, sessionHandoffRequired: required, busy }) as T;
+  }, { beforeSelection: id => callbacks.push('before:' + id), onSessionReopened: id => callbacks.push('reopen:' + id) });
+  const busySnapshot = await transport.load('chat');
+  assert.equal(busySnapshot.workflowEnabled, false);
+  assert.deepEqual(posts, [], 'an executing employee keeps its delivery session');
+  busy = false;
+  const restored = await transport.load('chat');
+  assert.equal(restored.workflowEnabled, false);
+  assert.equal(restored.projectId, 'project');
+  assert.equal(restored.workflowTemplateId, undefined);
+  assert.deepEqual(restored.steps, []); assert.deepEqual(restored.choices, []);
+  assert.deepEqual(posts, [{ action: 'employee.conversation.resume', payload: { projectId: 'project', sessionId: 'chat' } }]);
+  assert.deepEqual(callbacks, ['before:chat', 'reopen:chat']);
+  await transport.load('chat'); assert.equal(posts.length, 1, 'the generic handoff is not replayed');
+  dispose();
+});
