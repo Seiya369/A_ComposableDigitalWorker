@@ -12,6 +12,7 @@ import { resolveCliInstallation } from '../../integration/harness-baseline.mjs';
 import { authenticateWeb, redactWebAuth } from '../../integration/web-auth.mjs';
 import { installEmployeeSettingsFixture } from './employee-settings-offline.fixture.mjs';
 import { prepareOfficialPluginRuntime } from './official-plugin-runtime.mjs';
+import { closeFixtureBrowser } from './browser-cleanup.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 process.env.DSH_INSTALLATION_MANIFEST ||= resolve(root, '.local/official-0.2.1-rc.3/node_modules/@deepseek-ai/dsh/package.json');
@@ -24,7 +25,7 @@ const hostHash = async () => sha(Buffer.concat([await readFile(installation.entr
 const hostBefore = await hostHash(), checks = [], errors = [];
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
-let child, browser, page, callsPath, log = '', cookie = '';
+let child, browser, browserServer, page, callsPath, log = '', cookie = '';
 async function stop() {
   if (!child || child.exitCode !== null) return;
   child.kill('SIGTERM'); for (let i = 0; i < 80 && child.exitCode === null; i++) await delay(100);
@@ -118,7 +119,8 @@ try {
   const pristine = await state(); assert.equal(pristine.employees.filter(item => item.projectId === projectId).length, 0); assert.equal(pristine.runs.length, 0); assert.equal(pristine.projectTeams?.filter(item => item.projectId === projectId).length ?? 0, 0);
   const native = (await calls())[0]; assert.equal(native.model, 'native-default'); assert.ok(!native.tools?.some(name => name.startsWith('worker_'))); assert.ok(!JSON.stringify(native).includes('workforce_role_definition'));
   check('fresh-Chat-uses-native-model-without-workflow-owner-binding-team-or-run');
-  browser = await chromium.launch({ headless: true, ...(process.env.WORKFORCE_BROWSER_CHANNEL === 'bundled' ? {} : { channel: process.env.WORKFORCE_BROWSER_CHANNEL || 'chrome' }) });
+  browserServer = await chromium.launchServer({ headless: true, host: '127.0.0.1', ...(process.env.WORKFORCE_BROWSER_CHANNEL === 'bundled' ? {} : { channel: process.env.WORKFORCE_BROWSER_CHANNEL || 'chrome' }) });
+  browser = await chromium.connect(browserServer.wsEndpoint());
   page = await browser.newPage({ viewport: { width: 1512, height: 1050 }, colorScheme: 'dark', locale: 'zh-CN' }); page.on('pageerror', error => errors.push(error.message));
   const split = cookie.indexOf('='); await page.context().addCookies([{ name: cookie.slice(0, split), value: cookie.slice(split + 1), url: base, httpOnly: true, sameSite: 'Strict' }]);
   await page.goto(base, { waitUntil: 'domcontentloaded' });
@@ -215,5 +217,5 @@ try {
   await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors: errors, calls: captured.map(item => ({ stage: item.stage, model: item.model, tools: item.tools, messageKinds: item.messages?.map(message => ({ role: message.role, source: message.source?.kind, contextSections: message.source?.sections?.map(section => section.name) })), baseline: item.baseline ?? JSON.stringify(item.messages ?? []).includes('CHAT_NATIVE_BASELINE_431'), standaloneTask: JSON.stringify(item.messages ?? []).includes('CHAT_AT_TASK_431_') })), hostLog: redactWebAuth(log).slice(-10000) }, null, 2));
   throw error;
 } finally {
-  await browser?.close(); await stop(); await rm(temp, { recursive: true, force: true });
+  await stop(); await closeFixtureBrowser({ page, browser, browserServer }); await rm(temp, { recursive: true, force: true });
 }

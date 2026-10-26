@@ -12,6 +12,7 @@ import { resolveCliInstallation } from '../../integration/harness-baseline.mjs';
 import { authenticateWeb, redactWebAuth } from '../../integration/web-auth.mjs';
 import { installEmployeeSettingsFixture } from './employee-settings-offline.fixture.mjs';
 import { prepareOfficialPluginRuntime } from './official-plugin-runtime.mjs';
+import { closeFixtureBrowser } from './browser-cleanup.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 process.env.DSH_INSTALLATION_MANIFEST ||= resolve(root, '.local/official-0.2.1-rc.3/node_modules/@deepseek-ai/dsh/package.json');
@@ -23,7 +24,7 @@ const hostHash = async () => sha(Buffer.concat([await readFile(installation.entr
 const hostBefore = await hostHash(), checks = [], pageErrors = [];
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
-let child, browser, page, callsPath, inspectState, log = '', cookie = '';
+let child, browser, browserServer, page, callsPath, inspectState, log = '', cookie = '';
 const networkErrors = [];
 async function start() {
   const home = resolve(temp, 'harness'), profile = resolve(home, 'profiles/web'), target = resolve(profile, 'node_modules/dsh-plugin-composable-workforce');
@@ -86,7 +87,8 @@ try {
   await rpc('session/rename', { sessionId, title: 'QA-显式常驻对话' }); await rpc('session/rename', { sessionId: otherId, title: 'QA-其他Chat对话' });
   assert.equal((await resident(sessionId)).conversationEmployee, null); assert.equal((await state()).employees.length, 0); assert.equal((await state()).runs.length, 0);
   check('default-Chat-native-turns-create-no-resident-binding-employee-or-run');
-  browser = await chromium.launch({ headless: true, ...(process.env.WORKFORCE_BROWSER_CHANNEL === 'bundled' ? {} : { channel: process.env.WORKFORCE_BROWSER_CHANNEL || 'chrome' }) });
+  browserServer = await chromium.launchServer({ headless: true, host: '127.0.0.1', ...(process.env.WORKFORCE_BROWSER_CHANNEL === 'bundled' ? {} : { channel: process.env.WORKFORCE_BROWSER_CHANNEL || 'chrome' }) });
+  browser = await chromium.connect(browserServer.wsEndpoint());
   page = await browser.newPage({ viewport: { width: 1512, height: 1050 }, colorScheme: 'dark', locale: 'zh-CN' }); page.on('pageerror', error => pageErrors.push(error.message));
   page.on('requestfailed', request => networkErrors.push({ url: request.url(), failure: request.failure() }));
   page.on('response', async response => { if (response.url().includes('/api/') && (response.url().includes('/session/prompt') || response.url().includes('/mention-ticket'))) { const body = await response.json().catch(() => undefined); networkErrors.push({ url: response.url(), status: response.status(), body }); } });
@@ -104,18 +106,21 @@ try {
   await expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
   await expect(page.locator('.wf-conversation-employee')).toHaveAttribute('data-contact-aligned', 'true');
   const geometry = await page.evaluate(() => {
-    const root = document.querySelector('.wf-conversation-employee'), header = root.closest('header');
+    const seat = document.querySelector('.wf-conversation-employee-seat'), header = seat.closest('header');
     const glyph = node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect(); };
-    const tab = [...header.querySelectorAll('[data-conversation-tabs] [role="tab"]')].at(-1), label = root.querySelector('.wf-conversation-employee-trigger > span');
-    return { tabBottom: glyph(tab).bottom, contactBottom: glyph(label).bottom };
+    const tab = [...header.querySelectorAll('[data-conversation-tabs] [role="tab"]')].at(-1), trigger = document.querySelector('.wf-conversation-employee-trigger'), label = trigger.querySelector('span');
+    return { tabBottom: glyph(tab).bottom, contactBottom: glyph(label).bottom, triggerOutsideHeader: !trigger.closest('header'), triggerPosition: getComputedStyle(trigger.closest('.wf-conversation-employee')).position };
   });
   assert.ok(Math.abs(geometry.tabBottom - geometry.contactBottom) < 1, JSON.stringify(geometry));
+  assert.equal(geometry.triggerOutsideHeader, true); assert.equal(geometry.triggerPosition, 'fixed');
   const beforeBrowseCalls = (await calls()).length;
   await trigger.focus(); await trigger.press('ArrowDown'); await expect(menu).toBeVisible();
   await expect(menu.getByRole('radio')).toHaveCount(0); await expect(menu.locator('details, summary, p, fieldset')).toHaveCount(0);
   const choices = (await resident(sessionId)).choices.map(choice => choice.name);
   assert.deepEqual(await menu.getByRole('option').allTextContents(), ['无', ...choices]);
   const popupBounds = await menu.boundingBox(); assert.ok(popupBounds.x >= 8 && popupBounds.x + popupBounds.width <= 1504 && popupBounds.width === 240, JSON.stringify(popupBounds));
+  const portalPopup = await menu.evaluate(node => ({ outsideHeader: !node.closest('header'), position: getComputedStyle(node.closest('.wf-conversation-employee-popup')).position, headerBottom: document.querySelector('.wf-conversation-employee-seat').closest('header').getBoundingClientRect().bottom }));
+  assert.equal(portalPopup.outsideHeader, true); assert.equal(portalPopup.position, 'fixed'); assert.ok(popupBounds.y >= portalPopup.headerBottom + 3.5);
   await page.screenshot({ path: resolve(artifacts, 'resident-menu-names-only.png'), clip: { x: Math.max(0, popupBounds.x - 24), y: 0, width: Math.min(1512 - Math.max(0, popupBounds.x - 24), popupBounds.width + 48), height: Math.min(800, popupBounds.y + popupBounds.height + 24) } });
   const triggerBounds = await trigger.boundingBox(), clipX = Math.max(0, Math.min(triggerBounds.x, popupBounds.x) - 12), clipY = Math.max(0, Math.min(triggerBounds.y, popupBounds.y) - 12);
   await page.screenshot({ path: resolve(artifacts, 'simple-employee-selector.png'), clip: { x: clipX, y: clipY, width: Math.min(1512, Math.max(triggerBounds.x + triggerBounds.width, popupBounds.x + popupBounds.width) + 12) - clipX, height: Math.max(triggerBounds.y + triggerBounds.height, popupBounds.y + popupBounds.height) + 12 - clipY } });
@@ -188,6 +193,11 @@ try {
     await trigger.click(); const popup = await menu.boundingBox(); assert.ok(popup.x >= 8 && popup.x + popup.width <= width - 8, JSON.stringify(popup)); await menu.locator('[role="listbox"]').press('Escape');
   }
   await page.setViewportSize({ width: 1512, height: 1050 });
+  await trigger.click(); await expect(menu).toBeVisible();
+  await page.getByRole('button', { name: 'graph_horses', exact: true }).click();
+  await expect(trigger).not.toBeVisible(); await expect(page.locator('.wf-conversation-employee-popup')).toHaveCount(0);
+  await openSession(sessionId); await expect(trigger).toHaveText('选择对话员工');
+  check('portal-controls-hide-in-resource-panel-and-restore-with-native-conversation');
   await page.screenshot({ path: resolve(artifacts, 'resident-dropdown-exited.png') });
   assert.deepEqual(pageErrors, []); assert.equal(await hostHash(), hostBefore);
   await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ status: 'passed', checks, checkCount: checks.length, sdk, pluginArchive: archive ? { sha256: sha(await readFile(archive)) } : undefined, modelCalls: { offline: (await calls()).length, external: 0 }, headerAlignment: geometry, popupBounds, responsiveWidths: [1024, 768], pageErrors, hostUnchanged: true }, null, 2));
@@ -196,7 +206,8 @@ try {
   await mkdir(artifacts, { recursive: true }); await page?.screenshot({ path: resolve(artifacts, 'failure.png') }).catch(() => {});
   await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors, networkErrors, composerText: await page?.locator('[data-composer-card]').innerText().catch(() => undefined), error: String(error), state: await inspectState?.().catch(() => undefined), hostLog: redactWebAuth(log).slice(-10000), calls: (await readFile(callsPath, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line)) }, null, 2));
   throw error;
-} finally {
-  await browser?.close(); if (child?.exitCode === null) { child.kill('SIGTERM'); for (let attempt = 0; attempt < 80 && child.exitCode === null; attempt++) await delay(100); if (child.exitCode === null) child.kill('SIGKILL'); }
+ } finally {
+  if (child?.exitCode === null) { child.kill('SIGTERM'); for (let attempt = 0; attempt < 80 && child.exitCode === null; attempt++) await delay(100); if (child.exitCode === null) child.kill('SIGKILL'); }
+  await closeFixtureBrowser({ page, browser, browserServer });
   await rm(temp, { recursive: true, force: true });
 }

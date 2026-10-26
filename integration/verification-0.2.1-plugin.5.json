@@ -1,0 +1,328 @@
+{
+  "version": "0.2.1",
+  "buildTag": "v0.2.1-plugin.5",
+  "date": "2026-10-26",
+  "dshVersion": "0.2.1-rc.3",
+  "sourceCommit": "37c93be47973bde0eff4c51f290ff58f9305f322",
+  "platform": "macOS arm64",
+  "nodeVersion": "v24.21.0",
+  "result": "pass",
+  "archive": {
+    "filename": "dsh-plugin-composable-workforce-0.2.1.tgz",
+    "sha256": "8c4d34f8ee68e5a999448e678cb4ea375b7ce238242a88d4620e601ac4cae138",
+    "bytes": 1291987,
+    "files": 407,
+    "unpackedBytes": 5428276
+  },
+  "tests": {
+    "unit": {
+      "total": 884,
+      "passed": 883,
+      "failed": 0,
+      "skipped": 1,
+      "optionalSkip": "Private full-clone fixture"
+    },
+    "typecheck": "pass",
+    "build": "pass",
+    "coordinateMatrix": {
+      "passed": 180,
+      "failed": 0,
+      "devicePixelRatios": [
+        1,
+        2
+      ],
+      "viewports": [
+        {
+          "width": 1512,
+          "height": 1050
+        },
+        {
+          "width": 1024,
+          "height": 768
+        },
+        {
+          "width": 768,
+          "height": 600
+        },
+        {
+          "width": 1512,
+          "height": 240
+        }
+      ],
+      "checks": [
+        "visible text and arrow",
+        "all trigger edges",
+        "list row centers and edges",
+        "partial row hover does not scroll",
+        "keyboard scroll stays in list",
+        "fixed body surfaces have no native control overlap"
+      ]
+    },
+    "officialUI": [
+      {
+        "kind": "resident-and-panel-visibility",
+        "passed": 9,
+        "checks": [
+          "default-Chat-native-turns-create-no-resident-binding-employee-or-run",
+          "simple-header-shows-placeholder-then-name-only-menu-without-cards-copy-or-mode-controls",
+          "explicit-selection-affects-only-selected-session-and-browsing-calls-no-model",
+          "two-native-streamed-employee-turns-stay-in-same-conversation-and-choice-survives-reload",
+          "temporary-reference-overrides-resident-only-for-one-turn-preserves-image-and-native-send",
+          "pasted-leading-at-text-routes-through-real-native-send-once-and-restores-resident-next-turn",
+          "busy-employee-conversation-does-not-disable-another-Chat-employee-menu",
+          "none-clears-even-paused-employee-and-temporary-mention-then-restores-native-without-extra-session",
+          "portal-controls-hide-in-resource-panel-and-restore-with-native-conversation"
+        ]
+      },
+      {
+        "kind": "temporary-and-legacy-Chat",
+        "passed": 8,
+        "checks": [
+          "fresh-Chat-uses-native-model-without-workflow-owner-binding-team-or-run",
+          "Chat-native-composer-and-header-show-no-workflow-selector-steps-or-owner",
+          "native-at-pick-creates-nothing-and-submit-stays-in-same-session-with-one-reused-employee",
+          "temporary-at-uses-role-model-and-required-skill-without-active-workflow-context",
+          "Chat-at-is-one-turn-only-with-no-resident-binding-or-extra-work-order-session",
+          "ordinary-followup-after-temporary-mention-is-native-without-resident-employee-context",
+          "explicit-legacy-work-order-history-reloads-and-continues-natively",
+          "Chat-exclusion-survives-reload-while-normal-project-workflow-service-remains-enabled"
+        ]
+      },
+      {
+        "kind": "project-workflow",
+        "passed": 31,
+        "checks": [
+          "unconfigured-native-project-shows-literal-workflow-none-and-explicit-none-installs-or-runs-nothing",
+          "native-input-workflow-upward-menu-none-first-and-frozen-team-installed-without-running",
+          "native-svg-sequence-and-upper-reject-connections-touch-real-circles-avoid-labels-and-native-controls-with-click-through",
+          "first-native-workflow-selection-clears-prior-none-and-unifies-all-project-conversations-without-running",
+          "native-permission-change-keeps-idle-composer-workflow-picker-and-step-navigation-enabled-without-running",
+          "project-name-header-two-tabs-and-read-only-knowledge-view-use-the-frozen-project-team",
+          "details-show-frozen-owner-hierarchy-three-requirements-and-return-target-without-activating-inspected-step",
+          "library-retains-only-three-resource-sections-and-no-project-workspace-or-team-configuration-ui",
+          "zero-one-three-and-zero-return-lanes-keep-native-none-header-body-anchors-and-fixed-step-text-bottom-aligned-with-trajectory",
+          "sixteen-native-language-theme-width-cases-compare-none-zero-three-zero-again-with-identical-native-anchors-and-aligned-text",
+          "narrow-native-return-keeps-true-hidden-target-without-fake-ellipsis-edge-horizontal-scroll-or-click-interception",
+          "numbered-double-ring-nodes-readable-in-dark-light-with-labels-below-compact-height-and-ellipsis-fixed-details-at-wide-narrow-widths",
+          "seven-visible-native-window-holds-first-four-centers-from-five-clamps-the-complete-tail-and-reverses-without-coordinate-jumps-or-running",
+          "numbered-step-circles-retain-global-definition-indices-after-leading-ellipsis-and-current-step-shifts",
+          "later-alternate-workflow-and-none-are-local-persist-after-refresh-and-preserve-project-default-without-running",
+          "top-native-header-steps-click-change-owner-and-roster-without-marking-previous-steps-complete",
+          "ordinary-native-message-uses-current-owner-model-step-criteria-and-required-skill-on-same-session-once",
+          "owner-plan-tool-saves-one-draft-and-its-summary-remains-accessible-in-details-without-project-workbench",
+          "only-real-owner-delivery-review-whitens-completed-step-and-advances-current-blue-without-moving-header",
+          "numbered-double-rings-preserve-gray-white-native-blue-states-and-readable-text-contrast-after-real-acceptance",
+          "running-conversation-shows-stage-while-another-chat-can-switch-workflow-with-shared-progress-protected",
+          "active-native-turn-locks-selector-and-shared-steps-and-rejected-delivery-returns-with-history-retained",
+          "real-nonempty-native-header-step-strip-remains-visible-at-wide-and-narrow-widths",
+          "none-removes-owner-context-tools-and-tracking-and-obeys-native-last-used-and-explicit-model-selection",
+          "removed-delivery-dock-has-no-entry-or-polling-and-none-does-not-select-a-workflow",
+          "late-retained-session-handoff-preserves-user-navigation-to-another-conversation",
+          "stopped-legacy-root-refreshes-same-native-session-with-unsent-draft-and-inherited-selector-no-stale-dock-or-model-call",
+          "ordinary-message-in-legacy-conversation-uses-current-owner-once-and-keeps-old-delivery-unchanged",
+          "explicit-none-in-restored-legacy-conversation-keeps-history-and-review-via-top-details",
+          "retained-handoff-with-unsent-attachment-blocks-refresh-until-user-removes-it-and-safely-retries",
+          "official-host-program-unchanged-and-isolated-process-stopped"
+        ]
+      }
+    ],
+    "lifecycle": {
+      "passed": 15,
+      "checks": [
+        "exact archive includes GPL license, corresponding pinned source and dependency lock; packaged shared engine projects only semantic concepts/entities and evidenced directed relations, preserves all reading pages and legacy articles, computes communities without page-link noise, and stops without a residual process",
+        "PDF/DOCX parser dependencies declared by the archive resolve at the exact declared versions inside the isolated profile, without developer-checkout or host dependency links",
+        "fresh actual archive supplies six complete software roles, team and one non-demo software workflow with inputs/outputs/acceptance/rework; no fabricated employees, memory or task executions; boundary documents are packaged",
+        "archive serves the single self-contained Wiki page through authenticated official host routing with network-denying CSP",
+        "official Session Controller model catalog is readable through authenticated plugin API with allowlisted selector fields and creates no employee run",
+        "six software-role presets resolve all required and preferred skills through the official model-invocable registry; QA includes code-review and the packaged task-owned worktree cleanup resource is present",
+        "public default Agent preset lease exposes installed native file/Web/Shell and extension tools plus model-invocable skills through allowlisted capability DTO; employee selections are preferences rather than a second ACL; no model call or task is created",
+        "project brief, task and two manual deliverable revisions persist through authenticated API; idempotent command retry is read-only; stale review is rejected; current version and task review permit project completion without model execution",
+        "default-on librarian switch persists via authenticated official host route; project override leaves template, employees and memories unchanged and survives reinstall",
+        "tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request",
+        "uninstall removes bundle and API; restart does not reinstall; profile config and employee data unchanged; native host serves normally",
+        "team librarian archives detached team/member knowledge, creates no extra employee/session, retains knowledge byte-for-byte through ordinary removal and reinstall",
+        "reinstall restores identical templates, employee IDs, required/preferred Skill routing, tool preferences, preserved legacy fields, memory, workflow snapshot and failed attempt, project brief, work tasks, deliverable versions and review history; no duplicate instances or replayed task",
+        "packaged purge command uses official CLI remove, clears dedicated state/config, preserves user deliverables and shared credentials; native host restarts",
+        "official npm installation and dependencies have identical program-file hash before and after install/remove/reinstall/purge"
+      ]
+    },
+    "externalModelCalls": 0
+  },
+  "desktopPointerProof": {
+    "archiveSHA": "8c4d34f8ee68e5a999448e678cb4ea375b7ce238242a88d4620e601ac4cae138",
+    "screenshotPixels": [
+      2560,
+      1640
+    ],
+    "before": {
+      "nativeTabPixelClick": true,
+      "textPixelClick": false,
+      "arrowPixelClick": false,
+      "accessibilityPress": true
+    },
+    "after": [
+      {
+        "target": "visible-text",
+        "point": [
+          2250,
+          120
+        ],
+        "menuOpened": true
+      },
+      {
+        "target": "Escape",
+        "menuClosed": true
+      },
+      {
+        "target": "visible-arrow",
+        "point": [
+          2358,
+          120
+        ],
+        "menuOpened": true
+      },
+      {
+        "target": "None-row-right-edge",
+        "point": [
+          2488,
+          202
+        ],
+        "menuClosed": true
+      }
+    ]
+  },
+  "layout": {
+    "alignment": {
+      "tabBottom": 66,
+      "contactBottom": 66,
+      "triggerOutsideHeader": true,
+      "triggerPosition": "fixed"
+    },
+    "popup": {
+      "x": 1244,
+      "y": 80,
+      "width": 240,
+      "height": 234
+    },
+    "pageErrors": []
+  },
+  "archiveAudit": {
+    "result": "pass",
+    "archive": {
+      "filename": "dsh-plugin-composable-workforce-0.2.1.tgz",
+      "sha256": "8c4d34f8ee68e5a999448e678cb4ea375b7ce238242a88d4620e601ac4cae138",
+      "bytes": 1291987,
+      "files": 407,
+      "unpackedBytes": 5428276
+    },
+    "workspaceFileMatches": 407,
+    "mismatches": [],
+    "source": {
+      "files": 146
+    },
+    "boundaries": {
+      "forbidden": [],
+      "credentials": [],
+      "machinePaths": [],
+      "localDependencies": [],
+      "hostProgramFilesIncluded": false
+    },
+    "standaloneGuard": {
+      "exitCode": 0,
+      "output": "Plugin 0.2.1 and 37 official runtime peers match DSH 0.2.1-rc.3; lockSource=packaged-root-metadata.",
+      "nodeModulesPresent": false
+    }
+  },
+  "installedProfiles": [
+    {
+      "kind": "web",
+      "archiveSHA": "8c4d34f8ee68e5a999448e678cb4ea375b7ce238242a88d4620e601ac4cae138",
+      "expectedFiles": 407,
+      "installedFiles": 407,
+      "matchingFiles": 407,
+      "missing": 0,
+      "extra": 0,
+      "mismatches": 0,
+      "allBytesMatch": true,
+      "versionGuard": true
+    },
+    {
+      "kind": "desktop",
+      "archiveSHA": "8c4d34f8ee68e5a999448e678cb4ea375b7ce238242a88d4620e601ac4cae138",
+      "expectedFiles": 407,
+      "installedFiles": 407,
+      "matchingFiles": 407,
+      "missing": 0,
+      "extra": 0,
+      "mismatches": 0,
+      "allBytesMatch": true,
+      "versionGuard": true
+    }
+  ],
+  "dataPreservation": [
+    {
+      "kind": "web",
+      "stateUnchanged": true,
+      "definitionsUnchanged": {
+        "templates": true,
+        "teams": true,
+        "workflowTemplates": true,
+        "employees": true,
+        "projectTeams": true,
+        "conversationWorkflows": true,
+        "conversationEmployees": true
+      },
+      "immutableVersionsChecked": 68,
+      "alteredImmutableVersions": 0,
+      "addedImmutableVersions": 0
+    },
+    {
+      "kind": "desktop",
+      "stateUnchanged": true,
+      "definitionsUnchanged": {
+        "templates": true,
+        "teams": true,
+        "workflowTemplates": true,
+        "employees": true,
+        "projectTeams": true,
+        "conversationWorkflows": true,
+        "conversationEmployees": true
+      },
+      "immutableVersionsChecked": 134,
+      "alteredImmutableVersions": 0,
+      "addedImmutableVersions": 0
+    }
+  ],
+  "hostPrograms": [
+    {
+      "kind": "desktop-app",
+      "files": 6437,
+      "sha256": "c3695a48bca37b3b5f8b754bdb7a907c7046e7f8c76aeab346df0247338f1b7b",
+      "unchanged": true
+    },
+    {
+      "kind": "isolated-official",
+      "files": 27607,
+      "sha256": "4320efc9d117186946ef38cbf4078d44d4472de8f9ec42fc107db0b5923c64ac",
+      "unchanged": true
+    },
+    {
+      "kind": "global-official-cli",
+      "files": 63618,
+      "sha256": "f60d186ab9a4bcfeed7004d3add75cbe8e09ab25efa69c4c4eece88636062aec",
+      "unchanged": true
+    }
+  ],
+  "fix": {
+    "cause": "The interactive control visually overflowed the native title-row slot. In Desktop, pixel clicks on its visible text/arrow did not reach the control while an accessibility press did. Native tabs at the same vertical coordinate remained clickable.",
+    "implementation": "Keep a plugin-owned measurement seat in the official header slot; use two small fixed body portals for the actual button and popup. Their visible rectangles are their pointer and no-drag regions. No full-window overlay or native DOM/style/source mutation.",
+    "list": "Hover changes highlight only. Initial opening and keyboard navigation adjust only the list scrollTop. No ancestor scrollIntoView.",
+    "visibility": "Retained hidden/inert native panels also hide and close the floating controls; observers and window/document listeners disconnect on unmount."
+  },
+  "limits": [
+    "Exact upstream Electron drag-region internals were not rewritten or asserted; the plugin avoids the overflowing native ancestor and verifies the real pixel targets.",
+    "Browser hit-testing alone did not reproduce the full-size Desktop failure; actual Desktop pointer validation is recorded separately.",
+    "Model, context, memory, workflow and billing behavior is unchanged by this UI fix.",
+    "Compatibility remains exact official DSH 0.2.1-rc.3 on the tested platform. Native session retention follows ADR-004."
+  ]
+}
