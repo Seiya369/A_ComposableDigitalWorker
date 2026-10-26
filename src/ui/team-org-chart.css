@@ -1,17 +1,59 @@
 .wf-team-org {
+  position: relative;
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  overflow: auto;
+  overflow: hidden;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--wf-panel);
 }
 
+.wf-team-org-viewport {
+  width: 100%;
+  height: clamp(300px, 42vh, 560px);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  outline-offset: -3px;
+}
+
+.wf-team-org-viewport.is-panning { cursor: grabbing; user-select: none; }
+.wf-root .wf-team-org .wf-team-org-viewport.is-panning .wf-team-org-node { cursor: grabbing; }
+
 .wf-team-org-canvas {
   position: relative;
-  margin-inline: auto;
+  transform-origin: 0 0;
 }
+
+.wf-team-org-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+  background: var(--wf-panel);
+}
+
+.wf-root .wf-team-org-controls button {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--wf-text);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.wf-root .wf-team-org-controls button:hover { background: var(--dsw-alias-interactive-bg-hover); }
+.wf-team-org-controls output { min-width: 38px; text-align: center; color: var(--wf-muted); font: var(--dsw-font-xs-13); }
 
 .wf-team-org-lines {
   position: absolute;
