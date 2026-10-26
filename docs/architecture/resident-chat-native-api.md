@@ -37,10 +37,10 @@
 可运行：
 
 ```sh
-node artifacts/resident-chat/native-api/public-api-probe.mjs
+node tests/native-consultation-api-probe.mjs
 ```
 
-脚本只创建临时内存 Context、原生 Agent/Session、合成工具和技能；Adapter 本地返回固定流，不访问网络、真实用户 Session、凭据或付费模型。结果保存在同目录 `results.json`。
+脚本只创建临时内存 Context、原生 Agent/Session、合成工具和技能；Adapter 本地返回固定流，不访问网络、真实用户 Session、凭据或付费模型。从源码仓库运行，结果写入忽略的 `artifacts/resident-chat/native-api/results.json`；安装包不含测试夹具。
 
 已验证：
 

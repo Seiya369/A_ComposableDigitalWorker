@@ -109,6 +109,7 @@ try {
   const beforeBrowseCalls = (await calls()).length;
   const option = menu.getByRole('option').filter({ hasText: role.name }); await option.hover();
   await menu.locator('summary').click(); await expect(menu.locator('details')).toHaveAttribute('open', ''); await expect(menu).toContainText('RESIDENT_SAVED_MISSION');
+  const popupBounds = await menu.boundingBox(); assert.ok(popupBounds.x >= 8 && popupBounds.x + popupBounds.width <= 1504, JSON.stringify(popupBounds));
   await page.screenshot({ path: resolve(artifacts, 'resident-menu-local-profile.png') });
   assert.equal((await calls()).length, beforeBrowseCalls); assert.equal((await state()).employees.length, 0);
   await menu.locator('[role="listbox"]').press('Escape'); await expect(menu).toHaveCount(0); await expect(trigger).toBeFocused();
@@ -160,11 +161,14 @@ try {
   assert.ok(!activeContexts?.source?.sections?.some(section => section.name === 'digital-worker:identity' || section.name === 'composable-workforce:task-context'));
   check('explicit-exit-keeps-history-and-followup-returns-to-native-without-an-employee-run');
   check('paused-resident-remains-visible-and-can-still-be-explicitly-cleared');
-  for (const width of [1024, 768]) { await page.setViewportSize({ width, height: 1050 }); await expect(trigger).toBeVisible(); const bounds = await trigger.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, JSON.stringify(bounds)); }
+  for (const width of [1024, 768]) {
+    await page.setViewportSize({ width, height: 1050 }); await expect(trigger).toBeVisible(); const bounds = await trigger.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, JSON.stringify(bounds));
+    await trigger.click(); const popup = await menu.boundingBox(); assert.ok(popup.x >= 8 && popup.x + popup.width <= width - 8, JSON.stringify(popup)); await menu.locator('[role="listbox"]').press('Escape');
+  }
   await page.setViewportSize({ width: 1512, height: 1050 });
   await page.screenshot({ path: resolve(artifacts, 'resident-dropdown-exited.png') });
   assert.deepEqual(pageErrors, []); assert.equal(await hostHash(), hostBefore);
-  await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ status: 'passed', checks, checkCount: checks.length, sdk, pluginArchive: archive ? { sha256: sha(await readFile(archive)) } : undefined, modelCalls: { offline: (await calls()).length, external: 0 }, headerAlignment: geometry, pageErrors, hostUnchanged: true }, null, 2));
+  await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ status: 'passed', checks, checkCount: checks.length, sdk, pluginArchive: archive ? { sha256: sha(await readFile(archive)) } : undefined, modelCalls: { offline: (await calls()).length, external: 0 }, headerAlignment: geometry, popupBounds, responsiveWidths: [1024, 768], pageErrors, hostUnchanged: true }, null, 2));
   console.log(`PASS ${checks.length} official resident employee checks`);
 } catch (error) {
   await mkdir(artifacts, { recursive: true }); await page?.screenshot({ path: resolve(artifacts, 'failure.png') }).catch(() => {});

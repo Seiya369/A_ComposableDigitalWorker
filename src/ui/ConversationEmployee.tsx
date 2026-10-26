@@ -61,7 +61,7 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
   const { snapshot, loading, pending, error } = useSyncExternalStore(subscribe, read, read);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), label = useRef<HTMLSpanElement>(null), list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false), [active, setActive] = useState(0), [mode, setMode] = useState<ConversationEmployeeMode>('consult');
-  const [placement, setPlacement] = useState({ top: 0, left: 0, width: 220, aligned: false });
+  const [placement, setPlacement] = useState({ top: 0, left: 0, width: 220, popupLeft: -120, aligned: false });
   const menuId = useId();
   const busy = loading || pending || snapshot?.busy === true;
   const close = (restore = false) => { setOpen(false); if (restore) trigger.current?.focus(); };
@@ -104,7 +104,11 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
       }
       // Where the native tab row is unavailable or crowded, remain inside our own slot.
       if (!aligned || width < 80) { top = 0; left = 0; width = 220; aligned = false; }
-      const next = { top: Math.round(top * 1000) / 1000, left, width: Math.max(80, width), aligned };
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const popupWidth = Math.min(viewportWidth - 32, viewportWidth <= 720 ? 300 : 340);
+      const triggerWidth = aligned ? width : Math.min(width, bounds.width);
+      const popupLeft = Math.max(16, Math.min(viewportWidth - popupWidth - 16, bounds.left + left + triggerWidth - popupWidth)) - bounds.left;
+      const next = { top: Math.round(top * 1000) / 1000, left, width: Math.max(80, width), popupLeft: Math.round(popupLeft * 1000) / 1000, aligned };
       setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     const resize = new ResizeObserver(measure); resize.observe(anchor); resize.observe(header);
@@ -140,6 +144,6 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
   };
   return <div ref={root} className="wf-conversation-employee" data-contact-aligned={placement.aligned} style={{ width: placement.aligned ? 32 : 220 }} onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(true); } }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
     <button ref={trigger} type="button" className="wf-conversation-employee-trigger" data-top={placement.top} style={{ top: placement.top, left: placement.left, width: placement.width }} aria-label={text} aria-haspopup="dialog" aria-expanded={open} aria-controls={open ? `${menuId}-dialog` : undefined} aria-busy={pending} title={`${text} · ${t(binding?.mode === 'execute' ? '执行任务' : '轻咨询')}`} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}><span ref={label}>{text}</span><Icon name="chevron" size={12}/></button>
-    {open && <div id={`${menuId}-dialog`} className="wf-conversation-employee-popup" style={{ top: placement.top + 28, left: placement.left }}><ConversationEmployeeMenu snapshot={snapshot} mode={mode} active={active} pending={pending} menuId={menuId} error={error} listRef={list} onActive={setActive} onChoose={index => void choose(index)} onMode={value => void changeMode(value)} onKeys={onKeys} onRefresh={() => void controller.refresh(sessionId)}/></div>}
+    {open && <div id={`${menuId}-dialog`} className="wf-conversation-employee-popup" style={{ top: placement.top + 28, left: placement.popupLeft }}><ConversationEmployeeMenu snapshot={snapshot} mode={mode} active={active} pending={pending} menuId={menuId} error={error} listRef={list} onActive={setActive} onChoose={index => void choose(index)} onMode={value => void changeMode(value)} onKeys={onKeys} onRefresh={() => void controller.refresh(sessionId)}/></div>}
   </div>;
 }
