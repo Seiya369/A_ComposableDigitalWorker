@@ -52,6 +52,7 @@ export function ConversationWorkflowDetails(props: Props) {
     return () => { controller.abort(); generation.current++; };
   }, [props.client, props.sessionId, selection, refreshVersion]);
   const step = details?.selectedStep;
+  const rejectTarget = details?.steps.find(item => item.id === step?.onRejectStepId && item.id !== step?.id);
   const acceptedDelivery = !loaded?.selection.runId && step?.status === 'completed' ? step.acceptedDelivery : undefined;
   const delivery = details?.legacyDelivery ?? acceptedDelivery ?? step?.latestDelivery;
   const history = details?.legacyDelivery ? details.history.filter(item => item.legacy)
@@ -119,7 +120,7 @@ export function ConversationWorkflowDetails(props: Props) {
                     <details className="wf-conversation-details-instruction" data-requirement="outputs"><summary><h3>{t('交付内容')}</h3></summary><Requirements values={step.outputs}/></details>
                     <details className="wf-conversation-details-instruction" data-requirement="acceptance"><summary><h3>{t('验收标准')}</h3></summary><Requirements values={step.acceptanceCriteria}/></details>
                   </div>
-                  {details.steps.find(item => item.id === step.id)?.onRejectStepId && <dl className="wf-conversation-details-requirements"><div><dt>{t('退回目标')}</dt><dd><button type="button" className="wf-conversation-text-button" disabled={pending} onClick={() => inspect(step.onRejectStepId)}>{step.onRejectStepName}</button></dd></div></dl>}
+                  {rejectTarget && <dl className="wf-conversation-details-requirements"><div><dt>{t('退回目标')}</dt><dd><button type="button" className="wf-conversation-text-button" disabled={pending} onClick={() => inspect(rejectTarget.id)}>{rejectTarget.name}</button></dd></div></dl>}
                   {!!details.tasksTotal && <details className="wf-conversation-details-tasks"><summary>{t('已规划任务 · {count}', { count: details.tasksTotal })}</summary><ul>{details.tasks.map(task => <li key={task.id}><span>{task.title}</span><small>{task.employeeName} · {t(taskLabel[task.status])}</small></li>)}</ul>{details.tasksTotal > details.tasks.length && <p>{t('显示最近 {count} 项', { count: details.tasks.length })}</p>}</details>}
                 </> : <><h3>{t('步骤内容')}</h3><p className="wf-conversation-details-muted">{t(details.legacyDelivery ? '历史独立交付' : '暂无可查看的步骤')}</p></>}
               </section>
@@ -145,7 +146,7 @@ export function ConversationWorkflowDetails(props: Props) {
 
 type WorkflowStep = Details['steps'][number];
 interface ReturnRoute { from: string; to: string; lane: number; start: number; end: number }
-/** Every line belongs to an explicit frozen-workflow return rule; coordinates stay inside this scrollable list. */
+/** Only cross-step return rules need a line; self retry does not allocate a lane. */
 function WorkflowSteps({ steps, selectedStepId, disabled, workflowName, onInspect }: { steps: WorkflowStep[]; selectedStepId?: string; disabled: boolean; workflowName?: string; onInspect(id: string): void }) {
   const { t, locale } = useI18n();
   const canvas = useRef<HTMLDivElement>(null);
@@ -155,7 +156,7 @@ function WorkflowSteps({ steps, selectedStepId, disabled, workflowName, onInspec
     const result: ReturnRoute[] = [];
     for (const [index, step] of steps.entries()) {
       const target = step.onRejectStepId ? indices.get(step.onRejectStepId) : undefined;
-      if (target === undefined) continue;
+      if (target === undefined || target === index) continue;
       const start = Math.min(index, target); const end = Math.max(index, target);
       let lane = 0;
       while (result.some(route => route.lane === lane && start <= route.end && end >= route.start)) lane++;
@@ -188,12 +189,11 @@ function WorkflowSteps({ steps, selectedStepId, disabled, workflowName, onInspec
       {geometry.height > 0 && routes.length > 0 && <svg className="wf-conversation-details-return-lines" height={geometry.height} aria-hidden="true"><defs><marker id={markerId} markerWidth="5" markerHeight="5" refX="4" refY="2.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0L5 2.5L0 5Z"/></marker></defs>{routes.map(route => {
         const source = geometry.nodes[route.from]; const target = geometry.nodes[route.to];
         if (!source || !target) return null;
-        const self = route.from === route.to; const x = gutter - 8 - route.lane * 8;
-        const y1 = source.y + (self ? 8 : 0); const y2 = target.y - (self ? 8 : 0);
-        return <path key={route.from} data-reject-from={route.from} data-reject-to={route.to} d={`M ${source.left - 2} ${y1} H ${x} V ${y2} H ${target.left - 2}`} markerEnd={`url(#${markerId})`}/>;
+        const x = gutter - 8 - route.lane * 8;
+        return <path key={route.from} data-reject-from={route.from} data-reject-to={route.to} d={`M ${source.left - 2} ${source.y} H ${x} V ${target.y} H ${target.left - 2}`} markerEnd={`url(#${markerId})`}/>;
       })}</svg>}
       <ol style={{ paddingInlineStart: gutter }}>{steps.map((item, index) => {
-        const target = steps.find(candidate => candidate.id === item.onRejectStepId);
+        const target = steps.find(candidate => candidate.id === item.onRejectStepId && candidate.id !== item.id);
         return <li key={item.id} className={`is-${item.status}`}><button type="button" data-step-id={item.id} aria-label={t('{number}. {name}，{status}{owner}', { number: index + 1, name: item.name, status: t(statusLabel[item.status]), owner: item.employeeName ? t('，负责人 {name}', { name: item.employeeName }) : '' }) + (target ? t('；验收不合格退回第{number}步：{name}', { number: steps.indexOf(target) + 1, name: target.name }) : '')} aria-current={selectedStepId === item.id ? 'true' : undefined} disabled={disabled} onClick={() => onInspect(item.id)}><span className={`wf-conversation-details-node wf-conversation-workflow-dot is-${item.status}`} data-flow-node={item.id} aria-hidden="true"><span className="wf-conversation-workflow-step-number">{index + 1}</span></span><span className="wf-conversation-details-step-copy"><span>{item.name}</span><small>{t(statusLabel[item.status])}{item.employeeName && ` · ${item.employeeName}`}</small></span></button></li>;
       })}</ol>
     </div>

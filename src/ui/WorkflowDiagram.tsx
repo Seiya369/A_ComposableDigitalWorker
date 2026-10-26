@@ -36,11 +36,11 @@ export function WorkflowDiagram({ steps, roles, onSelect }: Pick<WorkflowTemplat
           {layout.nodes.map(node => {
             const step = steps[node.index]!, owner = roles.find(role => role.id === step.roleId)?.name ?? t('待选择负责人');
             const target = steps.findIndex(candidate => candidate.id === step.onRejectStepId);
-            const rejection = target >= 0 && target < node.index ? t('退回第 {number} 步返工', { number: target + 1 }) : t('本步骤返工');
-            return <button key={step.id} type="button" className="wf-workflow-diagram-node wf-workflow-map-node" style={{ left: node.x, top: node.y, width: node.width, height: node.height }} title={`${node.index + 1}. ${step.name || t('未命名步骤')} · ${owner} · ${rejection}`} onClick={() => onSelect(node.index)}>
+            const rejection = target >= 0 && target < node.index ? t('退回第 {number} 步返工', { number: target + 1 }) : undefined;
+            return <button key={step.id} type="button" className="wf-workflow-diagram-node wf-workflow-map-node" style={{ left: node.x, top: node.y, width: node.width, height: node.height }} title={`${node.index + 1}. ${step.name || t('未命名步骤')} · ${owner}${rejection ? ` · ${rejection}` : ''}`} onClick={() => onSelect(node.index)}>
               <strong>{node.index + 1}. {step.name || t('未命名步骤')}</strong>
               <span>{owner}</span>
-              <small>{rejection}</small>
+              {rejection && <small>{rejection}</small>}
             </button>;
           })}
         </div>}

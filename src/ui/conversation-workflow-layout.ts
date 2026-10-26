@@ -41,7 +41,7 @@ export interface ConversationWorkflowLayoutEdge {
   path: string;
 }
 
-/** Semantic fields let the caller describe every real return in its own locale. */
+/** Display only cross-step returns; self retry remains an execution rule. */
 export interface ConversationWorkflowLayoutReturn {
   sourceId: string;
   targetId: string;
@@ -123,7 +123,7 @@ export function layoutConversationWorkflow(input: ConversationWorkflowLayoutInpu
   const returns: ConversationWorkflowLayoutReturn[] = [];
   for (const { step, index } of unique.values()) {
     const destination = step.onRejectStepId ? unique.get(step.onRejectStepId) : undefined;
-    if (!destination || destination.index > index) continue;
+    if (!destination || destination.index >= index) continue;
     returns.push({ sourceId: step.id, targetId: destination.step.id, sourceIndex: index, targetIndex: destination.index,
       sourceName: step.name ?? step.id, targetName: destination.step.name ?? destination.step.id,
       visible: byId.has(step.id) && byId.has(destination.step.id), drawn: false });
@@ -131,10 +131,7 @@ export function layoutConversationWorkflow(input: ConversationWorkflowLayoutInpu
 
   const candidates = returns.filter(item => item.visible).map(item => {
     const source = byId.get(item.sourceId)!, target = byId.get(item.targetId)!;
-    const self = source.id === target.id;
-    const half = Math.min(14, Math.max(RADIUS, nodeWidth / 2 - 2));
-    return { item, source, target, left: self ? source.x - half : target.x,
-      right: self ? source.x + half : source.x, lane: -1 };
+    return { item, source, target, left: target.x, right: source.x, lane: -1 };
   }).sort((a, b) => a.left - b.left || a.right - b.right || a.item.sourceIndex - b.item.sourceIndex);
   const laneEnds: number[] = [];
   for (const candidate of candidates) {
@@ -173,10 +170,7 @@ export function layoutConversationWorkflow(input: ConversationWorkflowLayoutInpu
     if (lane < 0) continue;
     const trackY = coordinate(trackYForLane(lane));
     const sourceX = coordinate(source.x), targetX = coordinate(target.x), top = coordinate(crownY);
-    const loopWidth = Math.min(10, nodeWidth / 2 - 2);
-    const path = source.id === target.id
-      ? `M ${sourceX} ${top} Q ${coordinate(source.x + loopWidth)} ${top} ${coordinate(source.x + loopWidth)} ${trackY + 1} Q ${coordinate(source.x + loopWidth)} ${trackY} ${coordinate(source.x + loopWidth - 1)} ${trackY} H ${coordinate(source.x + 1)} Q ${sourceX} ${trackY} ${sourceX} ${trackY + 1} V ${top}`
-      : `M ${sourceX} ${top} V ${trackY + 1} Q ${sourceX} ${trackY} ${coordinate(source.x - 1)} ${trackY} H ${coordinate(target.x + 1)} Q ${targetX} ${trackY} ${targetX} ${trackY + 1} V ${top}`;
+    const path = `M ${sourceX} ${top} V ${trackY + 1} Q ${sourceX} ${trackY} ${coordinate(source.x - 1)} ${trackY} H ${coordinate(target.x + 1)} Q ${targetX} ${trackY} ${targetX} ${trackY + 1} V ${top}`;
     edges.push({ id: `reject:${item.sourceIndex}:${item.targetIndex}`, kind: 'reject', sourceId: item.sourceId,
       targetId: item.targetId, sourceIndex: item.sourceIndex, targetIndex: item.targetIndex, lane, path });
   }

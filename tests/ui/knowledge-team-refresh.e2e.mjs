@@ -193,6 +193,13 @@ try {
   const owners = page.locator('.wf-workflow-step-assignee select'); await expect(owners).toHaveCount(workflow.steps.length);
   for (let i = 0; i < workflow.steps.length; i++) assert.equal(await owners.nth(i).inputValue(), workflow.steps[i].roleId);
   await expect(page.locator('.wf-workflow-map-node')).toHaveCount(workflow.steps.length);
+  for (const [index, step] of workflow.steps.entries()) {
+    const target = workflow.steps.findIndex(candidate => candidate.id === step.onRejectStepId);
+    const node = page.locator('.wf-workflow-map-node').nth(index);
+    await expect(node.locator('small')).toHaveCount(target >= 0 && target < index ? 1 : 0);
+    assert.ok(!(await node.getAttribute('title')).includes('本步骤返工'), 'self rework has no special node tooltip');
+  }
+  passed('workflow-map-labels-only-cross-step-returns-without-self-rework-hints');
   await page.locator('.wf-workflow-diagram').scrollIntoViewIfNeeded(); await page.screenshot({ path: resolve(output, 'software-workflow.png') });
   await page.setViewportSize({ width: 1512, height: 1050 });
   await expect.poll(() => page.locator('.wf-workflow-map-viewport').evaluate(viewport => Math.abs(viewport.clientWidth - viewport.querySelector('.wf-workflow-map-canvas').offsetWidth))).toBeLessThan(3);

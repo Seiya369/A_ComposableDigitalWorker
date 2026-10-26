@@ -31,7 +31,7 @@
 先停止目标 Harness。使用你实际要管理的 `DSH_HOME` 与 profile，避免作用于另一套安装。正式使用者只需官方 DSH 和 `.tgz`，无须准备 Harness 源码仓库。
 
 ```sh
-DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.29.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
+DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.29.1.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web remove dsh-plugin-composable-workforce --config.auto-install-peers=false
 ```
 

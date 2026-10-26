@@ -112,10 +112,10 @@ try {
   const returnGeometry = () => nav().evaluate(node => {
     const canvas = node.querySelector('.wf-conversation-details-flow-canvas'), svg = node.querySelector('svg.wf-conversation-details-return-lines');
     const rect = canvas.getBoundingClientRect(); const copies = [...node.querySelectorAll('.wf-conversation-details-step-copy')].map(copy => copy.getBoundingClientRect().left - rect.left);
-    return [...node.querySelectorAll('path[data-reject-from]')].map(path => { const total = path.getTotalLength(), points = Array.from({ length: 97 }, (_, index) => { const point = path.getPointAtLength(total * index / 96); return { x: point.x, y: point.y }; }); const source = [...canvas.querySelectorAll('[data-flow-node]')].find(node => node.dataset.flowNode === path.dataset.rejectFrom).getBoundingClientRect(), target = [...canvas.querySelectorAll('[data-flow-node]')].find(node => node.dataset.flowNode === path.dataset.rejectTo).getBoundingClientRect(), self = path.dataset.rejectFrom === path.dataset.rejectTo; return { from: path.dataset.rejectFrom, to: path.dataset.rejectTo, d: path.getAttribute('d'), start: points[0], end: points.at(-1), expectedStart: { x: source.left - rect.left - 2, y: source.top - rect.top + source.height / 2 + (self ? 8 : 0) }, expectedEnd: { x: target.left - rect.left - 2, y: target.top - rect.top + target.height / 2 - (self ? 8 : 0) }, minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)), minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)), svgWidth: svg.getBoundingClientRect().width, svgHeight: Number(svg.getAttribute('height')), copyLeft: Math.min(...copies) }; });
+    return [...node.querySelectorAll('path[data-reject-from]')].map(path => { const total = path.getTotalLength(), points = Array.from({ length: 97 }, (_, index) => { const point = path.getPointAtLength(total * index / 96); return { x: point.x, y: point.y }; }); const source = [...canvas.querySelectorAll('[data-flow-node]')].find(node => node.dataset.flowNode === path.dataset.rejectFrom).getBoundingClientRect(), target = [...canvas.querySelectorAll('[data-flow-node]')].find(node => node.dataset.flowNode === path.dataset.rejectTo).getBoundingClientRect(); return { from: path.dataset.rejectFrom, to: path.dataset.rejectTo, d: path.getAttribute('d'), start: points[0], end: points.at(-1), expectedStart: { x: source.left - rect.left - 2, y: source.top - rect.top + source.height / 2 }, expectedEnd: { x: target.left - rect.left - 2, y: target.top - rect.top + target.height / 2 }, minX: Math.min(...points.map(p => p.x)), maxX: Math.max(...points.map(p => p.x)), minY: Math.min(...points.map(p => p.y)), maxY: Math.max(...points.map(p => p.y)), svgWidth: svg.getBoundingClientRect().width, svgHeight: Number(svg.getAttribute('height')), copyLeft: Math.min(...copies) }; });
   });
   const assertReturns = values => {
-    assert.deepEqual(values.map(({ from, to }) => [from, to]), [['step-2', 'step-1'], ['step-5', 'step-2'], ['step-8', 'step-3'], ['step-10', 'step-10']]);
+    assert.deepEqual(values.map(({ from, to }) => [from, to]), [['step-2', 'step-1'], ['step-5', 'step-2'], ['step-8', 'step-3']]);
     for (const route of values) { assert.ok(route.minX >= 0 && route.maxX < route.svgWidth, 'complete return path remains inside its canvas'); assert.ok(route.minY >= 0 && route.maxY <= route.svgHeight, 'no return path is clipped vertically'); assert.ok(route.maxX < route.copyLeft - 1, 'return paths never cross step text'); for (const end of ['start', 'end']) for (const axis of ['x', 'y']) assert.ok(Math.abs(route[end][axis] - route[end === 'start' ? 'expectedStart' : 'expectedEnd'][axis]) <= 0.6, 'return path endpoints stay aligned with their real source and target circles'); }
   };
   await page.locator('#open-details').click();
@@ -173,10 +173,19 @@ try {
   await page.screenshot({ path: resolve(directory, 'step-instruction-default-closed.png') });
   check('instruction-summary-follows-step-identity-defaults-closed-only-hides-instructions-and-supports-mouse-keyboard-without-transport');
   check('left-workflow-circles-share-top-status-tokens-double-rings-and-global-numbers-with-inspection-separate-from-current-state');
-  await settled(); await expect(nav()).toHaveAttribute('data-return-count', '4'); metrics.returns = await returnGeometry(); assertReturns(metrics.returns);
+  await settled(); await expect(nav()).toHaveAttribute('data-return-count', '3'); metrics.returns = await returnGeometry(); assertReturns(metrics.returns);
   await expect(nav().locator('[data-step-id="step-1"]')).not.toHaveAttribute('aria-label', /验收不合格退回/);
-  await expect(step('step-10')).toHaveAttribute('aria-label', /验收不合格退回第10步/);
-  check('all-explicit-long-and-self-return-paths-render-completely-in-the-left-gutter-without-invented-loops');
+  await expect(step('step-10')).not.toHaveAttribute('aria-label', /验收不合格退回/);
+  await expect(step('step-2')).toHaveAttribute('aria-label', /验收不合格退回第1步/);
+  await select('step-10');
+  await expect(section('步骤内容').getByText('退回目标', { exact: true })).toHaveCount(0);
+  await expect(nav().locator('path[data-reject-from="step-10"]')).toHaveCount(0);
+  await select('step-1');
+  await expect(section('步骤内容').getByText('退回目标', { exact: true })).toHaveCount(0);
+  await select('step-2');
+  await expect(section('步骤内容').getByText('退回目标', { exact: true })).toBeVisible();
+  assert.deepEqual(await writes(), [], 'hiding self retry cannot mutate workflow execution or review state');
+  check('cross-step-return-paths-stay-complete-while-explicit-and-default-self-retry-have-no-loop-aria-or-readonly-target-hint');
 
   await expect(dialog().locator('.wf-conversation-delivery-meta')).toContainText('待验收');
   await expect(dialog().getByRole('button', { name: '验收通过', exact: true })).toBeEnabled();

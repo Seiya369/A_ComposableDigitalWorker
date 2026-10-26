@@ -59,19 +59,34 @@ test('visible nodes and circle-boundary sequence lines share the allocated strip
   assert.equal(layout.overflowReturnCount, 0);
 });
 
-test('an explicit self return paints a small loop and an omitted default does not invent one', () => {
+test('explicit self retry and implicit default retry add no displayed return, lane or drawing space', () => {
   for (const width of [28, 52, 176]) {
-    const layout = layoutConversationWorkflow({ steps: [{ id: 'self', name: '返工', onRejectStepId: 'self' }, { id: 'default' }], visibleIds: width === 176 ? ['self', 'default'] : ['self'], width, aboveSpace: 32 });
-    const reject = layout.edges.filter(edge => edge.kind === 'reject');
-    assert.equal(reject.length, 1); assert.equal(reject[0]!.sourceId, reject[0]!.targetId);
-    const route = assertCrownReturn(layout, reject[0]!);
-    assert.deepEqual(route.start, route.end, 'a self return starts and ends at the same exact crown');
-    const widthOfRoute = Math.max(...route.points.map(point => point.x)) - Math.min(...route.points.map(point => point.x));
-    assert.ok(widthOfRoute > 1 && route.start.y - route.minY >= 6, 'the real quadratic loop has nonzero horizontal and vertical extent at minimum and ordinary slot widths');
-    assert.ok(route.segments.some(segment => segment.command === 'Q' && segment.controls.some(control => control.x > route.start.x)), 'the self loop has an actual curved side, not a collapsed vertical retrace');
-    assert.deepEqual(layout.returns, [{ sourceId: 'self', targetId: 'self', sourceIndex: 0, targetIndex: 0,
-      sourceName: '返工', targetName: '返工', visible: true, drawn: true }]);
+    const definition = [{ id: 'self', name: '返工', onRejectStepId: 'self' }, { id: 'default' }];
+    const input = { steps: definition, visibleIds: width === 176 ? ['self', 'default'] : ['self'], width, aboveSpace: 32 };
+    const layout = layoutConversationWorkflow(input);
+    assert.deepEqual(layout.edges.filter(edge => edge.kind === 'reject'), []);
+    assert.deepEqual(layout.returns, []);
+    assert.equal(layout.overflowReturnCount, 0);
+    assert.equal(layout.drawingTop, 0);
+    assert.deepEqual(layout, layoutConversationWorkflow({ ...input, steps: definition.map(({ onRejectStepId: _, ...step }) => step) }), 'the explicit self rule cannot change the visible geometry');
+    assert.equal(definition[0]!.onRejectStepId, 'self', 'display filtering preserves the execution definition');
   }
+});
+
+test('self retry consumes no lane or overflow entry alongside true cross-step returns', () => {
+  const definition = [
+    { id: 'first', onRejectStepId: 'first' }, { id: 'second' },
+    { id: 'third', onRejectStepId: 'first' }, { id: 'fourth', onRejectStepId: 'fourth' },
+    { id: 'fifth', onRejectStepId: 'second' }, { id: 'sixth', onRejectStepId: 'sixth' },
+  ];
+  const input = { steps: definition, visibleIds: definition.map(step => step.id), width: 528, aboveSpace: 32 };
+  const layout = layoutConversationWorkflow(input);
+  assert.deepEqual(layout.returns.map(item => [item.sourceId, item.targetId]), [['third', 'first'], ['fifth', 'second']]);
+  assert.deepEqual(layout.edges.filter(edge => edge.kind === 'reject').map(edge => edge.lane), [0, 1]);
+  assert.equal(layout.overflowReturnCount, 0);
+  for (const edge of layout.edges.filter(edge => edge.kind === 'reject')) assertCrownReturn(layout, edge);
+  const noSelf = definition.map(step => step.onRejectStepId === step.id ? { id: step.id } : step);
+  assert.deepEqual(layout, layoutConversationWorkflow({ ...input, steps: noSelf }));
 });
 
 test('hidden endpoints retain their real semantic target without drawing an edge to an ellipsis or across a gap', () => {

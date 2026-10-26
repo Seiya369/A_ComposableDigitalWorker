@@ -1,5 +1,10 @@
 # 更新记录
 
+## 0.29.1 — 2026-10-26
+
+- 简化本步骤返工的显示：原生顶部工作流、详情竖向流程和模板流程图不再绘制自回环、占用退回轨道或附加自退回提示。跨步骤的退回箭头、目标与无障碍说明保留；编辑选项及验收/执行规则不变。
+- Hide self-return loops and hints across the native header, workflow details and template diagram. Cross-step returns remain visible; configuration and execution behavior are unchanged.
+
 ## 0.29.0 — 2026-10-26
 
 - Web/Desktop 共用界面的四张知识分类卡片等分同一行，左右边缘与知识图谱对齐；窄窗口保持可操作且无横向溢出。

@@ -317,11 +317,7 @@ try {
         near(endpoint.y, node.dot.y, 'return endpoint has the exact circle top Y', crownTolerance);
       }
       assert.deepEqual(edge.circleHits, [], 'the entire sampled real return curve avoids every circle interior');
-      if (edge.source === edge.target) {
-        near(edge.start.x, edge.end.x, 'self-return starts and ends at the same circle top X', .01);
-        near(edge.start.y, edge.end.y, 'self-return starts and ends at the same circle top Y', .01);
-        assert.ok(edge.totalLength > 10 && edge.box.width > 1 && edge.box.height >= 6, 'a self return remains a nondegenerate visible loop');
-      }
+      assert.notEqual(edge.source, edge.target, 'self returns do not receive a special loop or occupy return lanes');
       assert.ok(edge.minY < Math.min(source.dot.y, target.dot.y), 'horizontal return tracks are above the step circles');
       assert.deepEqual(edge.labelHits, [], 'return strokes must avoid every visible label rectangle'); assert.deepEqual(edge.controlHits, [], 'return strokes must avoid native tab and utility controls');
       assert.equal(edge.clippedSamples, 0, 'each admitted return path is visible in full, without clipping at the nav or native header');
@@ -405,9 +401,13 @@ try {
     await pick('无'); await expect(strip()).toHaveCount(0);
     const nativeReference = await headerGeometry(), before = await state(), beforeCalls = (await calls()).length, cases = [];
     let fixedNodes;
-    for (const item of [{ key: 'zero', template: longFlow, count: 8, rejects: 0 }, { key: 'one', template: flow, count: 2, rejects: 1 }, { key: 'three', template: multiReturnFlow, count: 6, rejects: 4 }, { key: 'zero-again', template: longFlow, count: 8, rejects: 0 }]) {
+    for (const item of [{ key: 'zero', template: longFlow, count: 8, rejects: 0 }, { key: 'one', template: flow, count: 2, rejects: 1 }, { key: 'three', template: multiReturnFlow, count: 6, rejects: 3 }, { key: 'zero-again', template: longFlow, count: 8, rejects: 0 }]) {
       await pick(item.template.name); await expect(steps()).toHaveCount(item.count);
       await expect(strip().locator('path[data-kind="reject"]')).toHaveCount(item.rejects);
+      if (item.template === multiReturnFlow) {
+        await expect(steps().first()).not.toHaveAttribute('aria-label', /验收不合格退回/);
+        await expect(steps().first()).not.toHaveAttribute('title', /验收不合格退回/);
+      }
       await expect.poll(async () => { const graph = await graphGeometry(), header = await headerGeometry(); return Math.max(...graph.nodes.map(node => Math.abs(node.labelTextBox.y + node.labelTextBox.height - header.trajectoryText.y - header.trajectoryText.height))); }).toBeLessThanOrEqual(1);
       await page.mouse.move(300, 300); const graph = await graphGeometry(), header = await headerGeometry();
       assertNumberedGraph(graph, item.template.steps); assertUpperReturns(graph, item.template.steps); assertTextAlignment(graph, header);

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-composable-workforce",
-  "version": "0.29.0",
+  "version": "0.29.1",
   "description": "Composable digital employees, project memory, and reviewed delivery for DeepSeek Harness",
   "type": "module",
   "license": "SEE LICENSE IN LICENSES.md",

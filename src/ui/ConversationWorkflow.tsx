@@ -187,6 +187,7 @@ export function ConversationWorkflowSteps(props: ConversationWorkflowProps) {
   const ownerName = snapshot.ownerName ?? snapshot.steps.find(step => step.id === snapshot.currentStepId)?.employeeName;
   const contactLabel = ownerName ? t('{name}正在对接', { name: ownerName }) : undefined;
   const returnDescription = (stepId: string) => {
+    // Geometry exposes cross-step returns only; implicit/explicit self retry has no visual hint.
     const destination = graph.returns.find(edge => edge.sourceId === stepId);
     return destination ? t('；验收不合格退回第{number}步：{name}', { number: destination.targetIndex + 1, name: destination.targetName }) : '';
   };
