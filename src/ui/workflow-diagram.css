@@ -1,0 +1,17 @@
+.wf-workflow-map { min-width: 0; }
+.wf-workflow-map-legend { margin: 0 0 12px; color: var(--wf-muted); font: var(--dsw-font-xxs-12); }
+.wf-workflow-map-viewport { box-sizing: border-box; width: 100%; min-width: 0; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); overflow: auto; }
+.wf-workflow-map-canvas { position: relative; }
+.wf-workflow-map-canvas > svg { position: absolute; inset: 0; pointer-events: none; color: var(--wf-muted); }
+.wf-workflow-map-edge { fill: none; stroke: currentColor; stroke-width: 1.5; }
+.wf-workflow-map .wf-workflow-map-return { fill: none; stroke: var(--wf-red); stroke-width: 1.25; stroke-dasharray: 5 4; }
+.wf-workflow-map-canvas marker > path { fill: currentColor; }
+.wf-workflow-map-canvas marker > .wf-workflow-map-return-marker { fill: var(--wf-red); }
+.wf-workflow-map-return-label { fill: var(--wf-red); font: var(--dsw-font-xxs-12); paint-order: stroke; stroke: var(--wf-panel); stroke-width: 5px; stroke-linejoin: round; }
+.wf-root .wf-workflow-map .wf-workflow-map-node { position: absolute; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; align-items: stretch; gap: 5px; padding: 10px 12px; text-align: left; border: 1px solid var(--wf-line); border-radius: var(--wf-control-radius); background: var(--wf-card); color: var(--wf-text); }
+.wf-workflow-map .wf-workflow-map-node > strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; font: var(--wf-font-label); line-height: 18px; white-space: normal; }
+.wf-workflow-map .wf-workflow-map-node > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--wf-muted); font: var(--dsw-font-xxs-12); }
+.wf-workflow-map .wf-workflow-map-node > small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--wf-red); font: var(--dsw-font-xxs-12); }
+.wf-root .wf-workflow-map .wf-workflow-map-node:hover { border-color: var(--wf-muted); background: var(--wf-input); }
+.wf-root .wf-workflow-map .wf-workflow-map-node:focus-visible, .wf-workflow-map-viewport:focus-visible { outline: 2px solid var(--wf-accent); outline-offset: 2px; }
+.wf-workflow-map-empty { margin: 0; padding: 24px 16px; color: var(--wf-muted); }
