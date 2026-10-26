@@ -10,7 +10,7 @@ import type { ExportSelection, ImportOptions, ImportTarget, ImportPreview, Impor
 import type { SaveWorkflowTemplateInput, WorkflowTemplate, TeamTemplate } from './types.js';
 import { cancelProjectTeams, installProjectTeam } from './project-team.js';
 import { selectConversationWorkflow, selectConversationWorkflowStep, validateConversationWorkflowRun, reviewConversationWorkflowRun, conversationWorkflowLibraryNeedsSync, synchronizeConversationWorkflowLibrary, type SelectConversationWorkflowInput, type SelectConversationWorkflowStepInput, type ConversationWorkflowView } from './conversation-workflow.js';
-import { selectConversationEmployee, clearConversationEmployee, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput, type ResolvedConversationEmployee } from './conversation-employee.js';
+import { selectConversationEmployee, clearConversationEmployee, admitTemporaryConversationEmployee, validateTemporaryEmployeeTurnKey, type AdmitTemporaryConversationEmployeeInput, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput, type ResolvedConversationEmployee } from './conversation-employee.js';
 import type { CancelProjectTeamsInput, ConfigureProjectTeamInput, ProjectTeam, SetProjectTeamKnowledgeInput } from './types.js';
 import { invariant, textField, validateRelativePath, validateState, WorkforceError } from './validation.js';
 import type { CreateEmployeeInput, CreateProjectEmployeesInput, CreateRunInput, EmployeeTemplate, MemoryRecord, MutationOptions, ProjectEmployee, ReviewRunInput, RunStatus, SaveEmployeeConfigurationInput, SaveMemoryInput, SaveProjectInput, SaveTeamInput, SaveTemplateInput, UpdateEmployeeInput, UpdateRunInput, WorkforceRun, WorkforceState } from './types.js';
@@ -231,6 +231,11 @@ export class WorkforceStore {
     input = clone(input); options = clone(options);
     return this.mutate(options, state => ({ ...clearConversationEmployee(state, input, options), revision: state.revision + 1 }));
   }
+  admitTemporaryConversationEmployee(input: AdmitTemporaryConversationEmployeeInput): Promise<ResolvedConversationEmployee> {
+    input = clone(input);
+    return this.mutate({}, state => ({ ...admitTemporaryConversationEmployee(state, input, draft => this.addEmployee(state, draft))!, revision: state.revision + 1 }),
+      state => admitTemporaryConversationEmployee(state, input));
+  }
   /** Confirm the entire staffing draft once; no partial team or global template edit is persisted. */
   createProjectEmployees(input: CreateProjectEmployeesInput, options: MutationOptions = {}): Promise<ProjectEmployee[]> {
     input = clone(input);
@@ -370,8 +375,15 @@ export class WorkforceStore {
       if (parent?.conversationWorkflow && !input.conversationWorkflow) input.conversationWorkflow = clone(parent.conversationWorkflow);
       validateConversationWorkflowRun(state, input);
       if (input.conversationEmployee) {
-        const binding = state.conversationEmployees?.find(entry => entry.sessionId === input.conversationEmployee!.sessionId && entry.projectId === input.projectId);
-        if (!binding || binding.employeeId !== e.id || binding.mode !== input.conversationEmployee.mode || binding.version !== input.conversationEmployee.bindingVersion) throw new WorkforceError('CONFLICT', '常驻员工已更新，请刷新后重试');
+        const link = input.conversationEmployee;
+        if (link.invocation === 'temporary') {
+          validateTemporaryEmployeeTurnKey(link.sessionId, link.turnKey);
+          invariant(!e.teamInstanceId && !e.managerId, '临时调用只能选择当前工作区的独立员工');
+          if (link.mode !== 'execute' || e.version !== link.employeeVersion) throw new WorkforceError('CONFLICT', '临时员工配置已更新，请重新选择');
+        } else {
+          const binding = state.conversationEmployees?.find(entry => entry.sessionId === link.sessionId && entry.projectId === input.projectId);
+          if (!binding || binding.employeeId !== e.id || binding.mode !== link.mode || binding.version !== link.bindingVersion) throw new WorkforceError('CONFLICT', '常驻员工已更新，请刷新后重试');
+        }
         invariant(!input.parentRunId, '常驻员工工作必须由原生对话发起');
       }
       const date = now(); const entry: WorkforceRun = { id: randomUUID(), projectId: input.projectId, employeeId: e.id,

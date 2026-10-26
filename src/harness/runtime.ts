@@ -291,17 +291,23 @@ export class WorkforceRuntime {
         if (!start || turnKey !== `${agent.id}:${start.seq}`) throw new Error('原生对话轮次标识已失效');
         if (start.type !== 'turn/start' || agent.session.snapshotEvents().some(event => event.seq > start.seq && event.type === 'turn/end' && event.data.turn === start.data.turn)) throw new Error('该原生对话轮次已经结束');
         const current = resident ? undefined : resolveConversationWorkflow(this.store.snapshot(), projectId, agent.id);
-        const binding = resident && resolveConversationEmployee(this.store.snapshot(), projectId, agent.id);
-        if (binding) {
+        const temporary = resident?.temporaryEmployee;
+        const binding = resident && !temporary ? resolveConversationEmployee(this.store.snapshot(), projectId, agent.id) : undefined;
+        if (temporary) {
+          const target = this.store.snapshot().employees.find(employee => employee.id === temporary.employeeId && employee.projectId === projectId);
+          if (temporary.sessionId !== agent.id || temporary.turnKey !== turnKey || !target || target.version !== temporary.employeeVersion
+            || target.status !== 'active' || target.teamInstanceId || target.managerId || resident!.employee?.id !== target.id) throw new Error('本轮临时员工授权已失效，请重新 @ 员工');
+        } else if (binding) {
           if (!binding.conversationEmployee || !binding.employee || binding.unavailableReason) throw new Error(binding.unavailableReason ?? '请先选择常驻员工');
           if (binding.conversationEmployee.version !== resident!.conversationEmployee?.version || binding.employee.id !== resident!.employee?.id) throw new Error('常驻员工已切换，请重新发送消息');
         } else {
           if (!current?.instanceId || !current.owner || !current.currentStepId || current.unavailableReason) throw new Error(current?.unavailableReason ?? '请先选择工作流及当前步骤');
           if (current.instanceId !== view!.instanceId || current.currentStepId !== view!.currentStepId || current.owner.id !== view!.owner?.id) throw new Error('工作流或步骤已切换，请重新发送消息');
         }
-        run = await this.store.createRun({ projectId, employeeId: binding?.employee?.id ?? current!.owner!.id,
+        run = await this.store.createRun({ projectId, employeeId: temporary?.employeeId ?? binding?.employee?.id ?? current!.owner!.id,
           request: requestText.trim() || '用户在本轮提交了附件，请根据原生对话中的资料处理。',
-          ...(binding ? { conversationEmployee: { sessionId: agent.id, mode: binding.conversationEmployee!.mode, bindingVersion: binding.conversationEmployee!.version } }
+          ...(temporary ? { conversationEmployee: { sessionId: agent.id, mode: 'execute', invocation: 'temporary', turnKey, employeeVersion: temporary.employeeVersion } }
+            : binding ? { conversationEmployee: { sessionId: agent.id, mode: binding.conversationEmployee!.mode, bindingVersion: binding.conversationEmployee!.version } }
             : { conversationWorkflow: { instanceId: current!.instanceId!, stepId: current!.currentStepId! } }) });
         const completed = new Promise<void>(resolve => { resolveLive = resolve; });
         live = { externalAgent: agent, externalEvents: agent.session.snapshotEvents().filter(event => event.seq >= start.seq),
@@ -349,7 +355,7 @@ export class WorkforceRuntime {
           .map(candidate => ({ id: candidate.id, name: candidate.name, mission: candidate.modules.responsibilities.mission })).sort((a, b) => a.id.localeCompare(b.id));
         prompt += `\n\n当前可规划/委派的下级名册：${JSON.stringify(colleagues)}。你本人 ID=${ownedRun.employeeId}。worker_plan_task 仅保存草稿，不启动项目自动调度；需要实际执行时通过 worker_delegate 明确委派上述下级。其他流程负责人仅在确有必要且说明具体原因时用 worker_consult 沟通：${JSON.stringify(related)}。跨步骤沟通不跳过当前步骤，不代替用户验收，不自动激活其他人员；不复制本对话全文或员工私有知识。`;
       } else if (!consult) {
-        prompt += '\n\n用户已明确选择你常驻此 Chat 对话，保留本对话历史，直接负责用户本轮任务；无需再次 @。这是独立员工执行，不属于工作流，不自动安装团队、不推进流程。仅提交真实回答或成果，涉及工程任务保留必要验证与权限；不自行宣告用户验收。';
+        prompt += '\n\n用户已明确选择你处理此 Chat 对话的当前任务，保留本对话历史，直接负责本轮请求。这是独立员工执行，不属于工作流，不自动安装团队、不推进流程；后续轮次是否继续由对话常驻选择及当轮明确 @ 决定，不能由本轮身份推定常驻。仅提交真实回答或成果，涉及工程任务保留必要验证与权限；不自行宣告用户验收。';
       }
       if (managedKnowledge && knowledgeEmployee) {
         await this.updateActivity(ownedRun.id, 'preparing-knowledge');
@@ -577,9 +583,16 @@ export class WorkforceRuntime {
         const link = attempt.conversationEmployee;
         const workspace = this.ctx.workspaceRegistry.get(WorkspaceId(attempt.projectId));
         if (!workspace || conversationWorkflowsEnabled(workspace)) throw new Error('常驻对话已不属于 Chat 工作区');
-        const resident = resolveConversationEmployee(state, attempt.projectId, link.sessionId);
-        if (resident.unavailableReason || resident.conversationEmployee?.version !== link.bindingVersion
-          || resident.conversationEmployee.employeeId !== attempt.employeeId || resident.conversationEmployee.mode !== link.mode) throw new Error(resident.unavailableReason ?? '常驻员工授权已撤销或切换');
+        if (link.invocation === 'temporary') {
+          const target = employees.find(employee => employee.id === attempt.employeeId && employee.projectId === attempt.projectId);
+          const start = external?.session.snapshotEvents().findLast(event => event.type === 'turn/start');
+          if (!target || target.version !== link.employeeVersion || target.status !== 'active' || target.teamInstanceId || target.managerId
+            || (external && (!start || link.turnKey !== `${external.id}:${start.seq}`))) throw new Error('本轮临时员工授权已撤销或过期');
+        } else {
+          const resident = resolveConversationEmployee(state, attempt.projectId, link.sessionId);
+          if (resident.unavailableReason || resident.conversationEmployee?.version !== link.bindingVersion
+            || resident.conversationEmployee.employeeId !== attempt.employeeId || resident.conversationEmployee.mode !== link.mode) throw new Error(resident.unavailableReason ?? '常驻员工授权已撤销或切换');
+        }
       }
       const current = employees.find(employee => employee.id === attempt.employeeId && employee.projectId === run.projectId);
       if (!current || current.status !== 'active') throw new Error('员工已停用或移除，执行权限已撤销');

@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
+import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Context } from '@deepseek-ai/cordis';
 import type {} from '@deepseek-ai/dsh-host-webserver';
@@ -38,7 +39,7 @@ import { isLegacyStandaloneRun } from '../domain/conversation-session.js';
 import { isConversationAgentBusy } from './conversation-activity.js';
 import { requireConversationWorkflowReview, resolveConversationWorkflowDetails, type ConversationWorkflowReviewInput } from '../domain/conversation-workflow-details.js';
 import { conversationWorkflowsEnabled } from './workspace-policy.js';
-import { conversationEmployeeChoices, employeeInfoCard, resolveConversationEmployee, resolveEmployeeInfo, type ConversationEmployeeView, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput } from '../domain/conversation-employee.js';
+import { assertNoAdditionalTemporaryEmployeeMention, conversationEmployeeChoices, employeeInfoCard, hasTemporaryEmployeeMentionMarker, parseTemporaryEmployeeMentionMarker, resolveConversationEmployee, resolveEmployeeInfo, resolveTemporaryEmployeeMention, type AdmitTemporaryConversationEmployeeInput, type ConversationEmployeeView, type SelectConversationEmployeeInput, type ClearConversationEmployeeInput } from '../domain/conversation-employee.js';
 
 export const name = 'composable-workforce';
 export const inject = ['webServer', 'connection', 'agents', 'tools', 'systemPrompt', 'skills', 'workspaceRegistry', 'sessionController', 'agentPresets', 'llm'];
@@ -60,6 +61,41 @@ function record(value: unknown): Record<string, unknown> {
 function string(value: unknown, label: string): string {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label}不能为空`);
   return value;
+}
+
+/** Ephemeral references authorize only a native user message, never create an employee or a Session. */
+export function createTemporaryEmployeeMentionTickets(options: { now?: () => number; token?: () => string; capacity?: number; ttlMs?: number } = {}) {
+  type Target = Omit<AdmitTemporaryConversationEmployeeInput, 'turnKey'>;
+  type Ticket = { target: Target; expiresAt: number; turnKey?: string };
+  const tickets = new Map<string, Ticket>(); const now = options.now ?? Date.now;
+  const prune = () => { for (const [token, ticket] of tickets) if (ticket.expiresAt <= now()) tickets.delete(token); };
+  const marker = (token: string) => `<graph-horses-employee:${token}>`;
+  return {
+    issue(target: Target): { marker: string } {
+      prune();
+      if (tickets.size >= (options.capacity ?? 1024)) throw new Error('待发送的员工引用过多，请稍后重新选择');
+      const token = (options.token ?? (() => randomBytes(16).toString('hex')))();
+      if (!/^[a-f0-9]{32}$/.test(token) || tickets.has(token)) throw new Error('无法建立员工引用，请重新选择');
+      tickets.set(token, { target: structuredClone(target), expiresAt: now() + (options.ttlMs ?? 600_000) });
+      return { marker: marker(token) };
+    },
+    has(sessionId: string, requestText: string): boolean {
+      prune();
+      return hasTemporaryEmployeeMentionMarker(requestText);
+    },
+    claim(sessionId: string, turnKey: string, requestText: string): { input: AdmitTemporaryConversationEmployeeInput; requestText: string } | undefined {
+      prune();
+      const parsed = parseTemporaryEmployeeMentionMarker(requestText);
+      if (!parsed) return undefined;
+      const matching = tickets.get(parsed.token);
+      if (!matching) throw new Error('临时员工引用已失效，请重新选择员工后发送');
+      if (matching.target.sessionId !== sessionId) throw new Error('临时员工引用不属于当前对话，请重新选择');
+      if (matching.turnKey && matching.turnKey !== turnKey) throw new Error('临时员工引用已用于另一轮，请重新选择员工');
+      matching.turnKey = turnKey;
+      return { input: { ...structuredClone(matching.target), turnKey }, requestText: parsed.requestText };
+    },
+    dispose(): void { tickets.clear(); },
+  };
 }
 
 function json(res: ServerResponse, code: number, value: unknown): void {
@@ -109,6 +145,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const roleDrafter = createEmployeeRoleDrafter(ctx);
   const knowledge = new KnowledgeEngine(store, new KnowledgeRepository(knowledgeRootFor(store.filePath)), createKnowledgeCompiler(ctx, {}, wiki), error => ctx.logger.error(error), wiki);
   const runtime = new WorkforceRuntime(ctx, store, skills, Object.fromEntries(Object.entries(config).filter(([key]) => Object.hasOwn(DEFAULT_RUNTIME_CONFIG, key))), knowledge);
+  const mentionTickets = createTemporaryEmployeeMentionTickets();
   const workflows = new WorkflowRepository(store);
   const workflowEngine = new WorkflowEngine(workflows, runtime, error => ctx.logger.error(error), projectId => {
     const workspace = ctx.workspaceRegistry.list().find(item => item.id === projectId);
@@ -131,20 +168,48 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     const agent = ctx.agents.get(SessionId(sessionId));
     return isConversationAgentBusy(agent, !runtime.ownsSession(sessionId));
   };
+  const isTemporaryEmployeeRequest = (sessionId: string, requestText: string) => {
+    const workspace = workspaceForSession(sessionId);
+    if (!workspace || conversationWorkflowsEnabled(workspace)) return false;
+    if (mentionTickets.has(sessionId, requestText)) return true;
+    try { return Boolean(resolveTemporaryEmployeeMention(store.snapshot(), workspace.id, requestText)); }
+    catch { return true; } // Known paused, invalid, or ambiguous roles must fail explicitly in prepare.
+  };
   const disposeConversationRuntime = registerConversationWorkflowRuntime(ctx, {
     isDeliverySession,
-    ownsPendingTurn: agent => {
+    ownsPendingTurn: (agent, requestText) => {
       const workspace = workspaceForSession(agent.id);
       if (!workspace) return false;
       return conversationWorkflowsEnabled(workspace)
         ? Boolean(resolveConversationWorkflow(store.snapshot(), workspace.id, agent.id).instanceId)
-        : Boolean(resolveConversationEmployee(store.snapshot(), workspace.id, agent.id).conversationEmployee);
+        : Boolean(resolveConversationEmployee(store.snapshot(), workspace.id, agent.id).conversationEmployee || (requestText && isTemporaryEmployeeRequest(agent.id, requestText)));
     },
-    prepare: async (agent, turnKey, requestText, signal) => {
+    isTemporaryEmployeeRequest: (agent, requestText) => isTemporaryEmployeeRequest(agent.id, requestText),
+    prepare: async (agent, turnKey, requestText, signal, context) => {
       await syncProjects();
       const workspace = workspaceForSession(agent.id);
       if (!workspace) return undefined;
       if (!conversationWorkflowsEnabled(workspace)) {
+        const userRequests = context?.userMessages.filter(message => message.source.kind === 'user').map(message => message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n\n')) ?? [requestText];
+        const temporaryIndexes = userRequests.flatMap((text, index) => isTemporaryEmployeeRequest(agent.id, text) ? [index] : []);
+        if (temporaryIndexes.length > 1) throw new Error('一轮对话只能临时调用一位员工，请分轮发送');
+        if (temporaryIndexes.some(index => index > 0)) throw new Error('当前轮已接收消息，请等待本轮结束后再临时调用员工');
+        if (temporaryIndexes.length) {
+          const firstRequest = userRequests[0]!;
+          let input: AdmitTemporaryConversationEmployeeInput;
+          if (hasTemporaryEmployeeMentionMarker(firstRequest)) {
+            const claimed = mentionTickets.claim(agent.id, turnKey, firstRequest);
+            if (!claimed || claimed.input.projectId !== workspace.id) throw new Error('临时员工引用不属于当前工作区，请重新选择');
+            assertNoAdditionalTemporaryEmployeeMention(store.snapshot(), workspace.id, claimed.requestText);
+            input = claimed.input;
+          } else {
+            const target = resolveTemporaryEmployeeMention(store.snapshot(), workspace.id, firstRequest)!;
+            input = { projectId: workspace.id, sessionId: agent.id, turnKey, expectedTargetVersion: target.version,
+              ...(target.kind === 'employee' ? { employeeId: target.id } : { templateId: target.id }) };
+          }
+          const temporary = await store.admitTemporaryConversationEmployee(input);
+          return runtime.openEmployeeConversationTurn(agent, turnKey, parseTemporaryEmployeeMentionMarker(requestText)?.requestText ?? requestText, temporary, signal);
+        }
         const resident = resolveConversationEmployee(store.snapshot(), workspace.id, agent.id);
         if (!resident.conversationEmployee) return undefined;
         if (resident.unavailableReason) throw new Error(resident.unavailableReason);
@@ -163,7 +228,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     // runtime errors must never leave the archive subscription or ledger writer
     // active after the plugin's awaited disposal has finished.
     const failures: unknown[] = [];
-    for (const stop of [() => roleDrafter.dispose(), disposeConversationRuntime,
+    for (const stop of [() => mentionTickets.dispose(), () => roleDrafter.dispose(), disposeConversationRuntime,
       () => workEngine.dispose(), () => workflowEngine.dispose(), () => runtime.dispose(),
       () => knowledge.dispose(), () => wiki.dispose()]) {
       try { await stop(); } catch (error) { failures.push(error); }
@@ -430,6 +495,20 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       if (req.method === 'GET' && route === '/conversation-employee') {
         await syncProjects();
         json(res, 200, residentView(string(url.searchParams.get('sessionId'), '对话 ID'))); return;
+      }
+      if (req.method === 'POST' && route === '/conversation-employee/mention-ticket') {
+        const body = await readBody(req, bodyLimit); await syncProjects();
+        const sessionId = string(body.sessionId, '对话 ID'); const workspace = workspaceForSession(sessionId);
+        if (!workspace || conversationWorkflowsEnabled(workspace) || isDeliverySession(sessionId)) throw new Error('请在 Chat 原生对话中临时调用独立员工');
+        if ((body.employeeId === undefined) === (body.templateId === undefined)) throw new Error('请选择一个员工实例或自由职业人');
+        const kind = body.employeeId !== undefined ? 'employee' : 'template';
+        const id = string(body.employeeId ?? body.templateId, '员工或自由职业人 ID'); const state = store.snapshot();
+        const choice = conversationEmployeeChoices(state, workspace.id).find(candidate => candidate.kind === kind && candidate.id === id);
+        if (!choice) throw new Error('该员工当前不可用，请刷新后重新选择');
+        const targetVersion = kind === 'employee' ? state.employees.find(employee => employee.id === id)!.version : state.templates.find(template => template.id === id)!.version;
+        if (body.requestText !== undefined) throw new Error('临时员工引用不接受文本预约，请直接发送原生消息');
+        json(res, 200, mentionTickets.issue({ projectId: workspace.id, sessionId, expectedTargetVersion: targetVersion,
+          ...(kind === 'employee' ? { employeeId: id } : { templateId: id }) })); return;
       }
       if (req.method === 'GET' && route === '/employee-info') {
         await syncProjects();

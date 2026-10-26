@@ -4,27 +4,14 @@
 .wf-conversation-employee[data-contact-aligned="false"] .wf-conversation-employee-trigger { max-width: 100%; }
 .wf-conversation-employee-trigger > svg { flex: none; transform: rotate(90deg); }
 .wf-conversation-employee-trigger:hover, .wf-conversation-employee-option.is-active { background: var(--dsw-alias-interactive-bg-hover); }
-.wf-conversation-employee-trigger:focus-visible, .wf-conversation-employee-menu button:focus-visible, .wf-conversation-employee-card summary:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
-.wf-conversation-employee-popup { position: absolute; z-index: 60; width: 340px; max-width: calc(100vw - 32px); }
-.wf-conversation-employee-menu { padding: 10px; box-sizing: border-box; max-height: min(650px, calc(100dvh - 110px)); overflow-y: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-soft); font: var(--dsw-font-xxs-12); }
-.wf-conversation-employee-note { margin: 0 0 8px; color: var(--dsw-alias-label-secondary); line-height: 1.5; }
-.wf-conversation-employee-modes { display: flex; gap: 20px; margin: 0 0 8px; padding: 8px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 6px; }
-.wf-conversation-employee-modes legend { padding: 0 4px; color: var(--dsw-alias-label-secondary); }
-.wf-conversation-employee-modes label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.wf-conversation-employee-options { max-height: 260px; overflow-y: auto; outline-offset: -2px; }
-.wf-conversation-employee-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 36px; padding: 8px; border-radius: 6px; cursor: pointer; box-sizing: border-box; }
+.wf-conversation-employee-trigger:focus-visible, .wf-conversation-employee-menu button:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); outline-offset: 2px; }
+.wf-conversation-employee-popup { position: absolute; z-index: 60; width: 240px; max-width: calc(100vw - 32px); }
+.wf-conversation-employee-menu { padding: 4px; box-sizing: border-box; max-height: min(320px, calc(100dvh - 110px)); overflow-y: auto; border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-base)); color: var(--dsw-alias-label-primary); box-shadow: var(--dsw-elevation-soft); font: var(--dsw-font-xxs-12); }
+.wf-conversation-employee-options { max-height: min(310px, calc(100dvh - 120px)); overflow-y: auto; outline-offset: -2px; }
+.wf-conversation-employee-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 6px 8px; border-radius: 6px; cursor: pointer; box-sizing: border-box; }
 .wf-conversation-employee-option > span { min-width: 0; }
 .wf-conversation-employee-option > svg { flex: none; }
-.wf-conversation-employee-option strong { display: block; font-weight: 500; }
-.wf-conversation-employee-option small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px; margin-top: 3px; color: var(--dsw-alias-label-secondary); font: inherit; }
 .wf-conversation-employee-option[aria-disabled="true"] { opacity: .5; cursor: default; }
-.wf-conversation-employee-card { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--dsw-alias-border-l2); }
-.wf-conversation-employee-card summary { padding: 4px 0; cursor: pointer; }
-.wf-conversation-employee-card h3 { margin: 12px 0 6px; font-size: 14px; }
-.wf-conversation-employee-card h4 { margin: 10px 0 4px; font-size: 12px; font-weight: 500; }
-.wf-conversation-employee-card p { margin: 0; line-height: 1.6; }
-.wf-conversation-employee-card ul { margin: 0; padding-left: 18px; }
-.wf-conversation-employee-card li { line-height: 1.6; overflow-wrap: anywhere; }
 .wf-conversation-employee-error { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; color: var(--dsw-alias-state-error-primary); line-height: 1.5; overflow-wrap: anywhere; }
 .wf-conversation-employee-error button { flex: none; background: transparent; color: inherit; border: 0; font: inherit; cursor: pointer; }
-@media (max-width: 720px) { .wf-conversation-employee { margin-inline-end: 8px; } .wf-conversation-employee-popup { width: 300px; } }
+@media (max-width: 720px) { .wf-conversation-employee { margin-inline-end: 8px; } .wf-conversation-employee-popup { width: 220px; } }

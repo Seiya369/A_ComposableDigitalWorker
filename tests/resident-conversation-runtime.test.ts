@@ -25,11 +25,13 @@ import { loadEmployeeSkills } from '../src/harness/skills.js';
 
 class OfflineAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = [];
+  beforeStream?: (request: GenerateOptions) => Promise<void>;
   override async resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return { provider, id: model, name: model, context: { contextWindow: 1_048_576 }, reasoning: { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }], default: ReasoningEffortId('high') } };
   }
   async *stream(request: GenerateOptions): AsyncIterable<StreamChunk> {
     this.requests.push(request);
+    await this.beforeStream?.(request);
     const answer = `OFFLINE_RESIDENT_ANSWER_${this.requests.length}`;
     yield { type: 'block-start', index: 0, blockType: 'text' };
     yield { type: 'text-delta', index: 0, text: answer };
@@ -81,13 +83,21 @@ async function fixture(t: TestContext) {
   const workspace = { path: projectRoot, sessionIds: attached, attachSession: async (id: string) => { attached.push(id); } };
   ctx.provide('workspaceRegistry', { get: (id: string) => id === project.id ? workspace : undefined } as never);
   const runtime = new WorkforceRuntime(ctx, store, skills, {}, knowledge);
+  const temporaryTargets = new Map<string, { templateId: string; expectedTargetVersion: number }>();
+  let eventReads = 0;
   const dispose = registerConversationWorkflowRuntime(ctx, {
     isDeliverySession: () => false,
-    prepare: (agent, key, request, signal) => {
+    prepare: async (agent, key, request, signal) => {
+      const temporary = temporaryTargets.get(agent.id);
+      if (temporary) {
+        temporaryTargets.delete(agent.id);
+        const view = await store.admitTemporaryConversationEmployee({ projectId: project.id, sessionId: agent.id, turnKey: key, ...temporary });
+        return runtime.openEmployeeConversationTurn(agent, key, request, view, signal);
+      }
       const view = resolveConversationEmployee(store.snapshot(), project.id, agent.id);
       return view.conversationEmployee ? runtime.openEmployeeConversationTurn(agent, key, request, view, signal) : Promise.resolve(undefined);
     },
-    readEvents: async agent => agent.session.snapshotEvents(),
+    readEvents: async agent => { eventReads++; return agent.session.snapshotEvents(); },
     onError: error => errors.push(error),
   });
   ctx.on('agent/assistant-stream', ({ agent, frame }) => streams.push({ id: agent.id, type: frame.type }));
@@ -109,20 +119,24 @@ async function fixture(t: TestContext) {
       { expectedRevision: store.snapshot().revision, expectedVersion: view.conversationEmployee?.version ?? 0 });
   };
   const send = async (message: string, agent = native) => {
-    const before = adapter.requests.length;
+    const before = adapter.requests.filter(request => request.sessionId === agent.id).length;
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: message }] }));
     await agent.whenIdle();
     const run = store.snapshot().runs.filter(run => run.sessionId === agent.id && !run.parentRunId).at(-1);
     if (run) await runtime.wait(run.id);
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(adapter.requests.length, before + 1, JSON.stringify(errors.map(error => String(error))));
-    const request = adapter.requests.at(-1)!;
+    assert.equal(adapter.requests.filter(request => request.sessionId === agent.id).length, before + 1, JSON.stringify(errors.map(error => String(error))));
+    const request = adapter.requests.findLast(request => request.sessionId === agent.id)!;
     assert.equal(request.sessionId, agent.id); assert.ok(Object.isFrozen(request));
     assert.match(visible(request), /NATIVE_SYSTEM_IDENTITY_SENTINEL/); assert.match(visible(request), /NATIVE_REQUIRED_POLICY_SENTINEL/);
     return request;
   };
+  const invokeTemporary = async (templateId: string, message: string, agent = native) => {
+    temporaryTargets.set(agent.id, { templateId, expectedTargetVersion: store.snapshot().templates.find(template => template.id === templateId)!.version });
+    return send(message, agent);
+  };
   t.after(async () => { await dispose(); await runtime.dispose(); for (const handle of handles) await handle.dispose(); await ctx.fiber.dispose(); await rm(directory, { recursive: true, force: true }); });
-  return { store, project, ctx, adapter, runtime, native, createNative, set, clear, send, counters, errors, streams, directory };
+  return { store, project, ctx, adapter, runtime, native, createNative, set, clear, send, invokeTemporary, counters, errors, streams, directory, eventReads: () => eventReads };
 }
 
 test('explicit resident consult and execute keep native history/stream, restore tools, switch employee, and unbind locally', async t => {
@@ -199,4 +213,86 @@ test('complete software seed consultation request composition is measured withou
   assert.ok(comparison.execute.operations.skillBodies > 0);
   const output = resolve('artifacts/resident-chat/native-api'); await mkdir(output, { recursive: true });
   await writeFile(join(output, 'complete-seed-comparison.json'), JSON.stringify(comparison, null, 2) + '\n');
+});
+
+
+test('temporary employee overrides the resident for one native turn and restores its role without changing the binding', async t => {
+  const f = await fixture(t);
+  await f.set('employee-template-architect', 'execute');
+  const binding = resolveConversationEmployee(f.store.snapshot(), f.project.id, f.native.id).conversationEmployee;
+  await f.send('由常驻架构师回答');
+  const temporary = await f.invokeTemporary('employee-template-product', '由临时产品负责人回答');
+  assert.equal(temporary.model, 'employee-template-product');
+  assert.deepEqual(resolveConversationEmployee(f.store.snapshot(), f.project.id, f.native.id).conversationEmployee, binding);
+  const attempt = f.store.snapshot().runs.filter(run => run.sessionId === f.native.id).at(-1)!;
+  assert.equal(attempt.conversationEmployee?.invocation, 'temporary');
+  assert.equal(attempt.conversationEmployee?.sessionId, f.native.id);
+  assert.equal('bindingVersion' in attempt.conversationEmployee!, false, 'temporary authority has no persistent binding version');
+  const restored = await f.send('下一轮恢复常驻架构师');
+  assert.equal(restored.model, 'employee-template-architect');
+  const productMission = f.store.snapshot().templates.find(template => template.id === 'employee-template-product')!.modules.responsibilities.mission;
+  assert.doesNotMatch(pluginContexts(restored).map(section => section.text).join('\n'), new RegExp(productMission));
+  assert.match(visible(restored), /OFFLINE_RESIDENT_ANSWER_1/);
+  assert.match(visible(restored), /OFFLINE_RESIDENT_ANSWER_2/);
+  assert.equal(f.ctx.agents.list().length, 1, 'temporary mention creates no additional Agent or Session');
+  assert.equal(f.eventReads(), 1, 'native history is initially observed once and then follows native events');
+  assert.equal(f.streams.filter(frame => frame.id === f.native.id && frame.type === 'start').length, 3);
+  assert.deepEqual(f.errors, []);
+});
+
+test('unbound temporary employee returns to native scope, keeps repeated role definitions stable, and never affects another conversation', async t => {
+  const f = await fixture(t);
+  const first = await f.invokeTemporary('employee-template-product', '第一次临时处理');
+  const second = await f.invokeTemporary('employee-template-product', '第二次临时处理');
+  const mission = f.store.snapshot().templates.find(template => template.id === 'employee-template-product')!.modules.responsibilities.mission;
+  assert.equal(visible(second).split(mission).length - 1, visible(first).split(mission).length - 1, 'consecutive same-role temporary turns reuse the full native definition without duplicating role or skill descriptions');
+  assert.equal(pluginContexts(second).filter(section => section.text.includes(mission)).length, 1);
+  assert.ok(first.tools?.some(tool => tool.name === 'worker_memory_search'));
+  const unrelated = await f.createNative('temporary-unrelated-session');
+  const other = await f.send('另一个对话没有临时员工', unrelated);
+  assert.equal(pluginContexts(other).length, 0);
+  assert.equal(other.tools?.some(tool => tool.name === 'worker_memory_search'), false);
+  const native = await f.send('下一轮普通原生助手');
+  assert.equal(pluginContexts(native).length, 0, 'no active employee definition survives the temporary turn');
+  assert.ok(native.tools?.some(tool => tool.name === 'read'));
+  assert.equal(native.tools?.some(tool => tool.name === 'worker_memory_search'), false);
+  assert.equal(resolveConversationEmployee(f.store.snapshot(), f.project.id, f.native.id).conversationEmployee, null);
+  assert.equal(f.store.snapshot().runs.filter(run => run.conversationEmployee?.invocation === 'temporary').length, 2);
+  assert.equal(f.ctx.agents.list().length, 2, 'only the two explicitly created native conversations exist');
+  assert.equal(f.eventReads(), 2, 'each native conversation is observed once rather than replayed per turn');
+  assert.match(visible(native), /OFFLINE_RESIDENT_ANSWER_1/);
+  assert.match(visible(native), /OFFLINE_RESIDENT_ANSWER_2/);
+  assert.deepEqual(f.errors, []);
+});
+
+
+test('the same employee reuses its stable execution definition across temporary and explicit residency', async t => {
+  const f = await fixture(t);
+  const temporary = await f.invokeTemporary('employee-template-product', '临时处理当前问题');
+  await f.set('employee-template-product', 'execute');
+  const resident = await f.send('现在明确常驻后继续');
+  const mission = f.store.snapshot().templates.find(template => template.id === 'employee-template-product')!.modules.responsibilities.mission;
+  assert.equal(visible(resident).split(mission).length - 1, visible(temporary).split(mission).length - 1);
+  assert.equal(pluginContexts(resident).filter(section => section.text.includes(mission)).length, 1);
+  assert.equal(f.eventReads(), 1);
+  assert.equal(f.ctx.agents.list().length, 1);
+});
+
+test('a temporary employee streaming in one native conversation cannot expose its context or tools in another', async t => {
+  const f = await fixture(t);
+  let entered!: () => void, complete!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  const gate = new Promise<void>(resolve => { complete = resolve; });
+  f.adapter.beforeStream = async request => { if (request.sessionId === f.native.id) { entered(); await gate; } };
+  const sending = f.invokeTemporary('employee-template-product', '当前临时员工正在回答');
+  await started;
+  try {
+    const other = await f.createNative('temporary-concurrent-native-session');
+    const request = await f.send('另一个对话立即使用原生助手', other);
+    assert.equal(pluginContexts(request).length, 0);
+    assert.equal(request.tools?.some(tool => tool.name === 'worker_memory_search'), false);
+    assert.ok(request.tools?.some(tool => tool.name === 'read'));
+  } finally { complete(); await sending; }
+  assert.equal(f.ctx.agents.list().length, 2);
+  assert.deepEqual(f.errors, []);
 });

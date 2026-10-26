@@ -18,7 +18,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.3/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.3/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-plugin.3)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.4/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.4/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-plugin.4)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 
@@ -203,21 +203,11 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 **Chat 目录例外：** 不显示或执行工作流。普通消息保持原生聊天；行首输入 `@` 可从自由职业人库选择单个员工，确认发送后创建或复用独立员工并打开独立工作单，无需团队或工作流。旧流程记录保留但不接管 Chat。识别依据为目录名而非展示标题，详见[Chat 工作区规则](docs/architecture/chat-workspace.md)。
 
-Chat 候选的“本工作区已启用员工 / 自由职业人模板”说明实例是否已创建；它不是当前对话常驻标记。提示“单次委派”，每次 `@` 都打开新的交付会话，复用员工配置与授权知识。未明确选择常驻时，普通后续消息由原生助手处理；单次委派不自动复制来源会话全文。输入开销、服务商缓存和常驻方式的比较见[身份问答核查](docs/audits/2026-10-26-employee-identity-cache.md)。
+**选择对话员工：** Chat 顶部与项目负责人相同的位置显示“选择对话员工”。默认不选员工；点击后只列员工姓名，选择即常驻当前对话，后续消息交给该员工。选择“无”可取消，其他对话不受影响，刷新后保留选择。
 
-**显式常驻此对话：** Chat 顶部与项目“XXX 正在对接”相同的位置提供下拉菜单。默认“不常驻／原生助手”，可选择员工持续负责本对话；以前 `@` 过不会自动开启。可随时在空闲时切换或退出，其他对话不受影响。员工信息卡本地展示职责、能力和边界，不调用模型。
+**临时调用：** 在输入框输入 `@` 并选择员工，只由该员工处理当前轮次，留在同一个对话，支持原生附件、历史和流式输出；不会改变顶部常驻选择。下一轮恢复常驻员工，未选择常驻员工则使用原生助手。员工按自身岗位、模型、技能和授权知识工作，不再在菜单中额外选择“轻咨询／执行任务”。
 
-常驻提供“轻咨询／工具执行”。轻咨询只带岗位职责与当前对话内容，不新增工具 schema、自动技能目录、岗位长期知识和必备技能正文，不执行工具、不自动归档或编纂普通问答；用户在原生输入中显式提交的资料/技能仍保留。需要检索、工程操作和完整岗位能力时，请明确切到工具执行。所选员工模型与推理配置不被暗中降低；简单问题可在员工配置中选择合适档位。同一原生会话的历史、附件、流式输出、权限、停止和原生压缩继续有效。旧历史不会因切换而删除，总输入仍可能增长；服务商命中率不作保证。
-
-独立工作单执行和交接期间，交付会话暂缓接收新输入，原生停止按钮仍可用；交接成功后可继续普通聊天。原 Chat 和其他对话不受影响，恢复失败可重试。
-
-先在 DSH 中打开其他项目，再打开该项目的原生对话。输入区初始显示 **工作流：无**，菜单首项也是“无”。
-
-首次选择某个工作流时，会创建其项目团队、员工和人员关系，不执行任务。该项目首次非空选择会成为项目默认，并清除之前的空覆盖，让项目对话统一继承；之后在某个对话改选其他工作流或“无”，只改变该对话的选择。同项目、同工作流共享步骤进度与验收记录。
-
-直接输入任务即可由当前步骤负责人接手，无需 `@`。需要单独派工时，可在行首输入 `@`，选择当前项目已启用的员工；输入中间的 `@` 继续使用 DSH 原生引用功能。
-
-顶部步骤条以 **灰色** 表示未完成、**蓝色** 表示当前步骤、**白色** 表示已验收。点击步骤只切换当前步骤与负责人，不会把之前步骤标成完成。正在执行的对话冻结本轮身份；其他空闲对话仍可选择工作流、选择“无”并使用对应负责人。共享步骤与验收在相关执行结束前受保护。原生空白对话的顶部区域在首次发言后显示。
+输入开销与前缀缓存设计见[身份问答核查](docs/audits/2026-10-26-employee-identity-cache.md)。原生历史保留，模型名可能由 DSH 继续记忆；仅凭显示的模型名不能判断是否由员工处理。旧独立工作单仍可查看和验收，历史交接与输入保护保留。
 
 #### 5. 查看成果、验收与返工
 
@@ -313,7 +303,7 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 ### 验证状态与已知限制
 
-0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.3.md)，会话保留标准按 [ADR-004](docs/decisions/004-session-archive-retention.md) 更新。
+0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.4.md)，会话保留标准按 [ADR-004](docs/decisions/004-session-archive-retention.md) 更新。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -553,19 +543,11 @@ Open your project in DSH, then open one of its conversations. The input initiall
 
 Selecting a workflow creates its project team, employees, and reporting relationships without executing a task. The project's first non-empty selection becomes its default and clears earlier empty overrides so conversations inherit it. Later selections of a different workflow or **None** affect only that conversation. Conversations using the same workflow in the same project share step progress and review records.
 
-**Chat directory exception:** Chat has no workflow controls or execution. A leading `@` can choose a standalone employee or ready freelancer role without installing a team. Only explicit submission starts an independent work order; old workflow history remains inactive. Policy follows the actual directory basename, not its display title. See [Chat workspace behavior](docs/architecture/chat-workspace.md).
+**Chat directory exception:** Chat has no workflow controls or execution. Its header shows **Select conversation employee** when no employee is selected. The compact dropdown lists employee names only; selecting one makes it resident in this conversation, and **None** clears the selection. Other conversations remain independent, and reload preserves the choice.
 
-“Enabled employees in this workspace / Freelancer templates” describes whether an instance already exists, not a resident conversation binding. Candidates say “One-time delegation”; every `@` opens a separate delivery session while reusing employee configuration and authorized knowledge. Ordinary follow-ups use the native assistant, and source conversations are not copied in full. See the [identity-query and cache audit](docs/audits/2026-10-26-employee-identity-cache.md) for measured overhead and a comparison of calling modes.
+For a temporary employee, type `@` and choose the employee in the composer. That employee handles only the current turn in the same native conversation, with its history, attachments, streaming and policies intact. It does not change the resident choice; the next turn returns to the selected resident or native assistant. Employees use their configured roles, models, skills and authorized knowledge without an extra consultation/execution selector.
 
-**Explicit residency:** a Chat header dropdown appears at the same contact position as a project's “XXX is handling this.” It defaults to “No resident / native assistant.” Choose an employee to handle subsequent messages in this same native conversation, switch, or exit while idle. Prior mentions never enable residency. Other conversations stay independent. The local employee card shows responsibilities and capabilities without a model request.
-
-Resident modes are **Light consultation** and **Tool execution**. Consultation adds the role brief and existing conversation, without new tool schemas, automatic skill catalogs, required-skill bodies or employee long-term knowledge. It cannot execute tools or automatically archive/synthesize ordinary Q&A. Native user-explicit skill/file inputs remain. Switch explicitly to execution for retrieval and engineering operations. The employee's chosen model/reasoning settings are retained; choose a suitable effort in employee settings for simple questions. Native history, attachments, streaming, permissions, Stop and compaction remain. Historical records are retained, so switching modes may still increase total input; no provider cache-hit rate is guaranteed.
-
-The delivery composer pauses new input while its one-time work order runs and hands back to the native assistant; the native Stop button remains available. Ordinary chatting resumes after successful handoff. The source Chat and other conversations stay available, with retry support if recovery fails.
-
-Type normally to work with the current step owner; no `@` is needed. For a separate work order, type `@` at the beginning of a message and choose an enabled project employee. An `@` elsewhere retains DSH's native reference behavior.
-
-The header uses **gray** for pending, **blue** for current, and **white** for accepted steps. Selecting a step changes the current step and owner; it does not mark earlier steps complete. An active conversation keeps its owner frozen, while other idle conversations can select a workflow or None and use their corresponding owner. Shared progress and acceptance remain protected during related execution. The native header appears after the first message in an empty conversation.
+See [Chat workspace behavior](docs/architecture/chat-workspace.md) and the [context/cache audit](docs/audits/2026-10-26-employee-identity-cache.md). Retained model names follow native DSH selection and do not prove employee residency. Earlier standalone work orders remain accessible for review and safe handoff.
 
 #### 5. Inspect, accept, or return the delivery
 
@@ -661,7 +643,7 @@ Cleanup verifies ownership and removes this plugin's configuration, state, knowl
 
 ### Verification status and limitations
 
-Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.3.md) for exact results and [ADR-004](docs/decisions/004-session-archive-retention.md) for the updated retention criteria.
+Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.4.md) for exact results and [ADR-004](docs/decisions/004-session-archive-retention.md) for the updated retention criteria.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 

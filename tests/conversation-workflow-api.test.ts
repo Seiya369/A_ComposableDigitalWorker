@@ -728,3 +728,43 @@ test('ordinary projects and unowned sessions never expose or admit Chat resident
   const foreignCard = await fetch(`${f.origin}/digital-workers/api/employee-info?${new URLSearchParams({ sessionId: 'unknown-chat', templateId: f.architect.id })}`);
   assert.notEqual(foreignCard.status, 200); assert.equal(await readFile(f.file, 'utf8'), before);
 });
+
+test('Chat temporary mention tickets are authenticated read-only references and cannot create or bind employees', async t => {
+  const f = await fixture(t, { chatWorkspace: true });
+  t.mock.method(WorkforceRuntime.prototype, 'start', async () => { throw new Error('MENTION_TICKET_MUST_NOT_RUN'); });
+  const before = await readFile(f.file, 'utf8');
+  const ticket = async (body: unknown) => {
+    const response = await fetch(`${f.origin}/digital-workers/api/conversation-employee/mention-ticket`, { method: 'POST', headers: { Origin: f.origin, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: response.status, body: await response.json() as { marker?: string; error?: string } };
+  };
+  const result = await ticket({ sessionId: 'chat-a', templateId: f.architect.id });
+  assert.equal(result.status, 200, result.body.error); assert.match(result.body.marker!, /^<graph-horses-employee:[a-f0-9]{32}>$/);
+  for (const body of [
+    { sessionId: 'foreign-chat', templateId: f.architect.id },
+    { sessionId: 'unknown-chat', templateId: f.architect.id },
+    { sessionId: 'chat-a', templateId: f.architect.id, employeeId: 'both' },
+    { sessionId: 'chat-a', templateId: f.architect.id, requestText: '不保留额外文本预约' },
+    { sessionId: 'chat-a', templateId: 'unknown-role' },
+  ]) assert.notEqual((await ticket(body)).status, 200);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  assert.equal((await f.state()).employees.length, 0);
+  assert.equal((await residentView(f.origin)).body.conversationEmployee, null);
+});
+
+test('Chat picker issues an exact target reference despite archived and draft duplicates of its visible name', async t => {
+  const f = await fixture(t, { chatWorkspace: true });
+  const product = (await f.state()).templates.find(template => template.id === 'employee-template-product')!;
+  for (const status of ['archived', 'draft'] as const) {
+    const saved = await f.command('template.save', { name: product.name, modules: product.modules, status }, {});
+    assert.equal(saved.status, 200, saved.body.error);
+  }
+  const before = await readFile(f.file, 'utf8');
+  const view = (await residentView(f.origin)).body;
+  assert.deepEqual(view.choices.filter(choice => choice.name === product.name).map(choice => choice.id), [product.id]);
+  const response = await fetch(`${f.origin}/digital-workers/api/conversation-employee/mention-ticket`, { method: 'POST', headers: { Origin: f.origin, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId: 'chat-a', templateId: product.id }) });
+  assert.equal(response.status, 200);
+  assert.match(((await response.json()) as { marker: string }).marker, /^<graph-horses-employee:[a-f0-9]{32}>$/);
+  assert.equal(await readFile(f.file, 'utf8'), before);
+  assert.equal((await f.state()).employees.length, 0);
+});

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { WorkforceStore } from '../src/domain/store.js';
-import { conversationEmployeeChoices, employeeInfoCard, resolveConversationEmployee } from '../src/domain/conversation-employee.js';
+import { assertNoAdditionalTemporaryEmployeeMention, conversationEmployeeChoices, employeeInfoCard, resolveConversationEmployee, resolveTemporaryEmployeeMention, temporaryEmployeeMentionAliases } from '../src/domain/conversation-employee.js';
 import { isLegacyStandaloneRun } from '../src/domain/conversation-session.js';
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
@@ -161,4 +161,75 @@ test('consultation completion is dedicated and idempotent, never fabricates deli
   const ordinary = await store.createRun({ projectId: project.id, employeeId: selected.employee!.id, request: '普通工作' });
   await store.updateRun(ordinary.id, { status: 'running' });
   await assert.rejects(store.completeConversationConsultation(ordinary.id, { output: '不允许绕过验收' }), /咨询/);
+});
+
+test('temporary native mention admission reuses a standalone role and never changes the resident preference', async t => {
+  const { store, project, template, select } = await fixture(t); const resident = await select();
+  const otherTemplate = store.snapshot().templates.find(item => item.status === 'ready' && item.id !== template.id)!;
+  const beforeBinding = structuredClone(store.snapshot().conversationEmployees);
+  const temporary = await store.admitTemporaryConversationEmployee({ projectId: project.id, sessionId: 'chat-a', turnKey: 'chat-a:42', templateId: otherTemplate.id, expectedTargetVersion: otherTemplate.version });
+  assert.equal(temporary.temporaryEmployee?.invocation, 'temporary');
+  assert.equal(temporary.temporaryEmployee?.mode, 'execute');
+  assert.equal(temporary.temporaryEmployee?.employeeId, temporary.employee?.id);
+  assert.notEqual(temporary.employee?.id, resident.employee?.id);
+  assert.deepEqual(store.snapshot().conversationEmployees, beforeBinding);
+  assert.equal(resolveConversationEmployee(store.snapshot(), project.id, 'chat-a').employee?.id, resident.employee?.id);
+  assert.equal(store.snapshot().runs.length, 0);
+  const { employeeId: _employeeId, ...link } = temporary.temporaryEmployee!;
+  const run = await store.createRun({ projectId: project.id, employeeId: temporary.employee!.id, request: '本轮临时处理', conversationEmployee: link });
+  assert.equal(run.conversationEmployee?.invocation, 'temporary');
+  assert.equal(isLegacyStandaloneRun(run), false);
+  assert.deepEqual(store.snapshot().conversationEmployees, beforeBinding);
+});
+
+test('temporary admission is idempotent and validates target version, standalone ownership and native turn identity', async t => {
+  const { store, project, template } = await fixture(t);
+  const input = { projectId: project.id, sessionId: 'chat-a', turnKey: 'chat-a:8', templateId: template.id, expectedTargetVersion: template.version };
+  const temporary = await store.admitTemporaryConversationEmployee(input);
+  const before = await readFile(store.filePath, 'utf8');
+  assert.equal((await store.admitTemporaryConversationEmployee(input)).employee?.id, temporary.employee?.id);
+  assert.equal(await readFile(store.filePath, 'utf8'), before);
+  assert.equal(store.snapshot().conversationEmployees, undefined);
+  await assert.rejects(store.admitTemporaryConversationEmployee({ ...input, turnKey: 'other-chat:8' }), /轮次/);
+  await assert.rejects(store.admitTemporaryConversationEmployee({ ...input, expectedTargetVersion: template.version + 1 }), { code: 'CONFLICT' });
+  await store.updateEmployee(temporary.employee!.id, { status: 'paused' });
+  const pausedBefore = await readFile(store.filePath, 'utf8');
+  await assert.rejects(store.admitTemporaryConversationEmployee(input), /暂停/);
+  assert.equal(await readFile(store.filePath, 'utf8'), pausedBefore);
+});
+
+test('raw human mention resolver uses exact leading shared aliases and stays read-only for unrelated @ files', async t => {
+  const { store, project, template } = await fixture(t);
+  const before = await readFile(store.filePath, 'utf8');
+  const [alias, target] = [...temporaryEmployeeMentionAliases(store.snapshot(), project.id)].find(([, target]) => target.id === template.id)!;
+  assert.deepEqual(resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} 你是谁`), target);
+  assert.equal(resolveTemporaryEmployeeMention(store.snapshot(), project.id, '@file.md 请读取'), undefined);
+  assert.equal(resolveTemporaryEmployeeMention(store.snapshot(), project.id, `普通问题，提到 @${alias}`), undefined);
+  assert.equal(resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias}extra 你是谁`), undefined);
+  assert.equal(await readFile(store.filePath, 'utf8'), before);
+  assert.equal(store.snapshot().employees.length, 0);
+});
+
+test('raw human mentions explicitly reject ambiguous, paused, unready and multiple employee targets', async t => {
+  const { store, project, template, select } = await fixture(t);
+  const alias = template.name.replace(/\s+/g, '_');
+  const another = store.snapshot().templates.find(item => item.status === 'ready' && item.id !== template.id)!;
+  assert.throws(() => resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} @${another.name.replace(/\s+/g, '_')} 一起回答`), /一位员工/);
+  const selected = await select(); await store.updateEmployee(selected.employee!.id, { status: 'paused' });
+  assert.throws(() => resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} 问题`), /暂停/);
+  const archived = await store.saveTemplate({ name: '已归档角色', modules: template.modules, status: 'archived' });
+  assert.throws(() => resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${archived.name} 问题`), /停用|就绪/);
+  await store.saveTemplate({ name: another.name, modules: another.modules, status: 'ready' });
+  assert.throws(() => resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${another.name.replace(/\s+/g, '_')} 问题`), /歧义/);
+});
+
+test('explicit chip identity and a unique active raw alias are not blocked by inactive duplicate names', async t => {
+  const { store, project, template } = await fixture(t);
+  await store.saveTemplate({ name: template.name, modules: template.modules, status: 'archived' });
+  await store.saveTemplate({ name: template.name, modules: template.modules, status: 'draft' });
+  const alias = [...temporaryEmployeeMentionAliases(store.snapshot(), project.id)].find(([, role]) => role.id === template.id)![0];
+  assert.equal(resolveTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} 问题`)?.id, template.id);
+  assert.doesNotThrow(() => assertNoAdditionalTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} 问题`));
+  const other = store.snapshot().templates.find(role => role.status === 'ready' && role.id !== template.id)!;
+  assert.throws(() => assertNoAdditionalTemporaryEmployeeMention(store.snapshot(), project.id, `@${alias} @${other.name.replace(/\s+/g, '_')} 问题`), /一位员工/);
 });

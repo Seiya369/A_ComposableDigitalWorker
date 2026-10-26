@@ -5,6 +5,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session';
 import type {} from '@deepseek-ai/dsh-api-session-controller';
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
 import type { ToolDefinition, ToolDispatchExecution, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools';
+import { hasTemporaryEmployeeMentionMarker, stripTemporaryEmployeeMentionMarker } from '../domain/conversation-employee.js';
 import { pendingWorkflowTask, retainedWorkflowRole, retireWorkflowContexts, workflowContextDefinition, WORKFLOW_ROLE_CONTEXT, type WorkflowContextDefinition } from './native-workflow-context.js';
 
 /** Business ownership for one turn of an existing native conversation. */
@@ -41,11 +42,13 @@ export interface NativeConversationStep {
 
 export interface ConversationWorkflowRuntimeDependencies {
   /** Undefined means the native conversation continues without an employee owner. */
-  prepare(agent: Agent, turnKey: string, requestText: string, signal?: AbortSignal): Promise<NativeWorkflowLease | undefined>;
+  prepare(agent: Agent, turnKey: string, requestText: string, signal?: AbortSignal, context?: { userMessages: readonly UserMessage[] }): Promise<NativeWorkflowLease | undefined>;
   /** Generated delivery records retain their own runtime and must never be adopted. */
   isDeliverySession(sessionId: string): boolean;
   /** Synchronous read-only classification allows unload to cancel real pending owners promptly. */
-  ownsPendingTurn?: (agent: Agent) => boolean;
+  ownsPendingTurn?: (agent: Agent, requestText?: string) => boolean;
+  /** Read-only recognition of an explicit pending temporary target, excluding resident defaults. */
+  isTemporaryEmployeeRequest?: (agent: Agent, requestText: string) => boolean;
   /** Public full-event observation seam; production uses the injected Session controller. */
   readEvents?: (agent: Agent, signal?: AbortSignal) => Promise<readonly SessionEvent[]>;
   onError?: (error: unknown) => void;
@@ -67,6 +70,7 @@ interface TurnState {
   settling?: Promise<void>;
   assembly?: PromptAssembly;
   ownsPending?: boolean;
+  pendingOwnerChange?: boolean;
   roleDefinition?: WorkflowContextDefinition;
   taskDefinition?: WorkflowContextDefinition;
 }
@@ -200,7 +204,11 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
   const prepare = (turn: TurnState, signal?: AbortSignal): Promise<void> => {
     if (turn.preparing) return turn.preparing;
     turn.preparing = (async () => {
-      turn.ownsPending = deps.ownsPendingTurn?.(turn.agent);
+      const pendingMessages = turn.incoming.length ? turn.incoming : turn.agent.session.snapshotEvents()
+        .filter(event => event.seq >= turn.startSeq && event.type === 'user/message')
+        .map(event => event.data as UserMessage);
+      turn.ownsPending = pendingMessages.some(message => message.source.kind === 'user' && deps.isTemporaryEmployeeRequest?.(turn.agent, userText([message])))
+        || deps.ownsPendingTurn?.(turn.agent, userText(pendingMessages));
       await agentState(turn.agent).settlement;
       signal?.throwIfAborted();
       await primeEvents(turn.agent, signal);
@@ -214,7 +222,7 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
       const messages = turn.incoming.length ? turn.incoming : turn.agent.session.snapshotEvents()
         .filter(event => event.seq >= turn.startSeq && event.type === 'user/message')
         .map(event => event.data as UserMessage);
-      turn.lease = await deps.prepare(turn.agent, turn.key, userText(messages), signal);
+      turn.lease = await deps.prepare(turn.agent, turn.key, userText(messages), signal, { userMessages: messages.filter(message => message.source.kind === 'user') });
       // None is still the native sender even if uninstall raced an async
       // project lookup. It must reach the original sink without cancellation.
       if (!turn.lease && closed) {
@@ -262,7 +270,13 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
   }));
   hooks.push(ctx.on('agent/inbox/claimed', ({ agent, message, turn: number }) => {
     const turn = turnFor(agent);
-    if (turn && turn.turn === number && !turn.prepared) turn.incoming.push(message);
+    if (turn && turn.turn === number) {
+      if (!turn.prepared) turn.incoming.push(message);
+      else if (message.source.kind === 'user') {
+        const text = userText([message]);
+        if (hasTemporaryEmployeeMentionMarker(text) || deps.isTemporaryEmployeeRequest?.(agent, text)) turn.pendingOwnerChange = true;
+      }
+    }
   }));
   hooks.push(ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     if (!context.agent) return next();
@@ -282,6 +296,7 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
   }, { prepend: true }));
   hooks.push(ctx.on('agent/pre-step', async (payload, next) => {
     const turn = active(payload.agent);
+    if (turn?.pendingOwnerChange) throw new Error('当前轮次负责人已确定，请等待本轮结束后重新 @ 员工');
     if (!turn?.lease) return next();
     const task = pendingWorkflowTask(payload.agent.session, turn.roleDefinition, turn.taskDefinition);
     await turn.lease.beforeStep?.({ ...payload, messages: task ? [...payload.messages, task] : payload.messages, assembly: turn.assembly });
@@ -290,7 +305,9 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     if (decision.kind === 'reject') return decision;
     // The native selector still owns its setting, but its automatic notice must
     // describe the actual workflow model rather than an unused selector route.
-    const messages = decision.messages.filter(message => message.source.kind !== 'model-selection');
+    const messages = decision.messages.filter(message => message.source.kind !== 'model-selection').map(message => message.source.kind !== 'user' ? message : {
+      ...message, content: message.content.map(block => block.type === 'text' ? { ...block, text: stripTemporaryEmployeeMentionMarker(block.text) } : block),
+    });
     // Native automatic compaction can remove a retained task snapshot inside
     // next(). Recheck after that maintenance instead of sending a dangling C ref.
     const admittedTask = pendingWorkflowTask(payload.agent.session, turn.roleDefinition, turn.taskDefinition);

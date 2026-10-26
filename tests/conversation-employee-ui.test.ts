@@ -19,7 +19,7 @@ async function renderer(t: { after(callback: () => Promise<void>): void }) {
     export function render(snapshot, menu = false) {
       const controller = { read: () => ({ snapshot, loading:false, pending:false }), subscribe: () => () => {}, refresh: async () => {}, select: async () => false, clear: async () => false, dispose() {} };
       return renderToStaticMarkup(createElement(menu ? ConversationEmployeeMenu : ConversationEmployee, menu
-        ? { snapshot, mode:'consult', active:1, pending:false, menuId:'resident', onActive(){}, onChoose(){}, onMode(){}, onKeys(){}, onRefresh(){} }
+        ? { snapshot, active:1, pending:false, menuId:'resident', onActive(){}, onChoose(){}, onKeys(){}, onRefresh(){} }
         : { sessionId:snapshot.sessionId, controller }));
     }
   ` }, outfile: file, bundle: true, platform: 'node', format: 'cjs', loader: { '.css': 'empty' }, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' } });
@@ -30,33 +30,33 @@ test('resident header is an explicit Chat control and remains absent in project 
   const render = await renderer(t);
   assert.equal(render(view({ enabled: false })), '');
   const html = render(view());
-  assert.match(html, /常驻此对话 · 原生助手/); assert.match(html, /aria-haspopup="dialog"/); assert.match(html, /aria-expanded="false"/);
+  assert.match(html, /选择对话员工/); assert.match(html, /aria-haspopup="listbox"/); assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /工作流|data-composer-input|wf-conversation-workflow/);
 });
 
 test('resident header identifies its selected employee while keeping all internal IDs hidden', async t => {
   const render = await renderer(t);
   const html = render(view({ employee: card, conversationEmployee: { sessionId: 'private-session', projectId: 'private-project', employeeId: 'private-employee', mode: 'consult', version: 2, createdAt: 'today', updatedAt: 'today' } }));
-  assert.match(html, /产品负责人正在对接/); assert.doesNotMatch(html, /private-session|private-project|private-employee|today/);
+  assert.match(html, /产品负责人/); assert.doesNotMatch(html, /private-session|private-project|private-employee|today/);
 });
 
-test('resident menu includes explicit modes, native exit and a local saved employee card', async t => {
+test('conversation employee dropdown contains only names and an empty selection', async t => {
   const render = await renderer(t), html = render(view(), true);
-  assert.match(html, /轻咨询/); assert.match(html, /执行任务/); assert.match(html, /不常驻 · 原生助手/);
   assert.match(html, /role="listbox"/); assert.match(html, /aria-activedescendant="resident-option-1"/);
-  assert.match(html, /<details[^>]*>/); assert.match(html, /查看员工资料（无需模型）/); assert.match(html, /明确可验收的需求|澄清需求|需求分析/);
-  assert.doesNotMatch(html, /<details[^>]* open|templateId|product|project/);
+  assert.match(html, />无</); assert.match(html, />产品负责人</);
+  assert.doesNotMatch(html, /轻咨询|执行任务|处理方式|岗位职责|岗位建议|仅在此对话|模型与推理|查看员工资料|<details|<fieldset|type="radio"|<small|明确可验收的需求|澄清需求|需求分析/);
+  assert.doesNotMatch(html, /templateId|product|project/);
 });
 
 test('unavailable resident offers exit and busy affects this menu only', async t => {
   const render = await renderer(t);
   const snapshot = view({ busy: true, employee: card, unavailableReason: '常驻员工已暂停，请启用员工或退出常驻', conversationEmployee: { sessionId: 'chat', projectId: 'project', employeeId: 'employee', mode: 'consult', version: 1, createdAt: 'today', updatedAt: 'today' } });
   const html = render(snapshot, true);
-  assert.match(html, /退出常驻，使用原生助手/); assert.match(html, /当前对话正在执行/); assert.match(html, /<fieldset[^>]+disabled/); assert.match(html, /aria-disabled="true"/);
+  assert.match(html, />无</); assert.match(html, /常驻员工已暂停/); assert.match(html, /aria-disabled="true"/); assert.doesNotMatch(html, /<fieldset|type="radio"/);
 });
 
 test('resident product copy supports the native English locale', () => {
-  assert.equal(translateUiText('常驻此对话 · 原生助手', 'en'), 'Resident employee · Native assistant');
-  assert.equal(translateUiText('查看员工资料（无需模型）', 'en'), 'View employee profile (no model call)');
+  assert.equal(translateUiText('选择对话员工', 'en'), 'Select conversation employee');
+  assert.equal(translateUiText('无', 'en'), 'None');
   assert.equal(translateUiText('常驻员工已更新，请刷新后重试', 'en'), 'The resident employee has changed. Refresh and try again.');
 });

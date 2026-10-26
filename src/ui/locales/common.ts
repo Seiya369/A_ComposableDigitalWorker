@@ -1,5 +1,10 @@
 /** Product-owned copy only. Names, document text and model output stay verbatim. */
 export const commonEn: Record<string, string> = {
+  '选择对话员工': 'Select conversation employee',
+  '仅本轮': 'This turn only',
+  '当前暂不支持对话内临时员工，请稍后重试': 'Temporary conversation employees are unavailable. Try again shortly.',
+  '员工引用无效，请重新选择员工': 'The employee reference is invalid. Select the employee again.',
+  '无': 'None',
   '常驻此对话': 'Resident employee for this conversation',
   '常驻此对话 · 原生助手': 'Resident employee · Native assistant',
   '常驻员工': 'Resident employee',

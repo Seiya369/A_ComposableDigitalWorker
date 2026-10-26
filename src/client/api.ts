@@ -6,7 +6,7 @@ import type { KnowledgeLibraryView, KnowledgeRemoveResult, KnowledgeUploadResult
 import type { WikiLibraryView } from '../knowledge/wiki-types.js';
 import type { KnowledgeSource } from '../knowledge/types.js';
 import type { EmployeeRoleDraftResult } from '../domain/employee-role.js';
-import type { EmployeeMentionRunInput } from './mentions.js';
+import type { EmployeeMentionRunInput, EmployeeMentionTicketInput } from './mentions.js';
 
 export const API_PREFIX = '/digital-workers/api';
 
@@ -85,4 +85,8 @@ export function createWorkforceClient(options: { onChange?: () => void; onOpenNa
 
 export async function startEmployeeRun(input: EmployeeMentionRunInput): Promise<WorkforceRun> {
   return (await request<{ run: WorkforceRun }>('/run', input)).run;
+}
+
+export function issueEmployeeMentionTicket(input: EmployeeMentionTicketInput, signal: AbortSignal): Promise<{ marker: string }> {
+  return request('/conversation-employee/mention-ticket', input, signal);
 }

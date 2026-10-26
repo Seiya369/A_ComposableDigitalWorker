@@ -951,3 +951,67 @@ test('official DeepSeek wire serialization preserves the native prefix and forma
     assert.doesNotMatch(JSON.stringify(none!.messages), /WIRE_EMPLOYEE_DEFINITION|WIRE_TASK_DATA/);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); await f.cleanup(); }
 });
+
+test('a temporary mention ticket is projected out before native admission while message identities and text blocks remain native', async () => {
+  const marker = `<graph-horses-employee:${'a'.repeat(32)}>`;
+  let originalId: string | undefined, preparedOriginal = false;
+  const f = await fixture([request => {
+    const user = request.messages.find(message => message.role === 'user' && message.id === originalId)!;
+    assert.ok(user); assert.equal(user.id, originalId); assert.equal(user.source?.kind, 'user');
+    assert.deepEqual(user.content, [{ type: 'text', text: ' 请处理当前附件' }, { type: 'text', text: 'SECOND_NATIVE_TEXT_BLOCK' }]);
+    assert.equal(JSON.stringify(request.messages).includes(marker), false);
+    return text('same native answer');
+  }], { isDeliverySession: () => false, prepare: async (_agent, _key, request, _signal, context) => {
+    assert.match(request, /graph-horses-employee/);
+    assert.equal(context?.userMessages.length, 1);
+    assert.equal(context?.userMessages[0]?.id, originalId);
+    preparedOriginal = context?.userMessages[0]?.content.some(block => block.type === 'text' && block.text.includes(marker)) === true;
+    return lease('same-model');
+  } });
+  try {
+    const input = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: `${marker} 请处理当前附件` }, { type: 'text', text: 'SECOND_NATIVE_TEXT_BLOCK' }] });
+    originalId = input.id;
+    f.agent.followup(input); await f.agent.whenIdle();
+    assert.ok(preparedOriginal, 'ticket validation sees the original native input exactly once');
+    assert.equal(f.adapter.requests.length, 1); assert.equal(f.ctx.agents.list().length, 1);
+    assert.equal(JSON.stringify(f.agent.session.deriveMessages()).includes(marker), false, 'the accepted native history contains no reusable ticket');
+  } finally { await f.cleanup(); }
+});
+
+for (const kind of ['marker', 'reserved-text'] as const) test(`a new temporary owner cannot join the middle of a frozen native owner turn (${kind})`, async () => {
+  const entered = deferred(), complete = deferred();
+  const marker = `<graph-horses-employee:${'b'.repeat(32)}>`;
+  const late = kind === 'marker' ? `${marker} DIFFERENT_EMPLOYEE_REQUEST` : '@reserved-employee DIFFERENT_EMPLOYEE_REQUEST';
+  const f = await fixture([async () => { entered.resolve(); await complete.promise; return call('workflow_fixture'); }], {
+    isDeliverySession: () => false,
+    isTemporaryEmployeeRequest: (_agent, request) => kind === 'reserved-text' && request === late,
+    prepare: async () => lease('same-model', { tools: [tool()] }),
+  });
+  try {
+    const sending = f.send('ORIGINAL_OWNER_REQUEST'); await entered.promise;
+    f.agent.steer(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: late }] }));
+    complete.resolve(); await sending;
+    assert.equal(f.adapter.requests.length, 1, 'the new owner request reaches no model under the previous owner');
+    assert.match(JSON.stringify(f.agent.session.snapshotEvents()), /当前轮次负责人已确定/);
+    assert.equal(JSON.stringify(f.agent.session.deriveMessages()).includes('DIFFERENT_EMPLOYEE_REQUEST'), false);
+  } finally { complete.resolve(); await f.cleanup(); }
+});
+
+test('unload recognizes a reserved temporary request per message before asynchronous preparation and cancels only that pending owner', async () => {
+  const entered = deferred(), complete = deferred(); let cancelledBeforePrepareReturns = false;
+  const f = await fixture([], {
+    isDeliverySession: () => false, ownsPendingTurn: () => false,
+    isTemporaryEmployeeRequest: (_agent, request) => request === 'RESERVED_NATIVE_TEXT',
+    prepare: async (_agent, _key, _request, signal) => {
+      entered.resolve(); await complete.promise; cancelledBeforePrepareReturns = signal?.aborted === true;
+      return lease('same-model');
+    },
+  });
+  try {
+    const sending = f.send('RESERVED_NATIVE_TEXT'); await entered.promise;
+    const unloading = f.dispose();
+    complete.resolve(); await unloading; await sending;
+    assert.ok(cancelledBeforePrepareReturns);
+    assert.equal(f.adapter.requests.length, 0);
+  } finally { complete.resolve(); await f.cleanup(); }
+});

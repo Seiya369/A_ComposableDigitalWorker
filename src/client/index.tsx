@@ -19,8 +19,8 @@ import { ConversationEmployee } from '../ui/ConversationEmployee.js';
 import { Icon } from '../ui/icons.js';
 import type { WorkforceClient } from '../ui/client.js';
 import type { WorkforceRun, WorkforceState } from '../domain/types.js';
-import { createWorkforceClient, request, startEmployeeRun } from './api.js';
-import { createEmployeeMentionSource, type EmployeeMentionProject } from './mentions.js';
+import { createWorkforceClient, request, startEmployeeRun, issueEmployeeMentionTicket } from './api.js';
+import { createEmployeeMentionSource, employeeMentionMarkerDisplayRule, type EmployeeMentionProject } from './mentions.js';
 import { createConversationWorkflowController } from './conversation-workflow.js';
 import { createConversationWorkflowTransport } from './conversation-workflow-transport.js';
 import { createConversationWorkflowDetailsClient } from './conversation-workflow-details.js';
@@ -44,7 +44,7 @@ function DeliveryPage({client,navigation,onClose,onOpenSession}:{client:Workforc
   const run=useSyncExternalStore(navigation.subscribe,navigation.getSnapshot);
   return run ? <ProjectExecutionReview key={run.id} client={client} projectId={run.projectId} initialRunId={run.id} onClose={onClose} onOpenSession={onOpenSession}/> : null;
 }
-export const inject=['slots','sessions','workspaces','locale','layout','uiWorkspace','inputTriggers','conversation'];
+export const inject=['slots','sessions','workspaces','locale','layout','uiWorkspace','inputTriggers','conversation','uiConversation'];
 
 /** Library and single-delivery review use distinct public panels. */
 export async function apply(ctx:Context):Promise<void>{
@@ -156,10 +156,11 @@ export async function apply(ctx:Context):Promise<void>{
     inject:()=>({controller:employeeController}),
   },localized(ConversationEmployee)));
   ctx.effect(()=>ctx.inputTriggers.registerSource(createEmployeeMentionSource({
-    snapshot:client.snapshot,projectForSession,run:startEmployeeRun,
+    snapshot:client.snapshot,projectForSession,run:startEmployeeRun,issueMentionTicket:issueEmployeeMentionTicket,
     translate:i18n.t,translateError:i18n.errorMessage,
     onStarted:run=>{void openRun(run).catch(()=>{if(!disposed&&ctx.fiber.uid!==null)showReview(run);});},
   })),'workforce: employee mentions');
+  ctx.effect(()=>ctx.uiConversation.userText.register(employeeMentionMarkerDisplayRule),'workforce: employee mention display');
   ctx.effect(()=>()=>{disposed=true;workflowController.dispose();workflowTransport.dispose();employeeController.dispose();reopenNavigation.dispose();reviewListeners.clear();clearWorkforceDrafts();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
 }
 import '../ui/SharedWikiGraph.css';

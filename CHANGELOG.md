@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.2.1 / plugin.4 — 2026-10-26
+
+- Chat 顶部默认显示“选择对话员工”，菜单只列员工姓名与“无”；选择即常驻，取消即回原生助手，移除处理模式、职责说明和资料卡。
+- Chat 输入框 @ 员工改为同一原生对话的临时单轮调用，保留历史、附件与流；不更改常驻选择，不新开独立工作单。下一轮恢复常驻或原生助手，旧工作单保留。
+- 临时调用沿用官方引用/codec/默认发送入口，使用有界、短期、单次会话票据；不复制、重发消息或修改宿主。
+- Compact resident employee selection and same-conversation, one-turn @ mentions replace the expanded menu. Native policies, history, streams, project workflows and earlier work orders remain intact.
+
 ## 0.2.1 / plugin.3 — 2026-10-26
 
 - Chat 顶部在项目负责人相同位置增加“常驻此对话”显式下拉菜单，默认原生助手；可切换/退出，刷新保留，旧 @ 不隐式绑定。每次 @ 的单次独立工作单行为保留。
