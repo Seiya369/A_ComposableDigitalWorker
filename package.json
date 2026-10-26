@@ -75,7 +75,8 @@
     "docs/architecture/session-retention.md",
     "build-support/version-lock.json",
     "docs/architecture/chat-workspace.md",
-    "docs/decisions/004-session-archive-retention.md"
+    "docs/decisions/004-session-archive-retention.md",
+    "docs/audits/2026-10-26-employee-identity-cache.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24",

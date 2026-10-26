@@ -42,7 +42,7 @@ async function start() {
   source = source.replace(/  listModels\(provider\) \{[^\n]+/, "  listModels(provider) { return Promise.resolve(['native-default', 'chat-specialist'].map(id => ({ provider, id, name: id }))); }");
   source = source.replace(/  resolveModel\(provider, model\) \{[^\n]+/, "  resolveModel(provider, id) { return Promise.resolve({ provider, id, name: id, context: { contextWindow: 262144 } }); }");
   source = source.replace('  async *stream(request) {', `  async *stream(request) {
-    if (JSON.stringify(request.messages).includes('CHAT_NATIVE_BASELINE_431') || JSON.stringify(request.messages).includes('CHAT_AT_TASK_431_')) {
+    if (JSON.stringify(request.messages).includes('CHAT_NATIVE_BASELINE_431') || JSON.stringify(request.messages).includes('CHAT_AT_TASK_431_') || JSON.stringify(request.messages).includes('CHAT_NATIVE_FOLLOWUP_432')) {
       await appendFile(${JSON.stringify(callsPath)}, JSON.stringify({ stage: request.messages.some(message => message.source?.kind === 'dsh-session-title-llm') ? 'native-title' : 'business', provider: request.provider, model: request.model, system: request.system, messages: request.messages, tools: request.tools?.map(tool => tool.name) }) + '\\n');
       const text = 'CHAT_STANDALONE_REPLY:' + request.model;
       yield { type: 'block-start', index: 0, blockType: 'text' }; yield { type: 'text-delta', index: 0, text };
@@ -97,6 +97,9 @@ try {
   const state = () => get('/digital-workers/api/state');
   const command = (action, payload) => post('/digital-workers/api/command', { action, payload });
   const calls = async () => (await readFile(callsPath, 'utf8').catch(e => e.code === 'ENOENT' ? '' : Promise.reject(e))).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)).filter(item => item.stage === 'business');
+  const currentTask = item => JSON.stringify(item.messages?.findLast(message => message.role === 'user' && message.source?.kind === 'user')?.content ?? []);
+  const isNativeTask = item => /CHAT_NATIVE_(?:BASELINE_431|FOLLOWUP_432)/.test(currentTask(item));
+  const isEmployeeTask = item => currentTask(item).includes('CHAT_AT_TASK_431_');
   const initial = await state(), modules = structuredClone(initial.templates[0].modules);
   modules.model = { mode: 'override', provider: 'employee-settings-fixture', model: 'chat-specialist' };
   modules.responsibilities.mission = 'CHAT_SPECIALIST_MISSION_431：作为独立员工交付可核查结果。';
@@ -130,14 +133,16 @@ try {
   };
   await openChat(); await page.screenshot({ path: resolve(artifacts, 'Chat-no-workflow.png') });
   check('Chat-native-composer-and-header-show-no-workflow-selector-steps-or-owner');
-  let employeeId;
+  let employeeId, previousDeliverySessionId, firstDeliverySessionId;
   for (let index = 0; index < 2; index++) {
     if (index) await openChat();
     const before = await state(), employeeCount = before.employees.filter(item => item.projectId === projectId).length;
     const editor = page.locator('[data-composer-input][contenteditable=true]'); await editor.fill('@' + role.name);
     const candidate = page.locator('[data-trigger-menu] [role="option"]').filter({ hasText: role.name }); await expect(candidate).toHaveCount(1);
+    await expect(page.locator('[data-trigger-menu]')).toContainText(index ? '本工作区已启用员工' : '自由职业人模板');
     assert.equal((await state()).employees.filter(item => item.projectId === projectId).length, employeeCount);
     await candidate.click(); await expect(page.locator('[data-trigger-menu]')).toHaveCount(0);
+    await expect(editor).toHaveAttribute('style', /将打开独立工作单/);
     assert.equal((await state()).employees.filter(item => item.projectId === projectId).length, employeeCount, 'picking a candidate does not create an employee');
     assert.equal((await state()).runs.length, index, 'picking a candidate does not create a run');
     if (!index) await page.screenshot({ path: resolve(artifacts, 'Chat-picked-standalone-employee.png') });
@@ -149,6 +154,10 @@ try {
     await expect.poll(async () => (await state()).runs.length, { timeout: 30000 }).toBe(index + 1);
     await expect.poll(async () => (await state()).runs.at(-1)?.status, { timeout: 30000 }).toBe('awaiting-review');
     const after = await state(), run = after.runs.at(-1), employee = after.employees.find(item => item.id === run.employeeId);
+    assert.notEqual(run.sessionId, sessionId, 'delegation opens a separate delivery session');
+    assert.notEqual(run.sessionId, previousDeliverySessionId, 'a repeated mention reuses the employee, not its previous work-order session');
+    previousDeliverySessionId = run.sessionId;
+    firstDeliverySessionId ??= run.sessionId;
     await expect(page.getByText('CHAT_STANDALONE_REPLY:chat-specialist', { exact: false }).first()).toBeVisible({ timeout: 30000 });
     employeeId ??= run.employeeId; assert.equal(run.employeeId, employeeId); assert.equal(employee.teamInstanceId, undefined); assert.equal(employee.managerId, undefined);
     assert.equal(run.conversationWorkflow, undefined); assert.equal(run.workflow, undefined); assert.equal(run.parentRunId, undefined); assert.equal(run.workTaskId, undefined);
@@ -156,10 +165,42 @@ try {
     assert.equal(after.conversationWorkflows?.instances.filter(item => item.projectId === projectId).length ?? 0, 0);
     const request = (await calls()).filter(item => item.model === 'chat-specialist').at(-1), body = JSON.stringify(request);
     assert.ok(request); assert.match(body, /CHAT_SPECIALIST_MISSION_431/); assert.match(body, /skill_content/); assert.match(body, /architecture-analysis/);
+    assert.match(body, /不主动展示后台运行与配置/);
+    assert.match(body, /内部执行资料/);
+    if (index) assert.doesNotMatch(body, /CHAT_AT_TASK_431_0/, 'repeat delegation does not silently copy the previous work-order conversation');
     assert.doesNotMatch(body, /OLD_WORKFLOW_ROLE_MUST_NOT_COPY_431|workforce_role_definition|composable-workforce:conversation-workflow/);
   }
   check('native-at-candidates-and-pick-create-nothing-submit-creates-one-standalone-employee-and-reuses-it');
   check('standalone-at-work-uses-role-model-responsibilities-required-skill-without-copying-source-workflow-context');
+  check('Chat-mentions-explain-workspace-instance-scope-and-open-distinct-work-order-sessions');
+  await page.locator('[data-composer-input][contenteditable=true]').fill('CHAT_NATIVE_FOLLOWUP_432');
+  const immediateModel = await page.getByRole('button', { name: /^选择模型，当前 / }).getAttribute('aria-label');
+  assert.match(immediateModel ?? '', /chat-specialist|native-default/);
+  await page.locator('[data-composer-input][contenteditable=true]').press('Enter');
+  await expect.poll(async () => (await calls()).filter(isNativeTask).length, { timeout: 30000 }).toBe(2);
+  const followup = (await calls()).filter(isNativeTask).at(-1);
+  assert.ok(immediateModel.includes(followup.model), 'ordinary continuation follows the native composer model selection rather than silently resetting it');
+  assert.ok(followup.messages.some(message => JSON.stringify(message.content).includes('CHAT_NATIVE_FOLLOWUP_432')));
+  assert.ok(!followup.messages.some(message => message.source?.kind === 'runtime-context' && message.source.sections?.some(section => section.name === 'digital-worker:identity' || section.name === 'composable-workforce:task-context')), 'ordinary follow-up retires active employee contributions');
+  assert.ok(!followup.tools?.some(name => name.startsWith('worker_')), 'ordinary follow-up retains no employee tool registrations');
+  assert.equal((await state()).runs.length, 2, 'ordinary follow-up does not create an employee run');
+  check('ordinary-followup-after-employee-delivery-uses-native-model-without-resident-employee-context');
+  const earlierDelivery = page.locator(`[data-row-key=${JSON.stringify('session:' + firstDeliverySessionId)}]`);
+  await expect(earlierDelivery).toBeVisible(); await earlierDelivery.click();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.locator('[data-composer-input][contenteditable=true]')).toBeEditable();
+  const selectedModel = await page.getByRole('button', { name: /^选择模型，当前 / }).getAttribute('aria-label');
+  assert.match(selectedModel ?? '', /chat-specialist|native-default/);
+  await page.locator('[data-composer-input][contenteditable=true]').fill('CHAT_NATIVE_FOLLOWUP_432_HISTORY');
+  await page.locator('[data-composer-input][contenteditable=true]').press('Enter');
+  await expect.poll(async () => (await calls()).filter(isNativeTask).length, { timeout: 30000 }).toBe(3);
+  const historicalFollowup = (await calls()).filter(isNativeTask).at(-1);
+  assert.ok(selectedModel.includes(historicalFollowup.model), 'historical native continuation follows its visible persisted model selection');
+  assert.ok(historicalFollowup.messages.some(message => JSON.stringify(message.content).includes('CHAT_NATIVE_FOLLOWUP_432_HISTORY')));
+  assert.ok(!historicalFollowup.messages.some(message => message.source?.kind === 'runtime-context' && message.source.sections?.some(section => section.name === 'digital-worker:identity' || section.name === 'composable-workforce:task-context')));
+  assert.ok(!historicalFollowup.tools?.some(name => name.startsWith('worker_')));
+  assert.equal((await state()).runs.length, 2, 'a restored delivery continues natively without replaying its employee task');
+  check('historical-employee-delivery-reload-preserves-native-continuation');
   await openChat(); await page.reload({ waitUntil: 'domcontentloaded' }); await openChat();
   await expect(page.locator('.wf-conversation-workflow-picker, .wf-conversation-workflow-bar')).toHaveCount(0);
   const normalPath = resolve(temp, 'normal-project'); await mkdir(normalPath); const normal = (await rpc('workspace/create', { path: normalPath })).workspace;
@@ -168,12 +209,15 @@ try {
   check('Chat-exclusion-survives-reload-while-normal-project-workflow-service-remains-enabled');
   assert.deepEqual(errors, []); assert.equal(await hostHash(), hostBefore);
   await writeFile(resolve(artifacts, 'report.json'), JSON.stringify({ status: 'passed', checks, checkCount: checks.length, sdk, pluginArchive: archive ? { sha256: sha(await readFile(archive)) } : undefined,
-    modelCalls: { native: (await calls()).filter(item => item.model === 'native-default').length, standalone: (await calls()).filter(item => item.model === 'chat-specialist').length, external: 0 }, employeesCreated: 1, workflowInstancesCreated: 0, projectTeamsCreated: 0, hostUnchanged: true, pageErrors: errors }, null, 2));
+    modelCalls: { native: (await calls()).filter(isNativeTask).length, standalone: (await calls()).filter(isEmployeeTask).length, external: 0 },
+    nativeModels: [...new Set((await calls()).filter(isNativeTask).map(item => item.model))],
+    historicalNativeModel: historicalFollowup.model,
+    employeesCreated: 1, workflowInstancesCreated: 0, projectTeamsCreated: 0, hostUnchanged: true, pageErrors: errors }, null, 2));
   console.log(`PASS ${checks.length} official Chat standalone checks`);
 } catch (error) {
   await mkdir(artifacts, { recursive: true }); await page?.screenshot({ path: resolve(artifacts, 'failure.png') }).catch(() => {});
   const captured = (await readFile(callsPath, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line));
-  await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors: errors, calls: captured.map(item => ({ stage: item.stage, model: item.model, messageKinds: item.messages?.map(message => ({ role: message.role, source: message.source?.kind })), baseline: item.baseline ?? JSON.stringify(item.messages ?? []).includes('CHAT_NATIVE_BASELINE_431'), standaloneTask: JSON.stringify(item.messages ?? []).includes('CHAT_AT_TASK_431_') })), hostLog: redactWebAuth(log).slice(-10000) }, null, 2));
+  await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors: errors, calls: captured.map(item => ({ stage: item.stage, model: item.model, tools: item.tools, messageKinds: item.messages?.map(message => ({ role: message.role, source: message.source?.kind, contextSections: message.source?.sections?.map(section => section.name) })), baseline: item.baseline ?? JSON.stringify(item.messages ?? []).includes('CHAT_NATIVE_BASELINE_431'), standaloneTask: JSON.stringify(item.messages ?? []).includes('CHAT_AT_TASK_431_') })), hostLog: redactWebAuth(log).slice(-10000) }, null, 2));
   throw error;
 } finally {
   await browser?.close(); await stop(); await rm(temp, { recursive: true, force: true });

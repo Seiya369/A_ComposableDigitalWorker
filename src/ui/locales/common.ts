@@ -1,9 +1,14 @@
 /** Product-owned copy only. Names, document text and model output stay verbatim. */
 export const commonEn: Record<string, string> = {
   '数字员工': 'Digital employees',
+  '本工作区已启用员工': 'Enabled employees in this workspace',
+  '自由职业人模板': 'Freelancer templates',
+  '单次委派': 'One-time delegation',
+  '员工工作单执行或交接中，请稍候…': 'Employee work order running or handing back to native chat. Please wait…',
   '项目数字员工': 'Project employees',
   '主办': 'Owner',
   '交给{name}的任务…': 'Task for {name}…',
+  '交给{name}的任务（将打开独立工作单）…': 'Task for {name} (opens a separate work order)…',
   '员工任务暂不支持附件，请先提供项目文件路径。': 'Employee tasks do not support attachments yet. Provide the project file paths instead.',
   '请描述需要员工完成的任务。': 'Describe the task for this employee.',
   'DSH 原生插件管理页面暂不可用，请稍后重试': 'The DSH plugin manager is unavailable. Try again shortly.',

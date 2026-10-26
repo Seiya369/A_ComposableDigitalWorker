@@ -12,6 +12,7 @@ test('@ roster only exposes active employees in the selected project',async()=>{
   const candidates=await source.candidates({sessionId:'s' as never},{query:'',position:'leading',signal:new AbortController().signal});
   assert.equal(candidates.length,1);assert.equal(candidates[0]?.value,alice.id);
   assert.equal(candidates[0]?.section, '项目数字员工');
+  assert.equal(candidates[0]?.hint, '主办');
   assert.deepEqual(await source.candidates({sessionId:'s' as never},{query:'',position:'inline',signal:new AbortController().signal}),[]);
 });
 
@@ -41,12 +42,42 @@ test('a picked employee command rejects attachments before dispatch',async()=>{
   assert.ok(picked&&typeof picked==='object'&&'claim' in picked);
   assert.equal(picked.claim.name,alice.name);
   assert.equal(picked.claim.attachments,false);
+  assert.equal(picked.claim.hint, '交给架构师的任务…');
   const result=await picked.claim.submit('处理附件',{} as never,[{} as never]);
   assert.equal(result.kind,'error');assert.match(result.text!,/暂不支持附件/);assert.equal(calls,0);
 });
 
 const template = (id: string, name: string, status = 'ready') => ({
   id, name, version: 1, status, description: `${name}岗位`, modules: { responsibilities: { mission: `${name}专业职责` } },
+});
+
+test('Chat copy identifies workspace employees and single delegation without adding a session binding', async () => {
+  const employee = { ...alice, id: 'chat-product', projectId: 'chat', templateId: 'role-product', name: '产品负责人' };
+  const snapshot = { employees: [employee], templates: [template('role-product', '产品负责人'), template('role-new', '测试负责人')] } as unknown as WorkforceState;
+  const original = structuredClone(snapshot), submitted: unknown[] = [];
+  const source = createEmployeeMentionSource({ snapshot: async () => snapshot,
+    projectForSession: async () => ({ projectId: 'chat', standaloneOnly: true }),
+    run: async input => { submitted.push(input); return { id: 'run' } as never; }, onStarted: () => {},
+  });
+  for (const sessionId of ['chat-a', 'chat-b']) {
+    const candidates = await source.candidates({ sessionId: sessionId as never }, { query: '', position: 'leading', signal: new AbortController().signal });
+    assert.deepEqual(candidates.map(item => [item.value, item.section, item.hint]), [
+      ['employee:chat-product', '本工作区已启用员工', '单次委派'],
+      ['template:role-new', '自由职业人模板', '单次委派'],
+    ]);
+    for (const candidate of candidates) {
+      const picked = source.onPick!({ session: { sessionId: sessionId as never }, position: 'leading', candidate } as never);
+      assert.ok(picked && typeof picked === 'object' && 'claim' in picked);
+      assert.equal(picked.claim.hint, `交给${candidate.name}的任务（将打开独立工作单）…`);
+    }
+    assert.deepEqual(snapshot, original, 'browsing and picking do not install or bind an employee');
+    assert.equal(submitted.length, sessionId === 'chat-a' ? 0 : 1);
+    const picked = source.onPick!({ session: { sessionId: sessionId as never }, position: 'leading', candidate: candidates[0] } as never);
+    assert.ok(picked && typeof picked === 'object' && 'claim' in picked);
+    assert.equal((await picked.claim.submit('澄清这个需求', {} as never, [])).kind, 'success');
+  }
+  assert.deepEqual(submitted, ['chat-a', 'chat-b'].map(sourceSessionId => ({ projectId: 'chat', employeeId: 'chat-product', request: '澄清这个需求', sourceSessionId })));
+  assert.deepEqual(snapshot, original, 'copy changes preserve employee dispatch and existing state');
 });
 
 test('fresh Chat lists ready library roles without installing a team and starts only after explicit submit', async () => {

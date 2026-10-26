@@ -6,12 +6,14 @@ type NativeWorkflowView = Omit<ConversationWorkflowView, 'projectId' | 'steps' |
   projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; workflowEnabled?: boolean;
   activity?: { stage: string; label: string; since?: string };
   sessionHandoffRequired?: boolean;
+  employeeSessionOwned?: boolean;
   steps: Array<ConversationWorkflowView['steps'][number] & { employeeName?: string }>;
 };
 type WorkflowRequester = <T>(path: string, body?: unknown, signal?: AbortSignal) => Promise<T>;
 interface ConversationWorkflowTransportOptions {
   beforeSelection?: (sessionId: string) => void;
   onSessionReopened?: (sessionId: string) => void;
+  onEmployeeSessionOwner?: (sessionId: string, owned: boolean | undefined) => void;
 }
 
 /** Keep the full host projection private so admission submits the exact previewed versions. */
@@ -23,10 +25,15 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
   const reopened = (sessionId: string, response: { result?: { sessionReopened?: boolean }; sessionReopened?: boolean }) => {
     if (!disposed && (response.result?.sessionReopened === true || response.sessionReopened === true)) options.onSessionReopened?.(sessionId);
   };
+  const observeOwner = (sessionId: string, view: NativeWorkflowView, signal?: AbortSignal) => {
+    if (!disposed && !signal?.aborted) options.onEmployeeSessionOwner?.(sessionId, view.sessionHandoffRequired === true ? true : view.employeeSessionOwned);
+  };
   const transport: ConversationWorkflowTransport = {
     async load(sessionId, signal) {
       const path = `/conversation-workflow?sessionId=${encodeURIComponent(sessionId)}`;
       let view = await request<NativeWorkflowView>(path, undefined, signal);
+      let continuationError: string | undefined;
+      observeOwner(sessionId, view, signal);
       if (!disposed && !signal?.aborted && view.projectId && view.sessionHandoffRequired && !view.busy && !handedOff.has(sessionId)) {
         // Re-entering this conversation may join an already pending handoff.
         // Refresh its public navigation capability without repeating the Host command.
@@ -44,11 +51,16 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
           })().finally(() => { if (handoffs.get(sessionId) === handoff) handoffs.delete(sessionId); });
           handoffs.set(sessionId, handoff);
         }
-        view = await handoff;
+        try { view = await handoff; }
+        catch (error) {
+          if (view.workflowEnabled !== false) throw error;
+          continuationError = error instanceof Error ? error.message : String(error);
+        }
       }
+      observeOwner(sessionId, view, signal);
       if (!disposed && !signal?.aborted) views.set(sessionId, view);
       if (view.workflowEnabled === false) return { sessionId, revision: view.revision, selection: view.selection, workflowEnabled: false,
-        ...(view.projectId ? { projectId: view.projectId } : {}), steps: [], choices: [] };
+        ...(view.projectId ? { projectId: view.projectId } : {}), ...(continuationError ? { continuationError } : {}), steps: [], choices: [] };
       return { sessionId, revision: view.revision, selection: view.selection,
         ...(view.workflowEnabled !== undefined ? { workflowEnabled: view.workflowEnabled } : {}),
         ...(view.projectId ? { projectId: view.projectId } : {}),

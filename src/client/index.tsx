@@ -17,13 +17,14 @@ import { ProjectExecutionReview } from '../ui/ProjectExecutionReview.js';
 import { ConversationWorkflowPicker, ConversationWorkflowSteps } from '../ui/ConversationWorkflow.js';
 import { Icon } from '../ui/icons.js';
 import type { WorkforceClient } from '../ui/client.js';
-import type { WorkforceRun } from '../domain/types.js';
+import type { WorkforceRun, WorkforceState } from '../domain/types.js';
 import { createWorkforceClient, request, startEmployeeRun } from './api.js';
 import { createEmployeeMentionSource, type EmployeeMentionProject } from './mentions.js';
 import { createConversationWorkflowController } from './conversation-workflow.js';
 import { createConversationWorkflowTransport } from './conversation-workflow-transport.js';
 import { createConversationWorkflowDetailsClient } from './conversation-workflow-details.js';
 import { createConversationReopenNavigation } from './conversation-workflow-reopen.js';
+import { createEmployeeConversationBlocks } from './employee-conversation-blocks.js';
 import { WorkforceI18nProvider, createWorkforceI18n, registerWorkforceLocales } from '../ui/i18n.js';
 import './integration.css';
 import '../ui/workforce.css';
@@ -43,7 +44,7 @@ function DeliveryPage({client,navigation,onClose,onOpenSession}:{client:Workforc
 export const inject=['slots','sessions','workspaces','locale','layout','uiWorkspace','inputTriggers','conversation'];
 
 /** Library and single-delivery review use distinct public panels. */
-export function apply(ctx:Context):void{
+export async function apply(ctx:Context):Promise<void>{
   ctx.effect(()=>registerWorkforceLocales(ctx.locale),'workforce: locale dictionaries');
   const i18n=createWorkforceI18n(ctx.locale);
   const localized=<P extends object,>(Component:ComponentType<P>)=>(props:P)=><WorkforceI18nProvider runtime={ctx.locale}><Component {...props}/></WorkforceI18nProvider>;
@@ -51,6 +52,7 @@ export function apply(ctx:Context):void{
   const reviewListeners=new Set<()=>void>();
   const reviewNavigation:ReviewNavigation={getSnapshot:()=>reviewRun,subscribe:listener=>{reviewListeners.add(listener);return()=>reviewListeners.delete(listener)}};
   const showReview=(run:WorkforceRun)=>{
+    if (ctx.fiber.uid === null) return;
     reviewRun=run;
     for(const listener of reviewListeners)listener();
     ctx.layout.selectPanel(DELIVERY_PANEL_ID);
@@ -64,6 +66,19 @@ export function apply(ctx:Context):void{
       }else ctx.layout.selectPanel('plugins' as MainPanelId);
     },
   });
+  const employeeBlocks=createEmployeeConversationBlocks({
+    set:(sessionId,block)=>ctx.conversation.blocks.set(sessionId as SessionId,block),
+    storeFor:sessionId=>ctx.conversation.blocks.storeFor(sessionId as SessionId),
+  },()=>i18n.t('员工工作单执行或交接中，请稍候…'),()=>ctx.fiber.uid !== null);
+  ctx.effect(()=>()=>employeeBlocks.dispose(),'workforce: employee composer handoff');
+  // Seed existing deliveries before this plugin's UI can expose their composers.
+  // A Host projection releases historical sessions that already have a native owner.
+  const initialization=new AbortController();
+  const initializationTimeout=setTimeout(()=>initialization.abort(new Error('员工会话状态读取超时')),10_000);
+  try {
+    const restored=await employeeBlocks.restore(async()=> (await request<WorkforceState>('/state',undefined,initialization.signal)).runs);
+    if (!restored || ctx.fiber.uid === null) return;
+  } finally { clearTimeout(initializationTimeout); }
   const projectForSession=async(sessionId:string):Promise<EmployeeMentionProject|undefined>=>{
     const response=await request<{projectId?:string; standaloneOnly?:boolean}>(`/session-project?sessionId=${encodeURIComponent(sessionId)}`);
     return response.projectId ? response.standaloneOnly ? {projectId:response.projectId,standaloneOnly:true} : response.projectId : undefined;
@@ -89,7 +104,9 @@ export function apply(ctx:Context):void{
       window.location.reload();
     },
   });
-  const workflowTransport=createConversationWorkflowTransport(request,reopenNavigation);
+  const workflowTransport=createConversationWorkflowTransport(request,{
+    ...reopenNavigation,onEmployeeSessionOwner:employeeBlocks.observe,
+  });
   const workflowController=createConversationWorkflowController(workflowTransport.transport);
   const detailsClient=createConversationWorkflowDetailsClient(request,client);
   let disposed=false;
@@ -97,9 +114,12 @@ export function apply(ctx:Context):void{
     // Admission returns immediately. Open the native session only after the host
     // attaches it to the workspace, including when a queued task starts later.
     let run=initial;
-    for(let attempt=0;attempt<40&&!disposed;attempt++){
+    for(let attempt=0;attempt<40&&!disposed&&ctx.fiber.uid!==null;attempt++){
       if(run.sessionId && ctx.sessions.list.getSnapshot().byId[run.sessionId as SessionId]
         && ctx.workspaces.list.getSnapshot().items.some(project=>project.workspaceId===run.projectId && project.sessionIds.includes(run.sessionId as SessionId))){
+        // Set the official block synchronously before navigation, including a
+        // task that has already completed before its new session is opened.
+        employeeBlocks.seed([run]);
         ctx.uiWorkspace.openSession(run.sessionId as SessionId);return;
       }
       if(run.status==='failed'||run.status==='cancelled'){showReview(run);return;}
@@ -130,7 +150,7 @@ export function apply(ctx:Context):void{
   ctx.effect(()=>ctx.inputTriggers.registerSource(createEmployeeMentionSource({
     snapshot:client.snapshot,projectForSession,run:startEmployeeRun,
     translate:i18n.t,translateError:i18n.errorMessage,
-    onStarted:run=>{void openRun(run).catch(()=>showReview(run));},
+    onStarted:run=>{void openRun(run).catch(()=>{if(!disposed&&ctx.fiber.uid!==null)showReview(run);});},
   })),'workforce: employee mentions');
   ctx.effect(()=>()=>{disposed=true;workflowController.dispose();workflowTransport.dispose();reopenNavigation.dispose();reviewListeners.clear();clearWorkforceDrafts();document.querySelector('style[data-plugin="composable-workforce"]')?.remove();},'workforce: UI cleanup');
 }

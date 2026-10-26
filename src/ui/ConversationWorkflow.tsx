@@ -81,9 +81,10 @@ export function ConversationWorkflowPicker(props: ConversationWorkflowProps) {
   };
 
   const recoveryAlert = recoveryNotice && <span className="wf-conversation-workflow-recovery" role="alert"><span>{errorMessage(recoveryNotice)}</span><button type="button" onClick={() => props.recovery?.retry(props.sessionId)}>{t('刷新继续')}</button></span>;
+  const continuationAlert = snapshot?.continuationError && <span className="wf-conversation-workflow-recovery" role="alert"><span>{errorMessage(snapshot.continuationError)}</span><button type="button" onClick={() => void props.controller.refresh(props.sessionId)}>{t('重试')}</button></span>;
   // Restoring an old employee delivery may require preserving unsent attachments.
   // Chat exposes only that generic recovery notice, never workflow controls.
-  if (snapshot?.workflowEnabled === false) return recoveryAlert ? <span className="wf-conversation-employee-recovery" style={{ position: 'relative' }}>{recoveryAlert}</span> : null;
+  if (snapshot?.workflowEnabled === false) return recoveryAlert || continuationAlert ? <span className="wf-conversation-employee-recovery" style={{ position: 'relative' }}>{recoveryAlert}{continuationAlert}</span> : null;
   if (!loading && !snapshot?.projectId && !error) return null;
   return <div ref={root} className="wf-conversation-workflow-picker" onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); } }}>
     <button ref={trigger} type="button" className="wf-native-button wf-conversation-workflow-trigger" aria-label={workflowLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} disabled={busy || !snapshot?.projectId} title={activityLabel ? `${workflowLabel} · ${activityLabel}` : workflowLabel} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}>

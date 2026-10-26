@@ -121,7 +121,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   const state = async (): Promise<WorkforceState> => { const response = await fetch(`${origin}/digital-workers/api/state`); assert.equal(response.status, 200); return response.json() as Promise<WorkforceState>; };
   const view = async (sessionId: string) => {
     const response = await fetch(`${origin}/digital-workers/api/conversation-workflow?sessionId=${encodeURIComponent(sessionId)}`);
-    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; workflowEnabled?: boolean; sessionHandoffRequired?: boolean; error?: string } };
+    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; workflowEnabled?: boolean; sessionHandoffRequired?: boolean; employeeSessionOwned?: boolean; error?: string } };
   };
   const command = async (action: string, payload: unknown, options: unknown) => {
     const response = await fetch(`${origin}/digital-workers/api/command`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ action, payload, options }) });
@@ -201,6 +201,7 @@ test('Chat directory excludes workflow service even with a retained default whil
   assert.deepEqual(view.body.steps, []);
   assert.deepEqual(view.body.choices, []);
   assert.equal(view.body.sessionHandoffRequired, false);
+  assert.equal(view.body.employeeSessionOwned, false);
   const inherited = await f.view('chat-b');
   assert.equal(inherited.body.workflowEnabled, false);
   assert.equal(inherited.body.instanceId, null, 'another conversation cannot inherit the retained default');
@@ -221,6 +222,20 @@ test('Chat directory excludes workflow service even with a retained default whil
   assert.notEqual((await f.view('chat-a')).status, 200, 'ambiguous membership still fails closed instead of being treated as Chat');
   assert.notEqual((await fetch(`${f.origin}/digital-workers/api/session-project?sessionId=chat-a`)).status, 200);
   assert.equal(await readFile(f.file, 'utf8'), before);
+});
+
+test('Chat composer ownership includes an unfinished native handoff but excludes unrelated workflow children', async t => {
+  t.mock.method(WorkforceRuntime.prototype, 'ownsSession', (sessionId: string) => ['chat-a', 'legacy-child'].includes(sessionId));
+  t.mock.method(WorkforceRuntime.prototype, 'needsCompletedSessionHandoff', (sessionId: string) => sessionId === 'legacy-failed');
+  const f = await fixture(t, { chatWorkspace: true, legacyHistory: true });
+  const before = await readFile(f.file, 'utf8');
+  assert.equal((await f.view('chat-a')).body.employeeSessionOwned, true);
+  const pending = (await f.view('legacy-failed')).body;
+  assert.equal(pending.employeeSessionOwned, true, 'a disposed employee whose native resume failed must keep input blocked until retry succeeds');
+  assert.equal(pending.sessionHandoffRequired, true); assert.equal(pending.workflowEnabled, false);
+  assert.equal((await f.view('legacy-child')).body.employeeSessionOwned, false);
+  assert.equal((await f.view('chat-b')).body.employeeSessionOwned, false);
+  assert.equal(await readFile(f.file, 'utf8'), before, 'ownership projection never rewrites history or configuration');
 });
 
 test('Chat workflow mutation and review endpoints reject retained configuration without changing user state', async t => {

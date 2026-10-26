@@ -14,7 +14,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.1/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.1/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-plugin.1)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.2/dsh-plugin-composable-workforce-0.2.1.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-plugin.2/dsh-plugin-composable-workforce-0.2.1.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-plugin.2)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 
@@ -174,6 +174,8 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 “AI 智填”使用当前草稿的姓名和模型，生成结果不会自动保存为正式配置。选中某个插件或 MCP 只表达使用偏好，不会自动安装、连接或授予权限；需要先在 DSH 中准备好相应能力。
 
+员工自我介绍应简洁说明姓名、岗位和可提供的帮助，不主动展示项目/员工 ID、内部路径或运行协议；必要的工具路由资料保留在内部执行上下文。用户明确要求技术排查时，只提供相关的非敏感信息。
+
 #### 2. 组建团队
 
 在 **团队** 中引入已配置的员工，设置团队内名称及上下级关系。员工定义可被多个团队复用，同一岗位也可作为不同成员加入团队。
@@ -196,6 +198,10 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 #### 4. 在项目对话中选择工作流
 
 **Chat 目录例外：** 不显示或执行工作流。普通消息保持原生聊天；行首输入 `@` 可从自由职业人库选择单个员工，确认发送后创建或复用独立员工并打开独立工作单，无需团队或工作流。旧流程记录保留但不接管 Chat。识别依据为目录名而非展示标题，详见[Chat 工作区规则](docs/architecture/chat-workspace.md)。
+
+Chat 候选的“本工作区已启用员工 / 自由职业人模板”说明实例是否已创建；它不是当前对话常驻标记。提示“单次委派”，每次 `@` 都打开新的交付会话，复用员工配置与授权知识。普通后续消息由原生助手处理，来源会话全文不会自动复制给员工。输入开销、服务商缓存和常驻方式的比较见[身份问答核查](docs/audits/2026-10-26-employee-identity-cache.md)。
+
+独立工作单执行和交接期间，交付会话暂缓接收新输入，原生停止按钮仍可用；交接成功后可继续普通聊天。原 Chat 和其他对话不受影响，恢复失败可重试。
 
 先在 DSH 中打开其他项目，再打开该项目的原生对话。输入区初始显示 **工作流：无**，菜单首项也是“无”。
 
@@ -299,7 +305,7 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 ### 验证状态与已知限制
 
-0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.1.md)，会话保留标准按 [ADR-004](docs/decisions/004-session-archive-retention.md) 更新。
+0.2.1 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果见[0.2.1 当前构建验收记录](integration/verification-0.2.1-plugin.2.md)，会话保留标准按 [ADR-004](docs/decisions/004-session-archive-retention.md) 更新。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -519,6 +525,8 @@ Open **graph_horses → Freelancer library** and select an existing role or crea
 
 AI autofill uses the current draft name and model; its result is not automatically saved. Selecting a plugin or MCP server records a preference. It does not install, connect, or grant access to that integration—prepare the capability in DSH first.
 
+Employee introductions should state their name, role and useful responsibilities without proactively exposing internal project/employee IDs, paths or execution protocols. Operational routing data remains available internally; explicit technical troubleshooting may disclose only relevant non-sensitive information.
+
 #### 2. Assemble a team
 
 Add configured employees under **Teams**, assign team-specific names, and define reporting relationships. Employee definitions can be reused across teams, including multiple members based on the same role.
@@ -538,6 +546,10 @@ Open your project in DSH, then open one of its conversations. The input initiall
 Selecting a workflow creates its project team, employees, and reporting relationships without executing a task. The project's first non-empty selection becomes its default and clears earlier empty overrides so conversations inherit it. Later selections of a different workflow or **None** affect only that conversation. Conversations using the same workflow in the same project share step progress and review records.
 
 **Chat directory exception:** Chat has no workflow controls or execution. A leading `@` can choose a standalone employee or ready freelancer role without installing a team. Only explicit submission starts an independent work order; old workflow history remains inactive. Policy follows the actual directory basename, not its display title. See [Chat workspace behavior](docs/architecture/chat-workspace.md).
+
+“Enabled employees in this workspace / Freelancer templates” describes whether an instance already exists, not a resident conversation binding. Candidates say “One-time delegation”; every `@` opens a separate delivery session while reusing employee configuration and authorized knowledge. Ordinary follow-ups use the native assistant, and source conversations are not copied in full. See the [identity-query and cache audit](docs/audits/2026-10-26-employee-identity-cache.md) for measured overhead and a comparison of calling modes.
+
+The delivery composer pauses new input while its one-time work order runs and hands back to the native assistant; the native Stop button remains available. Ordinary chatting resumes after successful handoff. The source Chat and other conversations stay available, with retry support if recovery fails.
 
 Type normally to work with the current step owner; no `@` is needed. For a separate work order, type `@` at the beginning of a message and choose an enabled project employee. An `@` elsewhere retains DSH's native reference behavior.
 
@@ -637,7 +649,7 @@ Cleanup verifies ownership and removes this plugin's configuration, state, knowl
 
 ### Verification status and limitations
 
-Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.1.md) for exact results and [ADR-004](docs/decisions/004-session-archive-retention.md) for the updated retention criteria.
+Version 0.2.1 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [current 0.2.1 build acceptance record](integration/verification-0.2.1-plugin.2.md) for exact results and [ADR-004](docs/decisions/004-session-archive-retention.md) for the updated retention criteria.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 

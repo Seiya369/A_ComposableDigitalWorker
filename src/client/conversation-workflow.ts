@@ -12,6 +12,8 @@ export interface ConversationWorkflowSnapshot {
   currentStepId?: string;
   ownerName?: string;
   unavailableReason?: string;
+  /** A standalone employee owner could not yet be handed back to native input. */
+  continuationError?: string;
   steps: Array<{ id: string; name: string; status: 'pending' | 'current' | 'completed'; employeeName?: string; onRejectStepId?: string }>;
   choices: Array<{ id: string; name: string; version: number; disabled?: boolean; disabledReason?: string }>;
   busy?: boolean;

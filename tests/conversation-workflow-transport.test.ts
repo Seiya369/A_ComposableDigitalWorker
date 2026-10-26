@@ -159,3 +159,48 @@ test('Chat legacy employee handoff uses the generic employee action while workfl
   await transport.load('chat'); assert.equal(posts.length, 1, 'the generic handoff is not replayed');
   dispose();
 });
+
+test('employee composer ownership remains blocked through asynchronous handoff until Host confirms native ownership', async () => {
+  let owned = true; let release!: () => void;
+  const barrier = new Promise<void>(done => { release = done; });
+  const ownership: Array<boolean | undefined> = [];
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>(_path: string, body?: unknown) => {
+    if (body) { await barrier; owned = false; return { result: { sessionReopened: true } } as T; }
+    return native({ workflowEnabled: false, employeeSessionOwned: owned, sessionHandoffRequired: owned, busy: false }) as T;
+  }, { onEmployeeSessionOwner: (_sessionId, value) => ownership.push(value) });
+  const pending = transport.load('delivery');
+  await new Promise(done => setImmediate(done));
+  assert.deepEqual(ownership, [true], 'the old owner must block input before awaiting its release');
+  release(); await pending;
+  assert.deepEqual(ownership, [true, false], 'only the verified post-handoff projection unlocks native input');
+  dispose();
+});
+
+test('a failed Chat handoff preserves its disabled workflow projection and exposes a retryable continuation error', async () => {
+  let fail = true, owned = true;
+  const ownership: Array<boolean | undefined> = [];
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>(_path: string, body?: unknown) => {
+    if (body) { if (fail) throw new Error('恢复原生对话失败'); owned = false; return { result: { sessionReopened: true } } as T; }
+    return native({ workflowEnabled: false, employeeSessionOwned: owned, sessionHandoffRequired: owned, busy: false }) as T;
+  }, { onEmployeeSessionOwner: (_sessionId, value) => ownership.push(value) });
+  const failed = await transport.load('delivery');
+  assert.equal(failed.workflowEnabled, false); assert.equal(failed.continuationError, '恢复原生对话失败');
+  assert.deepEqual(failed.steps, []); assert.deepEqual(failed.choices, []); assert.deepEqual(ownership, [true, true]);
+  fail = false;
+  const ready = await transport.load('delivery');
+  assert.equal(ready.continuationError, undefined); assert.equal(ownership.at(-1), false);
+  dispose();
+});
+
+test('a disposed worker with a failed native resume stays blocked while handoff is still required', async () => {
+  let fail = true, required = true;
+  const ownership: Array<boolean | undefined> = [];
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>(_path: string, body?: unknown) => {
+    if (body) { if (fail) throw new Error('原生恢复失败'); required = false; return { result: { sessionReopened: true } } as T; }
+    return native({ workflowEnabled: false, employeeSessionOwned: false, sessionHandoffRequired: required, busy: false }) as T;
+  }, { onEmployeeSessionOwner: (_sessionId, value) => ownership.push(value) });
+  const failed = await transport.load('delivery');
+  assert.equal(failed.continuationError, '原生恢复失败'); assert.deepEqual(ownership, [true, true]);
+  fail = false; await transport.load('delivery'); assert.deepEqual(ownership, [true, true, true, false]);
+  dispose();
+});

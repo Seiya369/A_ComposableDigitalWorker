@@ -1,5 +1,14 @@
 # 更新记录
 
+## 0.2.1 / plugin.2 — 2026-10-26
+
+- 员工身份首句只显示姓名/岗位，明确不主动输出内部 ID、路径和运行协议；内部路由资料后置，保留必要工具调用与交付引用。
+- Chat 候选明确为工作区已启用实例或自由职业人模板，提示单次委派与独立工作单，保持每次显式调用和工作区实例复用的语义。
+- 独立员工将稳定职责、必备 Skill 与通用规则放在动态 C/资料前，使用已有可退役的官方上下文贡献，不削减原生权限和工具，不承诺固定缓存比例。
+- 修复独立交付完成后立即普通发送被旧工作单拒绝的交接竞态，使用官方单会话输入保护与现有交接；不锁原 Chat/其他会话，不覆盖其他插件的锁。
+- 补充两次身份问答的精确用量、文本/schema 构成、缓存规则及常驻/单次调用比较；原生持久历史按已接受归档保留策略处理。
+- Employee introductions avoid unsolicited internal metadata; Chat copy clarifies workspace instances and one-time delegation. Stable role/Skill context precedes variable knowledge. The audit distinguishes provider token reports from component byte counts and makes no guaranteed cache-hit claim.
+
 ## 2026-10-26 — 会话保留政策结项（仅文档）
 
 - 按用户明确决定，使用 DSH 官方可恢复归档隐藏会话即可；日志、消息及闭轮工具历史允许保留，物理删除不再是卸载未满足项或发布阻塞，持久会话删除任务结束。

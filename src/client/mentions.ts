@@ -71,11 +71,12 @@ export function createEmployeeMentionSource(deps: MentionDependencies): InputTri
   }
   function claim(alias: string, target: MentionTarget, sessionId: string): PickOutcome {
     const role = targetRole(target);
+    const standalone = target.kind === 'template' || target.standaloneOnly === true;
     const command: CommandClaim = {
       name: role.name,
       token: `@${alias} `,
       attachments: false,
-      get hint(){return t('交给{name}的任务…',{name:role.name});},
+      get hint(){return t(standalone ? '交给{name}的任务（将打开独立工作单）…' : '交给{name}的任务…',{name:role.name});},
       async submit(args, _ctx, attachments) {
         if (attachments.length > 0) return {kind:'error', text:t('员工任务暂不支持附件，请先提供项目文件路径。')};
         if (!args.trim()) return {kind:'error', text:t('请描述需要员工完成的任务。')};
@@ -101,7 +102,8 @@ export function createEmployeeMentionSource(deps: MentionDependencies): InputTri
       if(query.signal.aborted) return [];
       return [...employees].filter(([alias, target]) => `${alias} ${target.kind === 'employee' ? target.employee.templateName : target.template.name}`.toLowerCase().includes(query.query.toLowerCase()))
         .map(([alias,target])=>({name:alias, description:targetRole(target).modules.responsibilities.mission,
-          section:t(target.kind === 'template' ? '自由职业人库' : target.standaloneOnly ? '数字员工' : '项目数字员工'), value:target.value, hint:t('主办')}));
+          section:t(target.kind === 'template' ? '自由职业人模板' : target.standaloneOnly ? '本工作区已启用员工' : '项目数字员工'), value:target.value,
+          hint:t(target.kind === 'template' || target.standaloneOnly ? '单次委派' : '主办')}));
     },
     onPick(pick) {
       if(pick.position !== 'leading') return undefined;

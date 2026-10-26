@@ -54,3 +54,10 @@ test('disabled Chat workflow still exposes the generic unsent-attachment recover
   assert.match(html, /刷新继续/);
   assert.doesNotMatch(html, /wf-conversation-workflow-picker|wf-conversation-workflow-steps|工作流：软件工程|开发人员/);
 });
+
+test('disabled Chat exposes a failed native handoff as a generic retry without workflow controls', async t => {
+  const render = await renderer(t);
+  const html = render({ ...snapshot(false), continuationError: '恢复原生对话失败，请重试' });
+  assert.match(html, /role="alert"/); assert.match(html, /恢复原生对话失败/); assert.match(html, /重试/);
+  assert.doesNotMatch(html, /wf-conversation-workflow-picker|wf-conversation-workflow-steps|工作流：软件工程|开发人员|stale workflow error/);
+});

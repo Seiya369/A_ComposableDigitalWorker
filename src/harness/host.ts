@@ -394,13 +394,16 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const sessionId = string(url.searchParams.get('sessionId'), '对话 ID');
         const workspace = workspaceForSession(sessionId);
         const state = store.snapshot();
+        const sessionHandoffRequired = runtime.needsCompletedSessionHandoff(sessionId);
+        const employeeSessionOwned = (runtime.ownsSession(sessionId) || sessionHandoffRequired) && state.runs.some(run => run.sessionId === sessionId && isLegacyStandaloneRun(run));
         if (!workspace || isDeliverySession(sessionId)) {
-          json(res, 200, { sessionId, projectId: null, selection: 'inherit', instanceId: null, steps: [], choices: [], revision: state.revision }); return;
+          json(res, 200, { sessionId, projectId: null, selection: 'inherit', instanceId: null, steps: [], choices: [], revision: state.revision,
+            employeeSessionOwned, ...(workspace && !conversationWorkflowsEnabled(workspace) ? { workflowEnabled: false } : {}) }); return;
         }
         if (!conversationWorkflowsEnabled(workspace)) {
           json(res, 200, { sessionId, projectId: workspace.id, selection: 'inherit', instanceId: null,
             workflowEnabled: false, steps: [], choices: [], activeEmployeeIds: [], relatedOwnerIds: [], revision: state.revision,
-            busy: conversationIsBusy(sessionId), sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId) }); return;
+            busy: conversationIsBusy(sessionId), sessionHandoffRequired, employeeSessionOwned }); return;
         }
         const view = resolveConversationWorkflow(state, workspace.id, sessionId);
         const busy = conversationIsBusy(sessionId);
@@ -409,7 +412,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         const labels = { 'preparing-model': '准备岗位模型', 'preparing-knowledge': '读取已有知识', 'preparing-skills': '载入岗位技能', requesting: '等待模型响应', streaming: '模型正在生成', tools: '正在调用工具' };
         json(res, 200, { ...view, workflowEnabled: true, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy, progressBusy,
           ...(activeRun?.activity ? { activity: { ...activeRun.activity, label: labels[activeRun.activity.stage] } } : {}),
-          sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId),
+          sessionHandoffRequired, employeeSessionOwned,
           steps: view.steps.map(step => ({ ...step, employeeName: state.employees.find(employee => employee.id === step.employeeId)?.name })) }); return;
       }
       if (req.method === 'GET' && route === '/conversation-workflow/details') {
