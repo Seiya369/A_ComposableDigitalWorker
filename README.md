@@ -28,7 +28,7 @@ The plugin uses the verified host's major.minor.patch only: **plugin 0.2.1 targe
 
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
 >
-> 当前仓库为私有，访问源码和下载发布附件需要仓库授权。The repository is private; source and release downloads require access.
+> 本仓库公开提供源码和最新插件安装包，无需登录即可查看和下载。This public repository provides the source and latest plugin package for viewing and download without signing in.
 
 ```mermaid
 flowchart LR
