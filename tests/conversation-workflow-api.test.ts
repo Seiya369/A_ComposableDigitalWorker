@@ -82,6 +82,8 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
     { id: other.id, title: other.name, path: other.rootPath, sessionIds: ['foreign-chat'] }];
   const runningSessions = new Set<string>();
   const queuedIdleSessions = new Map<string, 'nextTurn' | 'nextStep'>();
+  const approvalNotices = new Set<string>();
+  const approvalNotice = { id: 'permission-notice', role: 'user', source: { kind: 'user-approval' }, content: [{ type: 'text', text: 'The approval policy changed (changed by the user).' }] };
   let handler: ((req: IncomingMessage, res: ServerResponse) => void | Promise<void>) | undefined;
   const server = createServer((req, res) => { if (!handler) { res.writeHead(503).end(); return; }
     void Promise.resolve(handler(req, res)).catch(error => res.writeHead(500).end(String(error))); });
@@ -93,6 +95,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   ctx.provide('workspaceRegistry', { list: () => workspaces, get: (id: string) => workspaces.find(entry => entry.id === id) } as never);
   ctx.provide('agents', { get: (id: string) => runningSessions.has(id) ? { status: 'running' }
     : queuedIdleSessions.has(id) ? { status: 'idle', inbox: { nextTurn: queuedIdleSessions.get(id) === 'nextTurn' ? ['queued-input'] : [], nextStep: queuedIdleSessions.get(id) === 'nextStep' ? ['queued-input'] : [] } }
+      : approvalNotices.has(id) ? { status: 'idle', inbox: { nextTurn: [], nextStep: [approvalNotice] } }
       : undefined, list: () => [], values: () => [] } as never);
   ctx.provide('sessionController', { modelCatalog: async () => ({ groups: [], failures: [] }) } as never);
   ctx.provide('skills', { register: () => () => undefined, list: async () => [] } as never);
@@ -123,6 +126,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   return { file, project, other, architect, workflow, history, state, view, select, command, details, review,
     setRunning(sessionId: string, value: boolean) { if (value) runningSessions.add(sessionId); else runningSessions.delete(sessionId); },
     setQueuedIdle(sessionId: string, lane?: 'nextTurn' | 'nextStep') { if (lane) queuedIdleSessions.set(sessionId, lane); else queuedIdleSessions.delete(sessionId); },
+    setApprovalNotice(sessionId: string) { approvalNotices.add(sessionId); return approvalNotice; },
     duplicateSession() { workspaces = workspaces.map(entry => entry.id === other.id ? { ...entry, sessionIds: [...entry.sessionIds, 'chat-a'] } : entry); },
     removeWorkspace: () => { workspaces = workspaces.filter(entry => entry.id !== project.id); } };
 }
@@ -197,6 +201,17 @@ test('an idle native Agent with queued turn or step messages locks selection, re
   f.setQueuedIdle('chat-a');
   assert.equal((await f.view('chat-a')).body.busy, false);
   assert.equal((await f.select('chat-a', null)).status, 200);
+});
+
+test('an idle native permission notice does not lock workflow selection or step changes', async t => {
+  const f = await fixture(t); assert.equal((await f.select()).status, 200);
+  const notice = f.setApprovalNotice('chat-a'); const before = structuredClone(notice);
+  const current = (await f.view('chat-a')).body; assert.equal(current.busy, false);
+  const changed = await f.command('conversation.workflow.step', { projectId: f.project.id, sessionId: 'chat-a', stepId: 'build', instanceVersion: current.instanceVersion }, { expectedRevision: current.revision });
+  assert.equal(changed.status, 200, changed.body.error); assert.equal(changed.body.result.currentStepId, 'build');
+  assert.equal((await f.select('chat-a', null)).status, 200);
+  assert.deepEqual(notice, before, 'permission context must stay queued for its next real model step');
+  assert.equal((await f.state()).runs.length, 0, 'permission changes and workflow selection must not execute a model');
 });
 
 test('ambiguous native workspace membership cannot read a different project or mutate a selection', async t => {

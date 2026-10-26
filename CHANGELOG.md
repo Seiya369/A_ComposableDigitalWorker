@@ -1,5 +1,10 @@
 # 更新记录
 
+## 0.29.2 — 2026-10-26
+
+- 修复原生权限切换通知被误判为待执行消息，导致空闲对话的工作流选择和步骤按钮禁用。仅对普通原生对话忽略官方 `user-approval` 的不唤醒 next-step 通知，保留通知、权限及所有真实运行/排队保护；保留会话交接仍要求完整空队列，避免丢失上下文。
+- Fix idle workflow controls locking after native permission changes. Preserve policy notices and actual permission state, with active work, queued user input and retained-session handoff protections intact.
+
 ## 0.29.1 — 2026-10-26
 
 - 简化本步骤返工的显示：原生顶部工作流、详情竖向流程和模板流程图不再绘制自回环、占用退回轨道或附加自退回提示。跨步骤的退回箭头、目标与无障碍说明保留；编辑选项及验收/执行规则不变。

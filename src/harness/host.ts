@@ -35,6 +35,7 @@ import type { ReorderLibraryInput } from '../domain/library-order.js';
 import { resolveConversationWorkflow, type SelectConversationWorkflowInput, type SelectConversationWorkflowStepInput } from '../domain/conversation-workflow.js';
 import { registerConversationWorkflowRuntime } from './conversation-workflow-runtime.js';
 import { isLegacyStandaloneRun } from '../domain/conversation-session.js';
+import { isConversationAgentBusy } from './conversation-activity.js';
 import { requireConversationWorkflowReview, resolveConversationWorkflowDetails, type ConversationWorkflowReviewInput } from '../domain/conversation-workflow-details.js';
 
 export const name = 'composable-workforce';
@@ -123,7 +124,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   };
   const conversationIsBusy = (sessionId: string) => {
     const agent = ctx.agents.get(SessionId(sessionId));
-    return agent?.status === 'running' || Boolean(agent?.inbox?.nextTurn?.length || agent?.inbox?.nextStep?.length);
+    return isConversationAgentBusy(agent, !runtime.ownsSession(sessionId));
   };
   const disposeConversationRuntime = registerConversationWorkflowRuntime(ctx, {
     isDeliverySession,

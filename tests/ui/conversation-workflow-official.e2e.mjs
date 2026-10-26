@@ -477,6 +477,43 @@ try {
   await page.screenshot({ path: resolve(artifacts, 'native-first-workflow-unifies-prior-none-dark.png') });
   check('first-native-workflow-selection-clears-prior-none-and-unifies-all-project-conversations-without-running');
   await open('QA-工作流对话甲');
+  // The native permission picker parks a user-approval notice in nextStep without
+  // waking the idle Agent. This metadata must survive, but cannot lock workflow
+  // choices while the native composer itself remains ready to send.
+  const beforePermission = await state(), callsBeforePermission = (await calls()).length;
+  const permission = () => page.getByRole('button', { name: /^访问模式，当前：/ });
+  await expect(permission()).toBeEnabled();
+  await expect(permission()).not.toHaveAccessibleName('访问模式，当前：完全权限');
+  await permission().click(); await page.getByText('完全权限', { exact: true }).click();
+  const permissionConfirm = page.getByRole('dialog', { name: '确认启用完全权限？', exact: true });
+  await expect(permissionConfirm).toBeVisible();
+  await permissionConfirm.getByRole('checkbox', { name: '我已了解风险，并愿意继续', exact: true }).check();
+  await permissionConfirm.getByRole('button', { name: '启用完全权限', exact: true }).click();
+  await expect(permission()).toHaveAccessibleName('访问模式，当前：完全权限'); await expect(permission()).toBeEnabled();
+  const permissionDraft = page.locator('[data-composer-input][contenteditable=true]');
+  await permissionDraft.fill('WF_PERMISSION_UNSENT_919：权限切换不应锁定工作流');
+  const nativeSend = page.getByRole('button', { name: '发送消息', exact: true });
+  await expect(nativeSend).toBeEnabled();
+  // Wait for the mounted slots' real polling read, rather than checking an old
+  // render immediately after the native policy change settles.
+  await page.waitForResponse(response => response.request().method() === 'GET'
+    && response.url().includes('/digital-workers/api/conversation-workflow?sessionId=' + encodeURIComponent(a)), { timeout: 10000 });
+  await delay(100);
+  const afterPermission = await view(a);
+  metrics.permissionChange = { nativeSendEnabled: await nativeSend.isEnabled(), workflowBusy: afterPermission.busy,
+    pickerDisabled: await picker().getByRole('button').first().isDisabled(), stepDisabled: await steps().first().isDisabled(),
+    workflowInstanceId: afterPermission.instanceId, automaticModelCalls: (await calls()).length - callsBeforePermission };
+  await page.screenshot({ path: resolve(artifacts, 'native-permission-change-idle-workflow-dark.png') });
+  assert.equal(afterPermission.busy, false, 'an idle native permission notice cannot make the conversation workflow busy');
+  await expect(picker().getByRole('button').first()).toBeEnabled();
+  for (const step of await steps().all()) { await expect(step).toBeEnabled(); await expect(step).toHaveAttribute('aria-disabled', 'false'); }
+  await steps().nth(1).click(); await expect(steps().nth(1)).toHaveAttribute('aria-current', 'step');
+  await steps().nth(0).click(); await expect(steps().nth(0)).toHaveAttribute('aria-current', 'step');
+  await pick(flow.name); await expect(picker()).toContainText('工作流：' + flow.name);
+  assert.deepEqual((await state()).runs, beforePermission.runs, 'permission changes and workflow choices cannot create employee runs');
+  assert.equal((await calls()).length, callsBeforePermission, 'native permission changes cannot invoke a model');
+  await expect(permissionDraft).toHaveText('WF_PERMISSION_UNSENT_919：权限切换不应锁定工作流'); await permissionDraft.fill('');
+  check('native-permission-change-keeps-idle-composer-workflow-picker-and-step-navigation-enabled-without-running');
   await openDetails();
   metrics.detailsNodeStates = [{ phase: 'initial-current-and-pending', ...await assertDetailsNodeParity() }];
   await expect(detailsDialog().getByRole('heading', { level: 2 })).toHaveText((await state()).projects.find(project => project.id === workspace.workspaceId).name);
@@ -725,6 +762,10 @@ try {
   const requests = (await calls()).filter(request => JSON.stringify(request).includes('WF_STEP_REQUIREMENTS_917'));
   assert.equal(requests.length, 2, 'one owner turn may contain the plan tool call and its final answer, without reserving a second run'); assert.equal(requests[0].model, 'owner-product');
   assert.ok(JSON.stringify(requests[0].messages).includes('WF_NATIVE_PREHISTORY_A_917'), 'the same native session keeps pre-workflow history');
+  assert.ok(requests[0].messages.some(message => message.role === 'user' && message.source?.kind === 'user-approval'
+    && message.content.some(block => block.type === 'text' && block.text.includes('The approval policy changed') && block.text.includes('"never"'))),
+  'the next actual owner turn receives the original native permission notice; unlocking workflow choices cannot drop it');
+  metrics.permissionChange.noticePreservedInOwnerRequest = true;
   for (const sentinel of ['WF_STEP_REQUIREMENTS_917', 'WF_OUTPUT_REQUIREMENTS_917', 'WF_ACCEPT_REQUIREMENTS_917']) assert.ok(JSON.stringify(requests[0]).includes(sentinel), sentinel);
   const required = (await readFile(resolve(pluginRoot, 'skills/architecture-analysis/SKILL.md'), 'utf8')).replace(/^---[\s\S]*?---\s*/, '').trim().split('\n').find(line => line.trim().length > 12);
   assert.ok(JSON.stringify(requests[0]).includes(required), 'required skill content must reach the actual first request');

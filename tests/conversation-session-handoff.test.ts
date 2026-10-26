@@ -12,6 +12,7 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection';
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl';
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt';
 import ToolRuntime from '@deepseek-ai/dsh-tools';
+import ApprovalService from '@deepseek-ai/dsh-user-approval';
 import { WorkforceStore } from '../src/domain/store.js';
 import { WorkforceRuntime } from '../src/harness/runtime.js';
 
@@ -207,6 +208,30 @@ test('queued inbox work and absent persistence do not destroy the retained Agent
   assert.equal(f.ctx.agents.get(SessionId(id)), agent);
   assert.equal(f.runtime.ownsSession(id), true);
   assert.equal(f.resumes(), 0);
+});
+
+test('an idle retained Agent keeps a real approval-policy notice instead of disposing it during native handoff', async t => {
+  const f = await fixture(t, [() => text('RETAINED_POLICY_REPLY')]);
+  const run = await f.start(); const id = run.sessionId!;
+  const agent = f.ctx.agents.get(SessionId(id))!;
+  await f.ctx.plugin(ApprovalService, { policy: 'ask' });
+  f.ctx.approval.setPolicy(agent, 'never');
+  assert.equal(agent.status, 'idle', 'the official policy notification does not wake the model driver');
+  assert.equal(agent.inbox.nextTurn.length, 0);
+  assert.equal(agent.inbox.nextStep.length, 1);
+  assert.equal(agent.inbox.nextStep[0]!.source.kind, 'user-approval');
+  assert.equal(f.ctx.approval.effectivePolicy(agent.session), 'never');
+  const pending = structuredClone(agent.inbox.nextStep);
+  const before = await f.persisted(id);
+  assert.equal(f.runtime.needsCompletedSessionHandoff(id), false, 'the retained capability must not discard queued context through disposal');
+  await assert.rejects(f.runtime.handoffCompletedSession(id), /待处理消息/);
+  assert.equal(f.ctx.agents.get(SessionId(id)), agent);
+  assert.equal(f.runtime.ownsSession(id), true);
+  assert.equal(f.resumes(), 0);
+  assert.deepEqual(agent.inbox.nextStep, pending);
+  assert.equal(f.ctx.approval.effectivePolicy(agent.session), 'never');
+  assert.deepEqual((await f.persisted(id)).events, before.events, 'rejected handoff cannot log a discarded policy notice or revert its durable policy');
+  assert.equal(f.adapter.requests.length, 1, 'checking handoff cannot wake or replay the completed model turn');
 });
 
 test('generated children and structured execution records are never adopted as ordinary conversations', async t => {
