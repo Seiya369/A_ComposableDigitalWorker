@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-composable-workforce",
-  "version": "0.30.0",
+  "version": "0.2.1-rc.3",
   "description": "Composable digital employees, project memory, and reviewed delivery for DeepSeek Harness",
   "type": "module",
   "license": "SEE LICENSE IN LICENSES.md",
@@ -69,7 +69,10 @@
     "docs/audits/2026-10-26-runtime-context-remediation.md",
     "docs/decisions/002-workflow-library-references.md",
     "AGENTS.md",
-    "docs/decisions/001-official-plugin-boundary.md"
+    "docs/decisions/001-official-plugin-boundary.md",
+    "scripts/check-version-alignment.mjs",
+    "docs/decisions/003-host-aligned-versioning.md",
+    "docs/architecture/session-retention.md"
   ],
   "engines": {
     "node": "^22.19.0 || >=24",
@@ -110,7 +113,9 @@
     "plugin:purge": "node scripts/plugin.mjs purge",
     "test:lifecycle": "node tests/plugin-lifecycle.mjs",
     "service:open": "node scripts/service.mjs open",
-    "test:performance": "tsx scripts/performance-audit.ts"
+    "test:performance": "tsx scripts/performance-audit.ts",
+    "check:version": "node scripts/check-version-alignment.mjs",
+    "prepack": "node scripts/check-version-alignment.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",

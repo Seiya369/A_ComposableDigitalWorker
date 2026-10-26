@@ -1,5 +1,11 @@
 # 更新记录
 
+## 0.2.1-rc.3 — 2026-10-26（与DSH统一编号）
+
+- 插件版本与已验收的官方DSH 0.2.1-rc.3完全一致，保留原0.30.0全部功能与数据。历史发布保持原号，不覆盖旧包。
+- 构建与打包增加版本一致性检查；后续DSH升级须先完成兼容验证，同宿主插件修订以独立构建标签和SHA区分。
+- Plugin version now exactly follows the verified DSH release; this is a renumbering of the 0.30.0 feature baseline. Build/prepack checks enforce aligned declarations. Historical artifacts remain immutable.
+
 ## 0.30.0 — 2026-10-26
 
 - 同一员工角色可以服务不同原生对话；当前对话忙与共享流程进度忙分开，空闲对话可选择工作流或“无”，执行身份和验收CAS继续保护。

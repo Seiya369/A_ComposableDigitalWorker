@@ -4,8 +4,10 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { buildLlmWiki } from './build-llm-wiki.mjs';
+import { checkVersionAlignment } from './check-version-alignment.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+await checkVersionAlignment(root);
 await mkdir(resolve(root, 'lib'), { recursive: true });
 await buildLlmWiki(root);
 await build({entryPoints: [resolve(root, 'src/harness/host.ts')], outfile: resolve(root, 'lib/index.js'), bundle: true, platform: 'node', format: 'esm', packages: 'external', target: 'node22', sourcemap: true});

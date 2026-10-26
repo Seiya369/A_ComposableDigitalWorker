@@ -24,7 +24,7 @@
 
 对话工作流与历史顺序工作流使用同一个员工执行器。目录读取不建立 Agent 会话；任务执行继承原生工具、Skill 目录、沙箱与审批；员工只配置必备/优先 Skill 与工具使用偏好。Bash 和第三方工具以实际原生预设及服务约束为准。历史任务数据存放在同一个插件专属状态文件的可选 `workState`，旧状态无需迁移；安装/升级不会自动创建任务、修改已有人员或发起模型请求。参见[工作流详情与验收](../docs/architecture/project-delivery-review.md)及[能力边界](../docs/architecture/native-capabilities.md)。
 
-岗位模型可手动选择，也可通过inherit跟随官方目录中的当前DSH默认值；默认不可用时明确失败，不另选模型。资料管理员继承负责人的模型路由，使用独立整理提示。0.30.0业务准备改为available：只归档/读取已有资料，不触发或等待后台编纂；失败/取消不再自动付费整理。显式资料更新、有效验收和手动整理仍按增量处理。额外任务token限制默认关闭，已报告缓存/输出与编纂账本明确展示。具体边界见[综合修复记录](../docs/audits/2026-10-26-runtime-context-remediation.md)和[团队知识库](../docs/architecture/team-knowledge.md)，最终结果绑定当前实际归档验收，不沿用旧归档结论。
+岗位模型可手动选择，也可通过inherit跟随官方目录中的当前DSH默认值；默认不可用时明确失败，不另选模型。资料管理员继承负责人的模型路由，使用独立整理提示。业务准备采用available：只归档/读取已有资料，不触发或等待后台编纂；失败/取消不再自动付费整理。显式资料更新、有效验收和手动整理仍按增量处理。额外任务token限制默认关闭，已报告缓存/输出与编纂账本明确展示。具体边界见[综合修复记录](../docs/audits/2026-10-26-runtime-context-remediation.md)和[团队知识库](../docs/architecture/team-knowledge.md)，最终结果绑定当前实际归档验收，不沿用旧归档结论。
 
 ## 安装与保留数据卸载
 
@@ -106,3 +106,9 @@ The same ownership rules and native-session retention exception apply on Desktop
 新安装只创建1条软件工程流程，并持久生成6岗位及团队的来源可追溯专业知识图谱。原有安装不自动重置或静默覆盖定制。解压包中的 `lib/upgrade-software-defaults.js` 支持 `--state /absolute/plugin/state.json --dry-run`；退出使用该状态的宿主后以 `--host-stopped` 执行，备份旧文件并在一次版本校验事务中更新。只改变已知原始默认库及未执行、未定制的采用实例；员工ID/模块、记忆、会话选择与历史保留。已执行或定制对象报告跳过。完整清理会移除插件专属图谱；宿主共享原生会话保留项继续适用。
 
 Fresh installs include one engineering workflow and source-backed professional graphs for the six roles and shared team. Existing profiles preserve custom definitions. The packaged explicit upgrade tool backs up state and uses a single version-checked transaction after the host stops; customized/executed adoptions remain unchanged with a skip reason. Plugin-owned graphs follow the same cleanup lifecycle.
+
+## 版本同步规则 / Version alignment
+
+插件包版本与已验收DSH逐字相同，包括预发布后缀；当前二者均为`0.2.1-rc.3`。构建和打包校验声明一致性。由旧`0.30.0`明确安装对齐包是编号切换，不回退功能或迁移用户数据。同宿主独立修订使用不可变构建标签、SHA和不同安装来源，不覆盖旧包；见[ADR-003](../docs/decisions/003-host-aligned-versioning.md)。
+
+Package and verified host versions must match exactly. Existing 0.30.0 profiles require an explicit archive install; independent same-host builds retain immutable identities. Version checks do not replace official archive acceptance.

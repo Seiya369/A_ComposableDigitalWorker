@@ -14,9 +14,14 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.30.0/dsh-plugin-composable-workforce-0.30.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.30.0/dsh-plugin-composable-workforce-0.30.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.30.0)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-rc.3/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.2.1-rc.3/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.2.1-rc.3)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
+
+插件版本从现在起与已验收的 DSH 版本完全一致：**插件 `0.2.1-rc.3` ↔ DSH `0.2.1-rc.3`**。原 `0.30.0` 的功能保持，此次统一编号；已有安装需明确安装新包并重启，不能依赖版本大小自动判断。同一宿主版本的独立修订用构建标签及 SHA 区分。后续规则见[版本策略](docs/decisions/003-host-aligned-versioning.md)。
+
+The plugin version now exactly matches the verified DSH version. This renumbers the existing 0.30.0 functionality without resetting data. Existing users must explicitly install the aligned archive and restart. Independent fixes for the same host use separate immutable build tags and SHA-256 checksums; see the [version policy](docs/decisions/003-host-aligned-versioning.md).
+
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
 >
 > 当前仓库为私有，访问源码和下载发布附件需要仓库授权。The repository is private; source and release downloads require access.
@@ -117,7 +122,7 @@ node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host
 | Node.js | 声明范围 `^22.19.0 || >=24`；当前验收使用 `24.21.0`。 |
 | 界面 | DSH Web 和官方 macOS Apple Silicon Desktop `0.2.1-rc.3`；插件界面跟随 DSH 的中文／English 设置，业务内容保持原文。 |
 | 模型 | 在 DSH 中配置可用模型；员工可继承 DSH 默认值或选择单独的岗位模型。 |
-| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.30.0.tgz` 及对应 SHA-256。 |
+| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.2.1-rc.3.tgz` 及对应 SHA-256。 |
 
 截至 2026-10-26，官方最新 GitHub 发行标签和 npm `next` 为 `0.2.1-rc.3`，npm `latest` 仍为 `0.2.1-rc.2`。本版本按 rc.3 验证；使用 npm 时可显式安装 `@deepseek-ai/dsh@0.2.1-rc.3`。
 
@@ -126,7 +131,7 @@ node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host
 ```sh
 # 替换为你的 DSH 数据目录、profile 和插件归档绝对路径。
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -146,7 +151,7 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -234,7 +239,7 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 缓存是否命中由 DeepSeek 服务端判定；相同的完整前缀有机会复用，换模型、定义/授权变化或原生压缩可能需要重新建立。命中仍占上下文并计输入。交付详情区分未命中输入、缓存读写、输出和服务商报告总量；缺失统计不会被当作零费用。
 
-0.30.0 默认不再附加固定 120,000 的任务累计 token 限制，长对话沿用原生窗口与压缩；步骤、超时和委派边界继续保留。高级配置 `maxTreeTokens: 0` 表示关闭额外限制，正整数为可选的业务运行树累计计量上限，含缓存输入和输出，并非金额预算，也不覆盖独立知识编纂。完整规则、官方依据和复测见[综合修复记录](docs/audits/2026-10-26-runtime-context-remediation.md)。
+0.2.1-rc.3 默认不再附加固定 120,000 的任务累计 token 限制，长对话沿用原生窗口与压缩；步骤、超时和委派边界继续保留。高级配置 `maxTreeTokens: 0` 表示关闭额外限制，正整数为可选的业务运行树累计计量上限，含缓存输入和输出，并非金额预算，也不覆盖独立知识编纂。完整规则、官方依据和复测见[综合修复记录](docs/audits/2026-10-26-runtime-context-remediation.md)。
 
 **事实与候选分开：** 模型提案、临时聊天和未验收产物不会自动变成已确认长期事实。失败复盘保留现象、证据、原因假设、建议与验证步骤；不会自行确认原因、修改 Skill 或执行建议。出现冲突时保留版本、适用条件和来源，自然语言冲突识别仍受模型能力与证据范围限制。
 
@@ -288,11 +293,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留；官方V4还禁止闭轮后替换工具结果，因此空闲卸载时旧记忆工具结果保留，不能声称已从共享历史完全擦除。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.30.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.30.0.md)。
+**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留；官方V4还禁止闭轮后替换工具结果，因此空闲卸载时旧记忆工具结果保留，不能声称已从共享历史完全擦除。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.2.1-rc.3 是带保留项的验收候选，不能标记为无保留合规成品。** 可选处理方案见[持久会话清理边界](docs/architecture/session-retention.md)。详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.2.1-rc.3.md)。
 
 ### 验证状态与已知限制
 
-0.30.0 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.30.0验收记录](integration/verification-0.30.0.md)。
+0.2.1-rc.3 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.2.1-rc.3验收记录](integration/verification-0.2.1-rc.3.md)。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -341,7 +346,7 @@ npm pack --pack-destination artifacts
 | --- | --- |
 | `npm start` | 启动本仓库独立开发 profile。 |
 | `npm run service:start / service:status / service:stop / service:open` | macOS 开发后台服务管理；其他系统使用独立终端 `npm start`。 |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.30.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
 | `npm run test:performance` | 本地合成负载下的状态、持久化、知识包与布局测量。 |
 
 发布前需重新生成归档、SHA-256 和绑定该哈希的验收记录；改动随包文件后不能沿用旧归档验收。提交问题时请附版本、复现步骤、预期／实际行为与脱敏日志。新增能力需遵守 [AGENTS.md](AGENTS.md) 的官方扩展、数据归属和清理要求。
@@ -460,7 +465,7 @@ The tool creates an owned backup and commits once. Full plugin cleanup removes t
 | Node.js | Declared range: `^22.19.0 || >=24`; current acceptance used `24.21.0`. |
 | Interface | DSH Web and official macOS Apple Silicon Desktop `0.2.1-rc.3`. UI language follows DSH Chinese/English settings; user content stays in its original language. |
 | Models | Configure a working model in DSH. Employees can inherit the default or use an explicit role model. |
-| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.30.0.tgz` and matching SHA-256 checksum. |
+| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.2.1-rc.3.tgz` and matching SHA-256 checksum. |
 
 As checked on 2026-10-26, the newest official GitHub tag and npm `next` are `0.2.1-rc.3`; npm `latest` remains `0.2.1-rc.2`. Select `@deepseek-ai/dsh@0.2.1-rc.3` explicitly for this release.
 
@@ -469,7 +474,7 @@ End users need the supported official DSH installation and the plugin `.tgz`. Th
 ```sh
 # Replace the data directory, profile, and absolute archive path.
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -489,7 +494,7 @@ Open Desktop once to initialize it, then quit. Install into `desktop` with **the
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -574,7 +579,7 @@ Stable role rules and required skill bodies are supplied once with content versi
 
 DeepSeek decides whether a complete prefix can be reused. Changing models, definitions, authorization or retained history may require rebuilding part of the cache. Cached input still occupies context and is metered. Delivery details distinguish uncached input, cache reads/writes, output and authoritative provider totals; missing usage is never presented as a free call.
 
-Version 0.30.0 removes the additional fixed 120,000 cumulative business-token cutoff by default. Native context capacity and compaction remain DSH-owned, while step/time/delegation protections remain. Advanced configuration `maxTreeTokens: 0` disables the extra cutoff; a positive value opts into a metered business-run-tree limit including cached input and output. It is neither a monetary cap nor a shared knowledge-compilation limit. See the [combined analysis, remediation and verification](docs/audits/2026-10-26-runtime-context-remediation.md).
+Version 0.2.1-rc.3 removes the additional fixed 120,000 cumulative business-token cutoff by default. Native context capacity and compaction remain DSH-owned, while step/time/delegation protections remain. Advanced configuration `maxTreeTokens: 0` disables the extra cutoff; a positive value opts into a metered business-run-tree limit including cached input and output. It is neither a monetary cap nor a shared knowledge-compilation limit. See the [combined analysis, remediation and verification](docs/audits/2026-10-26-runtime-context-remediation.md).
 
 ### Share and reuse configurations
 
@@ -624,11 +629,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Official V4 also forbids tool-result replacements outside an open turn, so idle uninstall retains historical memory-tool results and cannot claim complete erasure from shared history. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.30.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.30.0.md).
+**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Official V4 also forbids tool-result replacements outside an open turn, so idle uninstall retains historical memory-tool results and cannot claim complete erasure from shared history. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.2.1-rc.3 is a validation candidate with this exception, not an unqualified compliant release.** See [session-retention options](docs/architecture/session-retention.md), [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.2.1-rc.3.md).
 
 ### Verification status and limitations
 
-Version 0.30.0 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [0.30.0 archive acceptance record](integration/verification-0.30.0.md) for exact results and remaining exceptions.
+Version 0.2.1-rc.3 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [0.2.1-rc.3 archive acceptance record](integration/verification-0.2.1-rc.3.md) for exact results and remaining exceptions.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 
@@ -676,7 +681,7 @@ Skip `setup` if all peers are already prepared from official npm packages. Launc
 | --- | --- |
 | `npm start` | Launch the repository's separate development profile. |
 | `npm run service:start / service:status / service:stop / service:open` | Manage the macOS development service; on other systems use `npm start` in a separate terminal. |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.30.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.2.1-rc.3.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
 | `npm run test:performance` | Measure local synthetic state, persistence, knowledge-packet, and layout loads. |
 
 Before distribution, generate a new archive, checksum, and acceptance record bound to that hash. Changes to packaged files cannot reuse an older archive's acceptance. Report issues with versions, reproduction steps, expected/actual behavior, and redacted logs. Contributions must follow the public extension, ownership, and cleanup requirements in [AGENTS.md](AGENTS.md).
