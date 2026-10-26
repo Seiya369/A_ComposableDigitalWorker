@@ -24,6 +24,7 @@ const hostBefore = await hostHash(), checks = [], pageErrors = [];
 const delay = ms => new Promise(done => setTimeout(done, ms));
 const check = name => { checks.push(name); console.log(`PASS ${name}`); };
 let child, browser, page, callsPath, inspectState, log = '', cookie = '';
+const networkErrors = [];
 async function start() {
   const home = resolve(temp, 'harness'), profile = resolve(home, 'profiles/web'), target = resolve(profile, 'node_modules/dsh-plugin-composable-workforce');
   const runtime = await prepareOfficialPluginRuntime({ root, packageDirectory: target, installation, archive });
@@ -32,8 +33,8 @@ async function start() {
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'; import { appendFile } from 'node:fs/promises';
 export const name = 'employee-settings-fixture'; export const inject = ['llm'];
 class ResidentAdapter extends LlmAdapter {
-  listModels(provider) { return Promise.resolve(['native-default','resident-specialist'].map(id=>({provider,id,name:id}))); }
-  resolveModel(provider,id) { return Promise.resolve({provider,id,name:id,context:{contextWindow:262144}}); }
+  listModels(provider) { return Promise.resolve(['native-default','resident-specialist','temporary-specialist'].map(id=>({provider,id,name:id}))); }
+  resolveModel(provider,id) { return Promise.resolve({provider,id,name:id,inputModalities:['text','image'],context:{contextWindow:262144}}); }
   async *stream(request) {
     const current = request.messages.findLast(message=>message.role==='user'&&message.source?.kind==='user');
     const marker = JSON.stringify(current?.content ?? []);
@@ -74,7 +75,8 @@ try {
   modules.responsibilities.mission = 'RESIDENT_SAVED_MISSION：负责产品需求与验收。';
   modules.capabilities.skills = [{ id: 'architecture-analysis', name: '架构分析', description: 'RESIDENT_REQUIRED_SKILL', usage: 'required' }];
   modules.knowledge.sources = []; modules.knowledge.projectMemory = false; modules.knowledge.employeeMemory = false;
-  const role = (await command('template.save', { name: 'QA-常驻产品负责人', status: 'ready', modules })).result;
+  let role, temporaryRole;
+  const temporaryModules = structuredClone(modules); temporaryModules.model.model = 'temporary-specialist'; temporaryModules.responsibilities.mission = 'TEMPORARY_SAVED_MISSION：负责本轮临时架构分析。';
   const chatPath = resolve(temp, 'Chat'); await mkdir(chatPath); const workspace = (await rpc('workspace/create', { path: chatPath })).workspace, projectId = workspace.workspaceId;
   const sessionId = (await rpc('session/create', { workspaceId: projectId })).sessionId, otherId = (await rpc('session/create', { workspaceId: projectId })).sessionId;
   const resident = id => get('/digital-workers/api/conversation-employee?sessionId=' + encodeURIComponent(id));
@@ -86,6 +88,8 @@ try {
   check('default-Chat-native-turns-create-no-resident-binding-employee-or-run');
   browser = await chromium.launch({ headless: true, ...(process.env.WORKFORCE_BROWSER_CHANNEL === 'bundled' ? {} : { channel: process.env.WORKFORCE_BROWSER_CHANNEL || 'chrome' }) });
   page = await browser.newPage({ viewport: { width: 1512, height: 1050 }, colorScheme: 'dark', locale: 'zh-CN' }); page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('requestfailed', request => networkErrors.push({ url: request.url(), failure: request.failure() }));
+  page.on('response', async response => { if (response.url().includes('/api/') && (response.url().includes('/session/prompt') || response.url().includes('/mention-ticket'))) { const body = await response.json().catch(() => undefined); networkErrors.push({ url: response.url(), status: response.status(), body }); } });
   const split = cookie.indexOf('='); await page.context().addCookies([{ name: cookie.slice(0, split), value: cookie.slice(split + 1), url: base, httpOnly: true, sameSite: 'Strict' }]);
   await page.goto(base, { waitUntil: 'domcontentloaded' }); await page.getByRole('button', { name: '继续', exact: true }).click();
   const later = page.getByRole('button', { name: '稍后配置', exact: true }); if (await later.waitFor({ state: 'visible', timeout: 3000 }).then(() => true).catch(() => false)) await later.click();
@@ -96,7 +100,8 @@ try {
     await expect(page.locator('.wf-conversation-employee-trigger')).toBeVisible(); await expect(page.locator('.wf-conversation-workflow-picker, .wf-conversation-workflow-bar')).toHaveCount(0);
   };
   const trigger = page.locator('.wf-conversation-employee-trigger'), menu = page.locator('.wf-conversation-employee-menu');
-  await openSession(sessionId); await expect(trigger).toContainText('常驻此对话 · 原生助手');
+  await openSession(sessionId); await expect(trigger).toHaveText('选择对话员工');
+  await expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
   await expect(page.locator('.wf-conversation-employee')).toHaveAttribute('data-contact-aligned', 'true');
   const geometry = await page.evaluate(() => {
     const root = document.querySelector('.wf-conversation-employee'), header = root.closest('header');
@@ -105,62 +110,79 @@ try {
     return { tabBottom: glyph(tab).bottom, contactBottom: glyph(label).bottom };
   });
   assert.ok(Math.abs(geometry.tabBottom - geometry.contactBottom) < 1, JSON.stringify(geometry));
-  await trigger.focus(); await trigger.press('ArrowDown'); await expect(menu).toBeVisible(); await expect(menu.getByRole('radio', { name: '轻咨询', exact: true })).toBeChecked();
   const beforeBrowseCalls = (await calls()).length;
-  const option = menu.getByRole('option').filter({ hasText: role.name }); await option.hover();
-  await menu.locator('summary').click(); await expect(menu.locator('details')).toHaveAttribute('open', ''); await expect(menu).toContainText('RESIDENT_SAVED_MISSION');
-  const popupBounds = await menu.boundingBox(); assert.ok(popupBounds.x >= 8 && popupBounds.x + popupBounds.width <= 1504, JSON.stringify(popupBounds));
-  await page.screenshot({ path: resolve(artifacts, 'resident-menu-local-profile.png') });
+  await trigger.focus(); await trigger.press('ArrowDown'); await expect(menu).toBeVisible();
+  await expect(menu.getByRole('radio')).toHaveCount(0); await expect(menu.locator('details, summary, p, fieldset')).toHaveCount(0);
+  const choices = (await resident(sessionId)).choices.map(choice => choice.name);
+  assert.deepEqual(await menu.getByRole('option').allTextContents(), ['无', ...choices]);
+  const popupBounds = await menu.boundingBox(); assert.ok(popupBounds.x >= 8 && popupBounds.x + popupBounds.width <= 1504 && popupBounds.width === 240, JSON.stringify(popupBounds));
+  await page.screenshot({ path: resolve(artifacts, 'resident-menu-names-only.png'), clip: { x: Math.max(0, popupBounds.x - 24), y: 0, width: Math.min(1512 - Math.max(0, popupBounds.x - 24), popupBounds.width + 48), height: Math.min(800, popupBounds.y + popupBounds.height + 24) } });
+  const triggerBounds = await trigger.boundingBox(), clipX = Math.max(0, Math.min(triggerBounds.x, popupBounds.x) - 12), clipY = Math.max(0, Math.min(triggerBounds.y, popupBounds.y) - 12);
+  await page.screenshot({ path: resolve(artifacts, 'simple-employee-selector.png'), clip: { x: clipX, y: clipY, width: Math.min(1512, Math.max(triggerBounds.x + triggerBounds.width, popupBounds.x + popupBounds.width) + 12) - clipX, height: Math.max(triggerBounds.y + triggerBounds.height, popupBounds.y + popupBounds.height) + 12 - clipY } });
   assert.equal((await calls()).length, beforeBrowseCalls); assert.equal((await state()).employees.length, 0);
   await menu.locator('[role="listbox"]').press('Escape'); await expect(menu).toHaveCount(0); await expect(trigger).toBeFocused();
   await trigger.click(); await page.locator('[data-composer-input][contenteditable=true]').click(); await expect(menu).toHaveCount(0);
-  await trigger.click(); await option.hover(); await menu.locator('[role="listbox"]').press('Enter');
-  await expect.poll(async () => (await resident(sessionId)).conversationEmployee?.mode).toBe('consult');
-  await expect(trigger).toContainText(role.name + '正在对接'); assert.equal((await state()).employees.length, 1); assert.equal((await state()).runs.length, 0); assert.equal((await resident(otherId)).conversationEmployee, null);
+  role = (await command('template.save', { name: 'QA-常驻产品负责人', status: 'ready', modules })).result;
+  temporaryRole = (await command('template.save', { name: 'QA-临时架构师', status: 'ready', modules: temporaryModules })).result;
+  await trigger.click(); await menu.getByRole('option', { name: role.name, exact: true }).hover(); await menu.locator('[role="listbox"]').press('Enter');
+  await expect.poll(async () => (await resident(sessionId)).conversationEmployee?.mode).toBe('execute');
+  await expect(trigger).toHaveText(role.name); assert.equal((await state()).employees.length, 1); assert.equal((await state()).runs.length, 0); assert.equal((await resident(otherId)).conversationEmployee, null);
   await page.screenshot({ path: resolve(artifacts, 'resident-header-bound.png') });
-  check('explicit-dropdown-aligned-with-native-tabs-browses-local-card-with-zero-model-calls');
-  check('explicit-selection-defaults-to-consult-and-affects-only-selected-session');
-  const send = async text => { const editor = page.locator('[data-composer-input][contenteditable=true]'); await editor.fill(text); await editor.press('Enter'); await expect.poll(async () => (await calls()).some(item => item.marker.includes(text)), { timeout: 30000 }).toBe(true); await expect.poll(async () => (await resident(sessionId)).busy, { timeout: 30000 }).toBe(false); };
-  for (const text of ['RESIDENT_CONSULT_ONE', 'RESIDENT_CONSULT_TWO']) await send(text);
-  const consultations = (await calls()).filter(item => /RESIDENT_CONSULT_(ONE|TWO)/.test(item.marker));
-  assert.equal(consultations.length, 2);
-  for (const call of consultations) { assert.equal(call.model, 'resident-specialist'); assert.match(JSON.stringify(call), /RESIDENT_SAVED_MISSION/); assert.deepEqual(call.tools ?? [], []); assert.doesNotMatch(JSON.stringify(call), /本轮已载入的必备 Skill|RESIDENT_REQUIRED_SKILL/); }
-  assert.equal((await state()).runs.filter(run => run.conversationEmployee?.sessionId === sessionId).length, 2);
-  await expect.poll(async () => (await state()).runs.filter(run => run.conversationEmployee?.sessionId === sessionId).map(run => ({ status: run.status, error: run.error })), { timeout: 30000 }).toEqual([{ status: 'succeeded', error: undefined }, { status: 'succeeded', error: undefined }]);
-  await page.reload({ waitUntil: 'domcontentloaded' }); await expect(trigger).toContainText(role.name + '正在对接');
-  check('two-native-streamed-consultations-stay-in-one-session-without-tools-skills-or-rebinding');
-  const setMode = async (mode, name) => {
-    await menu.getByRole('radio', { name, exact: true }).check();
-    await expect.poll(async () => (await resident(sessionId)).conversationEmployee?.mode === mode || await menu.locator('.wf-conversation-employee-error').count() > 0).toBe(true);
-    // A run may commit a new global revision just before the user clicks.
-    // The Client refreshes without replay; this second check is another user action.
-    if ((await resident(sessionId)).conversationEmployee?.mode !== mode) { await expect(menu.locator('.wf-conversation-employee-error')).toBeVisible(); await menu.getByRole('radio', { name, exact: true }).check(); }
-    await expect.poll(async () => (await resident(sessionId)).conversationEmployee?.mode).toBe(mode);
+  check('simple-header-shows-placeholder-then-name-only-menu-without-cards-copy-or-mode-controls');
+  check('explicit-selection-affects-only-selected-session-and-browsing-calls-no-model');
+  const promptRequests = [];
+  page.on('request', request => { if (request.url().endsWith('/api/session/prompt') && request.method() === 'POST') promptRequests.push(request.postDataJSON()); });
+  const waitTurn = async text => {
+    await expect.poll(async () => (await calls()).filter(item => item.marker.includes(text)).length, { timeout: 30000 }).toBe(1);
+    await expect.poll(async () => (await resident(sessionId)).busy, { timeout: 30000 }).toBe(false);
+    await expect.poll(async () => (await state()).runs.filter(run => run.request.includes(text)).every(run => !['queued', 'running', 'blocked'].includes(run.status)), { timeout: 30000 }).toBe(true);
   };
-  await trigger.click(); await setMode('execute', '执行任务'); await trigger.click();
-  await send('RESIDENT_EXECUTE_ONE'); const execution = (await calls()).find(item => item.marker.includes('RESIDENT_EXECUTE_ONE'));
-  assert.match(JSON.stringify(execution), /本轮已载入的必备 Skill/); assert.ok(execution.tools?.some(name => name.startsWith('worker_')));
-  check('explicit-execute-mode-restores-authorized-tools-and-required-skills');
-  await trigger.click(); await setMode('consult', '轻咨询'); await trigger.click();
+  const send = async text => { const editor = page.locator('[data-composer-input][contenteditable=true]'), before = promptRequests.length; await editor.fill(text); await editor.press('Enter'); await waitTurn(text); assert.equal(promptRequests.length, before + 1, 'one native submission per user send'); };
+  for (const text of ['RESIDENT_EXECUTE_ONE', 'RESIDENT_EXECUTE_TWO']) await send(text);
+  for (const call of (await calls()).filter(item => /RESIDENT_EXECUTE_(ONE|TWO)/.test(item.marker))) { assert.equal(call.model, 'resident-specialist'); assert.match(JSON.stringify(call), /RESIDENT_SAVED_MISSION/); assert.match(JSON.stringify(call), /本轮已载入的必备 Skill/); }
+  await page.reload({ waitUntil: 'domcontentloaded' }); await expect(trigger).toHaveText(role.name);
+  check('two-native-streamed-employee-turns-stay-in-same-conversation-and-choice-survives-reload');
+  const editor = page.locator('[data-composer-input][contenteditable=true]');
+  await editor.fill('@' + temporaryRole.name);
+  const candidate = page.locator('[data-trigger-menu] [role="option"]').filter({ hasText: temporaryRole.name }); await expect(candidate).toHaveCount(1);
+  await candidate.click();
+  assert.equal((await state()).runs.length, 2, 'picking @ does not execute');
+  await page.locator('[data-composer-card] input[type=file]').setInputFiles({ name: 'temporary-evidence.png', mimeType: 'image/png', buffer: await page.screenshot({ clip: { x: 10, y: 10, width: 2, height: 2 } }) });
+  const beforeMention = promptRequests.length;
+  await editor.press('End'); await editor.pressSequentially(' TEMPORARY_CHIP_WITH_IMAGE');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled(); await page.getByRole('button', { name: '发送消息', exact: true }).click(); await waitTurn('TEMPORARY_CHIP_WITH_IMAGE');
+  assert.equal(promptRequests.length, beforeMention + 1);
+  const chipCall = (await calls()).find(item => item.marker.includes('TEMPORARY_CHIP_WITH_IMAGE'));
+  assert.equal(chipCall.model, 'temporary-specialist'); assert.match(JSON.stringify(chipCall), /TEMPORARY_SAVED_MISSION/);
+  const submittedUser = chipCall.messages.findLast(message => message.role === 'user' && message.source?.kind === 'user'); assert.ok(submittedUser.content.some(block => block.type === 'image'), 'native image remains in the same user message');
+  await expect(page.getByText(/<graph-horses-employee:/)).toHaveCount(0);
+  await expect(trigger).toHaveText(role.name); assert.equal((await resident(sessionId)).conversationEmployee.employeeId, (await state()).employees.find(employee => employee.templateId === role.id).id);
+  await send('RESIDENT_AFTER_TEMPORARY'); assert.equal((await calls()).find(item => item.marker.includes('RESIDENT_AFTER_TEMPORARY')).model, 'resident-specialist');
+  check('temporary-reference-overrides-resident-only-for-one-turn-preserves-image-and-native-send');
+  const raw = '@' + temporaryRole.name + ' TEMPORARY_PASTED_TEXT';
+  await send(raw); assert.equal((await calls()).find(item => item.marker.includes('TEMPORARY_PASTED_TEXT')).model, 'temporary-specialist');
+  await expect(trigger).toHaveText(role.name); await send('RESIDENT_AFTER_PASTE'); assert.equal((await calls()).find(item => item.marker.includes('RESIDENT_AFTER_PASTE')).model, 'resident-specialist');
+  check('pasted-leading-at-text-routes-through-real-native-send-once-and-restores-resident-next-turn');
   await prompt(sessionId, 'RESIDENT_SLOW_ONE'); await expect.poll(async () => (await resident(sessionId)).busy).toBe(true);
-  await trigger.click(); await expect(menu.getByRole('radio', { name: '执行任务', exact: true })).toBeDisabled(); await menu.locator('[role="listbox"]').press('Escape');
-  await openSession(otherId); await expect(trigger).toContainText('常驻此对话 · 原生助手'); await trigger.click(); await expect(menu.getByRole('radio', { name: '执行任务', exact: true })).toBeEnabled();
-  await expect(menu.getByRole('option').filter({ hasText: role.name })).toHaveAttribute('aria-disabled', 'false'); await menu.locator('[role="listbox"]').press('Escape');
+  await trigger.click(); await expect(menu.getByRole('option').first()).toHaveAttribute('aria-disabled', 'true'); await menu.locator('[role="listbox"]').press('Escape');
+  await openSession(otherId); await expect(trigger).toHaveText('选择对话员工'); await trigger.click(); await expect(menu.getByRole('option').first()).toHaveAttribute('aria-disabled', 'false'); await menu.locator('[role="listbox"]').press('Escape');
   await expect.poll(async () => (await resident(sessionId)).busy, { timeout: 30000 }).toBe(false); await openSession(sessionId);
-  check('busy-resident-conversation-does-not-disable-another-Chat-employee-menu');
+  check('busy-employee-conversation-does-not-disable-another-Chat-employee-menu');
   const residentEmployeeId = (await resident(sessionId)).conversationEmployee.employeeId;
   await command('employee.update', { id: residentEmployeeId, input: { status: 'paused' } });
   await trigger.click(); await expect(menu).toContainText('常驻员工已暂停');
-  await expect(menu.getByRole('radio', { name: '执行任务', exact: true })).toBeDisabled();
-  await menu.getByRole('option', { name: '退出常驻，使用原生助手', exact: true }).click(); await expect.poll(async () => (await resident(sessionId)).conversationEmployee).toBe(null);
-  await expect(trigger).toContainText('常驻此对话 · 原生助手'); const beforeNative = (await state()).runs.length;
-  await send('RESIDENT_NATIVE_AFTER_CLEAR'); assert.equal((await state()).runs.length, beforeNative);
-  const native = (await calls()).find(item => item.marker.includes('RESIDENT_NATIVE_AFTER_CLEAR'));
-  assert.ok(!native.tools?.some(name => name.startsWith('worker_')));
+  await menu.getByRole('option', { name: '无', exact: true }).click(); await expect.poll(async () => (await resident(sessionId)).conversationEmployee).toBe(null);
+  await expect(trigger).toHaveText('选择对话员工');
+  const beforeNative = (await state()).runs.length; await send('RESIDENT_NATIVE_AFTER_CLEAR'); assert.equal((await state()).runs.length, beforeNative);
+  await send('@' + temporaryRole.name + ' TEMPORARY_FROM_NONE'); assert.equal((await calls()).find(item => item.marker.includes('TEMPORARY_FROM_NONE')).model, 'temporary-specialist');
+  assert.equal((await resident(sessionId)).conversationEmployee, null);
+  const beforeDefaultFollowup = (await state()).runs.length; await send('RESIDENT_NATIVE_AFTER_TEMP_NONE'); assert.equal((await state()).runs.length, beforeDefaultFollowup);
+  const native = (await calls()).find(item => item.marker.includes('RESIDENT_NATIVE_AFTER_TEMP_NONE')); assert.ok(!native.tools?.some(name => name.startsWith('worker_')));
   const activeContexts = native.messages.filter(message => message.source?.kind === 'runtime-context' && message.source?.form === 'snapshot').at(-1);
   assert.ok(!activeContexts?.source?.sections?.some(section => section.name === 'digital-worker:identity' || section.name === 'composable-workforce:task-context'));
-  check('explicit-exit-keeps-history-and-followup-returns-to-native-without-an-employee-run');
-  check('paused-resident-remains-visible-and-can-still-be-explicitly-cleared');
+  await expect(page.locator('[data-row-key^="session:"]')).toHaveCount(2);
+  assert.ok((await state()).runs.every(run => run.sessionId === sessionId), 'all resident/temporary turns use the original native session');
+  check('none-clears-even-paused-employee-and-temporary-mention-then-restores-native-without-extra-session');
   for (const width of [1024, 768]) {
     await page.setViewportSize({ width, height: 1050 }); await expect(trigger).toBeVisible(); const bounds = await trigger.boundingBox(); assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, JSON.stringify(bounds));
     await trigger.click(); const popup = await menu.boundingBox(); assert.ok(popup.x >= 8 && popup.x + popup.width <= width - 8, JSON.stringify(popup)); await menu.locator('[role="listbox"]').press('Escape');
@@ -172,7 +194,7 @@ try {
   console.log(`PASS ${checks.length} official resident employee checks`);
 } catch (error) {
   await mkdir(artifacts, { recursive: true }); await page?.screenshot({ path: resolve(artifacts, 'failure.png') }).catch(() => {});
-  await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors, error: String(error), state: await inspectState?.().catch(() => undefined), hostLog: redactWebAuth(log).slice(-10000), calls: (await readFile(callsPath, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line)) }, null, 2));
+  await writeFile(resolve(artifacts, 'failure-report.json'), JSON.stringify({ status: 'failed', checks, pageErrors, networkErrors, composerText: await page?.locator('[data-composer-card]').innerText().catch(() => undefined), error: String(error), state: await inspectState?.().catch(() => undefined), hostLog: redactWebAuth(log).slice(-10000), calls: (await readFile(callsPath, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line)) }, null, 2));
   throw error;
 } finally {
   await browser?.close(); if (child?.exitCode === null) { child.kill('SIGTERM'); for (let attempt = 0; attempt < 80 && child.exitCode === null; attempt++) await delay(100); if (child.exitCode === null) child.kill('SIGKILL'); }
