@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react';
 import type { ConversationEmployeeController, ConversationEmployeeSnapshot } from '../client/conversation-employee.js';
+import { createPortal } from 'react-dom';
 import { Icon } from './icons.js';
 import { useI18n } from './i18n.js';
 import './conversation-employee.css';
@@ -34,11 +35,20 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
   const subscribe = useCallback((listener: () => void) => controller.subscribe(sessionId, listener), [controller, sessionId]);
   const read = useCallback(() => controller.read(sessionId), [controller, sessionId]);
   const { snapshot, loading, pending, error } = useSyncExternalStore(subscribe, read, read);
+  const seat = useRef<HTMLDivElement>(null), popup = useRef<HTMLDivElement>(null);
   const root = useRef<HTMLDivElement>(null), trigger = useRef<HTMLButtonElement>(null), label = useRef<HTMLSpanElement>(null), list = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false), [active, setActive] = useState(0);
-  const [placement, setPlacement] = useState({ top: 0, left: 0, width: 220, popupLeft: -20, aligned: false });
+  const [placement, setPlacement] = useState({ top: 0, left: 0, width: 220, popupLeft: 0, popupTop: 28, aligned: false, ready: false });
   const menuId = useId();
   const busy = loading || pending || snapshot?.busy === true;
+  const contains = (node: EventTarget | null) => node instanceof Node && Boolean(root.current?.contains(node) || popup.current?.contains(node));
+  const reveal = (index: number) => {
+    const container = list.current, option = container?.children.item(index);
+    if (!container || !option) return;
+    const viewport = container.getBoundingClientRect(), row = option.getBoundingClientRect();
+    if (row.top < viewport.top) container.scrollTop += row.top - viewport.top;
+    else if (row.bottom > viewport.bottom) container.scrollTop += row.bottom - viewport.bottom;
+  };
   const close = (restore = false) => { setOpen(false); if (restore) trigger.current?.focus(); };
   const show = () => {
     if (!snapshot?.enabled) return;
@@ -48,45 +58,56 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
   useEffect(() => { setOpen(false); }, [sessionId, snapshot?.enabled]);
   useEffect(() => {
     if (!open) return;
-    list.current?.focus();
-    const outside = (event: PointerEvent) => { if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false); };
+    list.current?.focus({ preventScroll: true });
+    reveal(active);
+    const outside = (event: PointerEvent) => { if (!contains(event.target)) setOpen(false); };
     document.addEventListener('pointerdown', outside, true);
     return () => document.removeEventListener('pointerdown', outside, true);
   }, [open]);
-  useEffect(() => { if (open) document.getElementById(`${menuId}-option-${active}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [active, open, menuId]);
   useEffect(() => { if (snapshot && active > snapshot.choices.length) setActive(0); }, [active, snapshot?.choices.length]);
   useLayoutEffect(() => {
-    const anchor = root.current, header = anchor?.closest('header');
+    const anchor = seat.current, header = anchor?.closest('header');
     if (!anchor || !header) return;
     const glyph = (node: Element) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect(); };
     const measure = () => {
+      if (!root.current || !label.current || !trigger.current) return;
       const bounds = anchor.getBoundingClientRect(), headerBounds = header.getBoundingClientRect();
+      // Native panels may retain a hidden conversation instead of unmounting
+      // its slot. A portal must follow that seat's visibility too.
+      if (!bounds.width || !bounds.height || !headerBounds.width || !headerBounds.height
+        || anchor.closest('[hidden], [aria-hidden="true"], [inert]') || getComputedStyle(anchor).visibility !== 'visible') {
+        setOpen(false);
+        setPlacement(previous => previous.ready ? { ...previous, ready: false } : previous);
+        return;
+      }
       const tab = [...header.querySelectorAll('[data-conversation-tabs] [role="tab"]')].reverse().find(node => { const rect = node.getBoundingClientRect(); return rect.width && rect.height && node.textContent?.trim(); });
-      const contentRight = headerBounds.right - Math.max(16, Number.parseFloat(getComputedStyle(header).paddingRight) || 0);
-      // Matches the project Details/contact anchor immediately before native right controls.
-      let left = 4, width = Math.min(220, contentRight - bounds.left - left), top = 0, aligned = false;
-      if (tab && label.current && trigger.current) {
-        const target = glyph(tab), current = glyph(label.current), previous = Number(trigger.current.dataset.top) || 0;
-        top = previous + target.bottom - current.bottom;
-        aligned = top >= 0 && bounds.top + top + trigger.current.offsetHeight <= headerBounds.bottom - 1;
+      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      const contentRight = Math.min(viewportWidth - 16, headerBounds.right - Math.max(16, Number.parseFloat(getComputedStyle(header).paddingRight) || 0));
+      let left = bounds.left + 4, width = Math.min(220, contentRight - left), top = bounds.top, aligned = false;
+      if (tab) {
+        const target = glyph(tab), textOffset = glyph(label.current).bottom - trigger.current.getBoundingClientRect().top;
+        top = target.bottom - textOffset;
+        aligned = top >= headerBounds.top && top + trigger.current.offsetHeight <= headerBounds.bottom - 1;
         if (aligned) for (const control of header.querySelectorAll('button, a, input, select, textarea, [role="tab"]')) {
-          if (anchor.contains(control)) continue;
           const box = control.getBoundingClientRect();
-          if (box.width && box.height && box.right > bounds.left + left && box.left < contentRight && box.bottom > target.top && box.top < target.bottom) width = 0;
+          if (box.width && box.height && box.right > left && box.left < contentRight && box.bottom > target.top && box.top < target.bottom) width = 0;
         }
       }
-      // Where the native tab row is unavailable or crowded, remain inside our own slot.
-      if (!aligned || width < 80) { top = 0; left = 0; width = 220; aligned = false; }
-      const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+      if (!aligned || width < 80) { top = bounds.top; left = bounds.left; width = Math.min(220, bounds.width); aligned = false; }
+      width = Math.max(1, Math.min(width, viewportWidth - 16));
+      left = Math.max(8, Math.min(left, viewportWidth - width - 8));
       const popupWidth = Math.min(viewportWidth - 32, viewportWidth <= 720 ? 220 : 240);
-      const triggerWidth = aligned ? width : Math.min(width, bounds.width);
-      const popupLeft = Math.max(16, Math.min(viewportWidth - popupWidth - 16, bounds.left + left + triggerWidth - popupWidth)) - bounds.left;
-      const next = { top: Math.round(top * 1000) / 1000, left, width: Math.max(80, width), popupLeft: Math.round(popupLeft * 1000) / 1000, aligned };
+      const popupLeft = Math.max(16, Math.min(viewportWidth - popupWidth - 16, left + width - popupWidth));
+      const next = { top, left, width, popupLeft, popupTop: Math.max(top + 28, headerBounds.bottom + 4), aligned, ready: true };
       setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     const resize = new ResizeObserver(measure); resize.observe(anchor); resize.observe(header);
     const content = new MutationObserver(measure); content.observe(header, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden'] });
-    measure(); return () => { resize.disconnect(); content.disconnect(); };
+    const visibility = new MutationObserver(measure);
+    for (let parent = anchor.parentElement; parent; parent = parent.parentElement) visibility.observe(parent, { attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'inert', 'class', 'style'] });
+    window.addEventListener('resize', measure);
+    document.addEventListener('scroll', measure, true);
+    measure(); return () => { resize.disconnect(); content.disconnect(); visibility.disconnect(); window.removeEventListener('resize', measure); document.removeEventListener('scroll', measure, true); };
   }, [snapshot?.enabled, snapshot?.conversationEmployee?.employeeId, snapshot?.employee?.name, locale]);
   if (!snapshot?.enabled) return null;
   const binding = snapshot.conversationEmployee;
@@ -105,10 +126,18 @@ export function ConversationEmployee({ sessionId, controller }: ConversationEmpl
     const delta = event.key === 'ArrowDown' ? 1 : event.key === 'ArrowUp' ? -1 : 0;
     if (!delta && event.key !== 'Home' && event.key !== 'End') return;
     event.preventDefault(); const count = snapshot.choices.length + 1;
-    setActive(event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : (active + delta + count) % count);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? count - 1 : (active + delta + count) % count;
+    setActive(next); reveal(next);
   };
-  return <div ref={root} className="wf-conversation-employee" data-contact-aligned={placement.aligned} style={{ width: placement.aligned ? 32 : 220 }} onKeyDown={event => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(true); } }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
-    <button ref={trigger} type="button" className="wf-conversation-employee-trigger" data-top={placement.top} style={{ top: placement.top, left: placement.left, width: placement.width }} aria-label={text} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-busy={pending} title={text} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}><span ref={label}>{text}</span><Icon name="chevron" size={12}/></button>
-    {open && <div id={`${menuId}-dialog`} className="wf-conversation-employee-popup" style={{ top: placement.top + 28, left: placement.popupLeft }}><ConversationEmployeeMenu snapshot={snapshot} active={active} pending={pending} menuId={menuId} error={error} listRef={list} onActive={setActive} onChoose={index => void choose(index)} onKeys={onKeys} onRefresh={() => void controller.refresh(sessionId)}/></div>}
-  </div>;
+  const onEscape = (event: KeyboardEvent<HTMLDivElement>) => { if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); close(true); } };
+  const onBlur = (event: React.FocusEvent<HTMLDivElement>) => { if (!contains(event.relatedTarget)) setOpen(false); };
+  // Own fixed nodes escape native title-row clipping and drag-region geometry.
+  // Their real boxes cover only the visible controls, never the whole viewport.
+  const controls = <>
+    <div ref={root} className="wf-conversation-employee" data-contact-aligned={placement.aligned} style={{ top: placement.top, left: placement.left, width: placement.width, visibility: placement.ready ? 'visible' : 'hidden' }} onKeyDown={onEscape} onBlur={onBlur}>
+      <button ref={trigger} type="button" className="wf-conversation-employee-trigger" aria-label={text} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} aria-busy={pending} title={text} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}><span ref={label}>{text}</span><Icon name="chevron" size={12}/></button>
+    </div>
+    {open && <div ref={popup} id={`${menuId}-dialog`} className="wf-conversation-employee-popup" style={{ top: placement.popupTop, left: placement.popupLeft }} onKeyDown={onEscape} onBlur={onBlur}><ConversationEmployeeMenu snapshot={snapshot} active={active} pending={pending} menuId={menuId} error={error} listRef={list} onActive={setActive} onChoose={index => void choose(index)} onKeys={onKeys} onRefresh={() => void controller.refresh(sessionId)}/></div>}
+  </>;
+  return <><div ref={seat} className="wf-conversation-employee-seat" style={{ width: placement.aligned ? 32 : 220 }}/>{typeof document === 'undefined' ? controls : createPortal(controls, document.body)}</>;
 }

@@ -1,5 +1,12 @@
 # 更新记录
 
+## 0.2.1 / plugin.5 — 2026-10-26
+
+- 修复 Desktop 员工选择按钮的可见文字/箭头无法按实际位置点击：保留官方 header 插槽占位，交互按钮及弹层使用插件自有、紧尺寸的固定 portal，与真实可视区域一致，不再溢出标题行容器。
+- 弹层与按钮显式声明自身非拖动区域，不覆盖整窗；弹层避开原生标题栏与输入区叠层，窄窗口仍可点击。隐藏/保留的会话面板不留下浮动入口。
+- 鼠标悬停只高亮，不再触发祖先滚动；键盘导航只调整员工列表内部滚动，避免点击前选项移动。
+- Correct visible pointer targets for the employee selector in Desktop, preserve its header position, and isolate fixed plugin-owned surfaces from native clipping/stacking. Keyboard scrolling stays within the list; hidden conversations release their floating controls.
+
 ## 0.2.1 / plugin.4 — 2026-10-26
 
 - Chat 顶部默认显示“选择对话员工”，菜单只列员工姓名与“无”；选择即常驻，取消即回原生助手，移除处理模式、职责说明和资料卡。
