@@ -14,10 +14,12 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.29.2/dsh-plugin-composable-workforce-0.29.2.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.29.2/dsh-plugin-composable-workforce-0.29.2.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.29.2)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.30.0/dsh-plugin-composable-workforce-0.30.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.30.0/dsh-plugin-composable-workforce-0.30.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.30.0)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
+>
+> 当前仓库为私有，访问源码和下载发布附件需要仓库授权。The repository is private; source and release downloads require access.
 
 ```mermaid
 flowchart LR
@@ -115,7 +117,7 @@ node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host
 | Node.js | 声明范围 `^22.19.0 || >=24`；当前验收使用 `24.21.0`。 |
 | 界面 | DSH Web 和官方 macOS Apple Silicon Desktop `0.2.1-rc.3`；插件界面跟随 DSH 的中文／English 设置，业务内容保持原文。 |
 | 模型 | 在 DSH 中配置可用模型；员工可继承 DSH 默认值或选择单独的岗位模型。 |
-| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.29.2.tgz` 及对应 SHA-256。 |
+| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.30.0.tgz` 及对应 SHA-256。 |
 
 截至 2026-10-26，官方最新 GitHub 发行标签和 npm `next` 为 `0.2.1-rc.3`，npm `latest` 仍为 `0.2.1-rc.2`。本版本按 rc.3 验证；使用 npm 时可显式安装 `@deepseek-ai/dsh@0.2.1-rc.3`。
 
@@ -124,7 +126,7 @@ node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host
 ```sh
 # 替换为你的 DSH 数据目录、profile 和插件归档绝对路径。
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.29.2.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -144,7 +146,7 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.29.2.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -194,7 +196,7 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 直接输入任务即可由当前步骤负责人接手，无需 `@`。需要单独派工时，可在行首输入 `@`，选择当前项目已启用的员工；输入中间的 `@` 继续使用 DSH 原生引用功能。
 
-顶部步骤条以 **灰色** 表示未完成、**蓝色** 表示当前步骤、**白色** 表示已验收。点击步骤只切换当前步骤与负责人，不会把之前步骤标成完成。执行期间会限制身份与流程切换。原生空白对话的顶部区域在首次发言后显示。
+顶部步骤条以 **灰色** 表示未完成、**蓝色** 表示当前步骤、**白色** 表示已验收。点击步骤只切换当前步骤与负责人，不会把之前步骤标成完成。正在执行的对话冻结本轮身份；其他空闲对话仍可选择工作流、选择“无”并使用对应负责人。共享步骤与验收在相关执行结束前受保护。原生空白对话的顶部区域在首次发言后显示。
 
 #### 5. 查看成果、验收与返工
 
@@ -223,6 +225,16 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 **四类知识：** 专业知识、任务档案、复盘经验、工作约束。后三类有独立自动归档开关；关闭分类开关停止后续自动收录，已有资料仍可阅读，重新开启不会立即补扫。团队资料管理员总开关关闭时，则停止该团队及成员长期知识的读取、写入和整理，保留数据。
 
 **增量整理：** 来源更新后只处理变更及必要依赖，保留未受影响内容；重复上传或无变化重试不产生新的模型编纂。自动资料按任务稳定阶段合批，首次启动只本地归档。需要编纂时会通过 DSH 模型服务调用模型，可能产生模型费用；打开已有图谱或阅读文章不会因此发起编纂。
+
+业务对话先读取已有知识或待整理资料索引，不等待冷启动编纂。失败、取消先本地归档，不再每次自动调用模型总结；验收成果、明确知识更新、上传资料或手动整理按增量规则处理。知识库可展开查看最近编纂记录、调用数和已报告用量，缺失统计显示为未报告。
+
+### 原生上下文、缓存与用量
+
+岗位规则和必备技能正文以稳定版本提供一次，任务知识使用独立快照；相同定义沿用版本引用。工具和技能继续通过 DSH 原生注册、目录及消息更新机制提供，不另发一份技能目录。选择“无”不新增员工上下文或业务工具；原生目录中可见的技能摘要仍占输入。
+
+缓存是否命中由 DeepSeek 服务端判定；相同的完整前缀有机会复用，换模型、定义/授权变化或原生压缩可能需要重新建立。命中仍占上下文并计输入。交付详情区分未命中输入、缓存读写、输出和服务商报告总量；缺失统计不会被当作零费用。
+
+0.30.0 默认不再附加固定 120,000 的任务累计 token 限制，长对话沿用原生窗口与压缩；步骤、超时和委派边界继续保留。高级配置 `maxTreeTokens: 0` 表示关闭额外限制，正整数为可选的业务运行树累计计量上限，含缓存输入和输出，并非金额预算，也不覆盖独立知识编纂。完整规则、官方依据和复测见[综合修复记录](docs/audits/2026-10-26-runtime-context-remediation.md)。
 
 **事实与候选分开：** 模型提案、临时聊天和未验收产物不会自动变成已确认长期事实。失败复盘保留现象、证据、原因假设、建议与验证步骤；不会自行确认原因、修改 Skill 或执行建议。出现冲突时保留版本、适用条件和来源，自然语言冲突识别仍受模型能力与证据范围限制。
 
@@ -276,9 +288,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.29.2 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.29.2.md)。
+**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.30.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.30.0.md)。
 
 ### 验证状态与已知限制
+
+0.30.0 修复跨对话锁定、额外任务硬预算、知识冷启动和失败自动编纂；新增原生缓存兼容上下文与完整用量展示。正式归档的验证结果及保留项见[0.30.0验收记录](integration/verification-0.30.0.md)。
 
 0.29.2 修复切换原生权限后工作流误锁：普通空闲对话中，官方不唤醒模型的权限通知不再视为任务；运行中、真实排队输入及需交接的保留会话仍保持保护。权限与通知保持原样，不自动调用模型。见[0.29.2 验收记录](integration/verification-0.29.2.md)。
 
@@ -327,7 +341,7 @@ npm pack --pack-destination artifacts
 | --- | --- |
 | `npm start` | 启动本仓库独立开发 profile。 |
 | `npm run service:start / service:status / service:stop / service:open` | macOS 开发后台服务管理；其他系统使用独立终端 `npm start`。 |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.29.2.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.30.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
 | `npm run test:performance` | 本地合成负载下的状态、持久化、知识包与布局测量。 |
 
 发布前需重新生成归档、SHA-256 和绑定该哈希的验收记录；改动随包文件后不能沿用旧归档验收。提交问题时请附版本、复现步骤、预期／实际行为与脱敏日志。新增能力需遵守 [AGENTS.md](AGENTS.md) 的官方扩展、数据归属和清理要求。
@@ -446,7 +460,7 @@ The tool creates an owned backup and commits once. Full plugin cleanup removes t
 | Node.js | Declared range: `^22.19.0 || >=24`; current acceptance used `24.21.0`. |
 | Interface | DSH Web and official macOS Apple Silicon Desktop `0.2.1-rc.3`. UI language follows DSH Chinese/English settings; user content stays in its original language. |
 | Models | Configure a working model in DSH. Employees can inherit the default or use an explicit role model. |
-| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.29.2.tgz` and matching SHA-256 checksum. |
+| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.30.0.tgz` and matching SHA-256 checksum. |
 
 As checked on 2026-10-26, the newest official GitHub tag and npm `next` are `0.2.1-rc.3`; npm `latest` remains `0.2.1-rc.2`. Select `@deepseek-ai/dsh@0.2.1-rc.3` explicitly for this release.
 
@@ -455,7 +469,7 @@ End users need the supported official DSH installation and the plugin `.tgz`. Th
 ```sh
 # Replace the data directory, profile, and absolute archive path.
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.29.2.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -475,7 +489,7 @@ Open Desktop once to initialize it, then quit. Install into `desktop` with **the
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.29.2.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.30.0.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -518,7 +532,7 @@ Selecting a workflow creates its project team, employees, and reporting relation
 
 Type normally to work with the current step owner; no `@` is needed. For a separate work order, type `@` at the beginning of a message and choose an enabled project employee. An `@` elsewhere retains DSH's native reference behavior.
 
-The header uses **gray** for pending, **blue** for current, and **white** for accepted steps. Selecting a step changes the current step and owner; it does not mark earlier steps complete. Identity/workflow changes are restricted during execution. The native header appears after the first message in an empty conversation.
+The header uses **gray** for pending, **blue** for current, and **white** for accepted steps. Selecting a step changes the current step and owner; it does not mark earlier steps complete. An active conversation keeps its owner frozen, while other idle conversations can select a workflow or None and use their corresponding owner. Shared progress and acceptance remain protected during related execution. The native header appears after the first message in an empty conversation.
 
 #### 5. Inspect, accept, or return the delivery
 
@@ -548,9 +562,19 @@ Search, pan, zoom, expand related concepts, and read articles and original evide
 
 **Incremental organization:** changes process only affected sources and necessary dependencies, preserving unaffected content. Duplicate uploads or unchanged retries do not generate fresh model compilation. Automatic material is batched at stable task stages; initial startup performs local archiving only. Compilation uses DSH model services and may incur model costs. Browsing existing graphs or articles does not itself trigger compilation.
 
+Business conversations use available knowledge or pending source indexes without waiting for cold-start compilation. Failed and cancelled attempts are archived locally; they no longer trigger paid synthesis every time. Accepted results, explicit knowledge changes, uploads and manual requests retain incremental processing. The knowledge view exposes recent compilation attempts, call counts and reported usage; missing reports remain unknown.
+
 **Evidence and confirmation:** model proposals, temporary chat, and unaccepted artifacts do not automatically become confirmed long-term facts. Retrospectives distinguish observations, evidence, causal hypotheses, recommendations, and verification steps; they do not confirm causes, modify Skills, or execute recommendations on their own. Conflicting versions and sources remain traceable; semantic conflict detection is limited by the supplied evidence and model capabilities.
 
 See [team knowledge](docs/architecture/team-knowledge.md), [incremental processing](docs/architecture/incremental-knowledge.md), and [shared LLM Wiki](docs/architecture/shared-llm-wiki.md).
+
+### Native context, cache reuse, and usage
+
+Stable role rules and required skill bodies are supplied once with content versions; task knowledge has a separate snapshot. Tools and skills use DSH's native registration, catalog and message-update mechanisms, without a second skill catalog. None adds no current employee context or business tools; skill summaries visible in the native catalog still count as input.
+
+DeepSeek decides whether a complete prefix can be reused. Changing models, definitions, authorization or retained history may require rebuilding part of the cache. Cached input still occupies context and is metered. Delivery details distinguish uncached input, cache reads/writes, output and authoritative provider totals; missing usage is never presented as a free call.
+
+Version 0.30.0 removes the additional fixed 120,000 cumulative business-token cutoff by default. Native context capacity and compaction remain DSH-owned, while step/time/delegation protections remain. Advanced configuration `maxTreeTokens: 0` disables the extra cutoff; a positive value opts into a metered business-run-tree limit including cached input and output. It is neither a monetary cap nor a shared knowledge-compilation limit. See the [combined analysis, remediation and verification](docs/audits/2026-10-26-runtime-context-remediation.md).
 
 ### Share and reuse configurations
 
@@ -600,9 +624,11 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.29.2 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.29.2.md).
+**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.30.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.30.0.md).
 
 ### Verification status and limitations
+
+Version 0.30.0 addresses cross-conversation locking, the additional default task-token cutoff, blocking knowledge startup and paid synthesis after failures. It adds native cache-compatible context and explicit usage accounting. See the [0.30.0 archive acceptance record](integration/verification-0.30.0.md) for exact results and remaining exceptions.
 
 Version 0.29.2 fixes workflow controls incorrectly locking after a native permission change. Official non-waking permission notices in ordinary idle conversations no longer count as work. Active turns, real queued input and retained sessions requiring handoff stay protected. Permissions and notices remain intact; no model is started. See the [0.29.2 acceptance record](integration/verification-0.29.2.md).
 
@@ -650,7 +676,7 @@ Skip `setup` if all peers are already prepared from official npm packages. Launc
 | --- | --- |
 | `npm start` | Launch the repository's separate development profile. |
 | `npm run service:start / service:status / service:stop / service:open` | Manage the macOS development service; on other systems use `npm start` in a separate terminal. |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.29.2.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.30.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
 | `npm run test:performance` | Measure local synthetic state, persistence, knowledge-packet, and layout loads. |
 
 Before distribution, generate a new archive, checksum, and acceptance record bound to that hash. Changes to packaged files cannot reuse an older archive's acceptance. Report issues with versions, reproduction steps, expected/actual behavior, and redacted logs. Contributions must follow the public extension, ownership, and cleanup requirements in [AGENTS.md](AGENTS.md).

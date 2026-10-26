@@ -1,5 +1,15 @@
 # 更新记录
 
+## 0.30.0 — 2026-10-26
+
+- 同一员工角色可以服务不同原生对话；当前对话忙与共享流程进度忙分开，空闲对话可选择工作流或“无”，执行身份和验收CAS继续保护。
+- 稳定岗位/必备Skill正文只提供一份，任务知识使用独立版本快照；沿用原生技能目录、工具更新和传输。原生压缩后可重新载入，None/换角色/卸载按公开会话表面协议退役插件贡献；不改宿主程序或传输器。
+- 默认关闭额外120,000任务累计token硬限制；原生历史窗口交给DSH管理。可选预算明确计量、事前保守估算、实际输出上限与缺失报告处理，保留步骤/时间/委派限制。
+- 业务读取已有知识，不等待冷启动或团队模型队列；失败/取消本地归档，不自动逐次付费反思。验收、显式资料与手动整理仍按增量处理。
+- 业务用量保留缓存读写、总量和失败尝试；知识编纂保存每次尝试及每版本的已报告用量。界面区分未知/部分报告，显示准备、模型生成与工具阶段。
+- Native context/cache reuse, conversation isolation, opt-in task limits, nonblocking knowledge reuse and explicit accounting. Cached input remains metered; missing reports remain unknown. No guaranteed cache-hit rate or production-quality claim.
+
+
 ## 0.29.2 — 2026-10-26
 
 - 修复原生权限切换通知被误判为待执行消息，导致空闲对话的工作流选择和步骤按钮禁用。仅对普通原生对话忽略官方 `user-approval` 的不唤醒 next-step 通知，保留通知、权限及所有真实运行/排队保护；保留会话交接仍要求完整空队列，避免丢失上下文。
