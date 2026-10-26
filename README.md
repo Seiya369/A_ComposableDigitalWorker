@@ -8,6 +8,10 @@ Composable Digital Workforce for DeepSeek Harness · 可组装的专属数字员
 
 **Build the AI employees, teams, and workflows your industry needs—all within DeepSeek Harness (DSH), with role-specific capabilities, professional knowledge, and memory.**
 
+遵循 DSH 原生上下文机制，分离稳定岗位、工具与技能定义和动态知识，促进服务端前缀缓存复用。
+
+Uses native DSH context and separates stable role, tool, and skill definitions from dynamic knowledge to support server-side prefix-cache reuse.
+
 从一个岗位，到一支分工协作的团队，再到可执行、可验收的工作流。自带软件开发专业团队，也支持你围绕 AI 视频制作、内容策划、研究分析等场景，自定义岗位、组织能力与专业知识，让不同员工各司其职，在同一平台完成任务与交付。
 
 Start with one specialist, assemble a team, and turn its responsibilities into a workflow with clear deliverables and review criteria. A software development team is included; you can also configure teams for AI video production, content planning, research, and other domains using the models and tools available in your DSH environment.
