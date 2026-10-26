@@ -721,6 +721,15 @@ export class KnowledgeRepository {
       const previous = await this.manifest(space);
       const version = Math.max(await this.nextVersion(join(path, 'B-knowledge'), previous?.version), await this.nextVersion(join(path, 'C-overview'), previous?.version));
       const manifest = { version, sourceFingerprint: actualFingerprint, createdAt: new Date().toISOString(), status: 'candidate' as const, sourceManifest: sources.map(({ id, version, hash, verified }) => ({ id, version, hash, verified })), ...(compilation.compilationTrace ? { compilationTrace: compilation.compilationTrace } : {}) };
+      // Pre-ledger releases kept only the latest trace in snapshot.json. Preserve
+      // that surviving version before replacing the manifest; never borrow it for
+      // older unknown versions or overwrite an already immutable archived trace.
+      if (previous?.compilationTrace) {
+        const previousTrace = join(path, 'compilation-traces', `v${previous.version}.json`);
+        if (await this.json<KnowledgeCompilationTrace>(previousTrace) === undefined) {
+          await this.write(previousTrace, accountingTrace(previous.compilationTrace), signal);
+        }
+      }
       // Immutable files become visible together only through this final atomic manifest replacement.
       signal?.throwIfAborted();
       await this.write(join(path, 'B-knowledge', `v${version}.json`), compilation.entries);

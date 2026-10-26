@@ -103,6 +103,36 @@ test('each committed knowledge version retains its own compiler trace', async t 
   await assert.rejects(repo.compilationTrace(team, second.version + 1), /published/i);
 });
 
+test('publishing preserves the surviving legacy manifest trace without inventing older unknown usage', async t => {
+  const repo = await fixture(t); await repo.ingest(team, input);
+  const trace = (inputTokens: number): NonNullable<KnowledgeCompilation['compilationTrace']> => ({ revision: 'strict-incremental-v1', changedSourceIds: ['meeting'], removedSourceIds: [], modelCalls: 1,
+    usage: { reportedCalls: 1, inputTokens, outputTokens: 10 } });
+  await repo.publish(team, compilation(), await repo.fingerprint(team));
+  const surviving = await repo.publish(team, { ...compilation(), compilationTrace: trace(75) }, await repo.fingerprint(team));
+  const path = join(repo.rootPath, 'templates/research/team/compilation-traces', `v${surviving.version}.json`);
+  await unlink(path); // Pre-ledger releases retained only the latest trace in snapshot.json.
+  assert.equal((await repo.compilationTrace(team, surviving.version))?.usage?.inputTokens, 75);
+  await repo.publish(team, { ...compilation(), compilationTrace: trace(100) }, await repo.fingerprint(team));
+  assert.deepEqual(JSON.parse(await readFile(path, 'utf8')), trace(75));
+  assert.equal((await repo.compilationTrace(team, surviving.version))?.usage?.inputTokens, 75);
+  assert.equal(await repo.compilationTrace(team, 1), undefined, 'irrecoverable older usage remains unknown');
+});
+
+test('legacy trace migration never overwrites an already archived version', async t => {
+  const repo = await fixture(t); await repo.ingest(team, input);
+  const trace = (inputTokens: number): NonNullable<KnowledgeCompilation['compilationTrace']> => ({ revision: 'strict-incremental-v1', changedSourceIds: ['meeting'], removedSourceIds: [], modelCalls: 1,
+    usage: { reportedCalls: 1, inputTokens, outputTokens: 10 } });
+  const first = await repo.publish(team, { ...compilation(), compilationTrace: trace(50) }, await repo.fingerprint(team));
+  const root = join(repo.rootPath, 'templates/research/team');
+  const archived = join(root, 'compilation-traces', `v${first.version}.json`);
+  const original = await readFile(archived, 'utf8');
+  const manifest = JSON.parse(await readFile(join(root, 'snapshot.json'), 'utf8'));
+  await writeFile(join(root, 'snapshot.json'), JSON.stringify({ ...manifest, compilationTrace: trace(999) }));
+  await repo.publish(team, { ...compilation(), compilationTrace: trace(75) }, await repo.fingerprint(team));
+  assert.equal(await readFile(archived, 'utf8'), original);
+  assert.equal((await repo.compilationTrace(team, first.version))?.usage?.inputTokens, 50);
+});
+
 test('source namespace IDs are encoded and uncommitted snapshot files stay invisible', async t => {
   const repo = await fixture(t);
   const namespaced = { ...input, id: 'run:task-1' };
