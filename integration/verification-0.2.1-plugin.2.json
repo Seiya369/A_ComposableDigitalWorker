@@ -1,0 +1,259 @@
+{
+  "buildTag": "v0.2.1-plugin.2",
+  "pluginVersion": "0.2.1",
+  "hostVersion": "0.2.1-rc.3",
+  "packedSourceCommit": "34ddc01e9e571c817596f5a1bab1c67eb424905e",
+  "environment": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "node": "24.21.0"
+  },
+  "archive": {
+    "filename": "dsh-plugin-composable-workforce-0.2.1.tgz",
+    "sha256": "d73b86634b6063924abb32e71413eeb4bd0885630c579437fbff3da1bf7fbd6f",
+    "bytes": 1253160,
+    "files": 397
+  },
+  "unitTests": {
+    "total": 830,
+    "passed": 829,
+    "failed": 0,
+    "skipped": 1,
+    "skip": "optional private workspace integration"
+  },
+  "chatNativeUi": {
+    "status": "passed",
+    "checks": [
+      "fresh-Chat-uses-native-model-without-workflow-owner-binding-team-or-run",
+      "Chat-native-composer-and-header-show-no-workflow-selector-steps-or-owner",
+      "native-at-candidates-and-pick-create-nothing-submit-creates-one-standalone-employee-and-reuses-it",
+      "standalone-at-work-uses-role-model-responsibilities-required-skill-without-copying-source-workflow-context",
+      "Chat-mentions-explain-workspace-instance-scope-and-open-distinct-work-order-sessions",
+      "ordinary-followup-after-employee-delivery-uses-native-model-without-resident-employee-context",
+      "historical-employee-delivery-reload-preserves-native-continuation",
+      "Chat-exclusion-survives-reload-while-normal-project-workflow-service-remains-enabled"
+    ],
+    "checkCount": 8,
+    "sdk": {
+      "cordis": "4.0.5",
+      "dsh-agent": "0.2.1-rc.3",
+      "dsh-llm": "0.2.1-rc.3",
+      "dsh-tools": "0.2.1-rc.3",
+      "dsh-client-ui-conversation": "0.2.1-rc.3"
+    },
+    "pluginArchive": {
+      "sha256": "d73b86634b6063924abb32e71413eeb4bd0885630c579437fbff3da1bf7fbd6f"
+    },
+    "modelCalls": {
+      "native": 3,
+      "standalone": 2,
+      "external": 0
+    },
+    "nativeModels": [
+      "native-default",
+      "chat-specialist"
+    ],
+    "historicalNativeModel": "chat-specialist",
+    "employeesCreated": 1,
+    "workflowInstancesCreated": 0,
+    "projectTeamsCreated": 0,
+    "hostUnchanged": true,
+    "pageErrors": []
+  },
+  "regularProjectUi": {
+    "status": "passed",
+    "checkCount": 31,
+    "checks": [
+      "unconfigured-native-project-shows-literal-workflow-none-and-explicit-none-installs-or-runs-nothing",
+      "native-input-workflow-upward-menu-none-first-and-frozen-team-installed-without-running",
+      "native-svg-sequence-and-upper-reject-connections-touch-real-circles-avoid-labels-and-native-controls-with-click-through",
+      "first-native-workflow-selection-clears-prior-none-and-unifies-all-project-conversations-without-running",
+      "native-permission-change-keeps-idle-composer-workflow-picker-and-step-navigation-enabled-without-running",
+      "project-name-header-two-tabs-and-read-only-knowledge-view-use-the-frozen-project-team",
+      "details-show-frozen-owner-hierarchy-three-requirements-and-return-target-without-activating-inspected-step",
+      "library-retains-only-three-resource-sections-and-no-project-workspace-or-team-configuration-ui",
+      "zero-one-three-and-zero-return-lanes-keep-native-none-header-body-anchors-and-fixed-step-text-bottom-aligned-with-trajectory",
+      "sixteen-native-language-theme-width-cases-compare-none-zero-three-zero-again-with-identical-native-anchors-and-aligned-text",
+      "narrow-native-return-keeps-true-hidden-target-without-fake-ellipsis-edge-horizontal-scroll-or-click-interception",
+      "numbered-double-ring-nodes-readable-in-dark-light-with-labels-below-compact-height-and-ellipsis-fixed-details-at-wide-narrow-widths",
+      "seven-visible-native-window-holds-first-four-centers-from-five-clamps-the-complete-tail-and-reverses-without-coordinate-jumps-or-running",
+      "numbered-step-circles-retain-global-definition-indices-after-leading-ellipsis-and-current-step-shifts",
+      "later-alternate-workflow-and-none-are-local-persist-after-refresh-and-preserve-project-default-without-running",
+      "top-native-header-steps-click-change-owner-and-roster-without-marking-previous-steps-complete",
+      "ordinary-native-message-uses-current-owner-model-step-criteria-and-required-skill-on-same-session-once",
+      "owner-plan-tool-saves-one-draft-and-its-summary-remains-accessible-in-details-without-project-workbench",
+      "only-real-owner-delivery-review-whitens-completed-step-and-advances-current-blue-without-moving-header",
+      "numbered-double-rings-preserve-gray-white-native-blue-states-and-readable-text-contrast-after-real-acceptance",
+      "running-conversation-shows-stage-while-another-chat-can-switch-workflow-with-shared-progress-protected",
+      "active-native-turn-locks-selector-and-shared-steps-and-rejected-delivery-returns-with-history-retained",
+      "real-nonempty-native-header-step-strip-remains-visible-at-wide-and-narrow-widths",
+      "none-removes-owner-context-tools-and-tracking-and-obeys-native-last-used-and-explicit-model-selection",
+      "removed-delivery-dock-has-no-entry-or-polling-and-none-does-not-select-a-workflow",
+      "late-retained-session-handoff-preserves-user-navigation-to-another-conversation",
+      "stopped-legacy-root-refreshes-same-native-session-with-unsent-draft-and-inherited-selector-no-stale-dock-or-model-call",
+      "ordinary-message-in-legacy-conversation-uses-current-owner-once-and-keeps-old-delivery-unchanged",
+      "explicit-none-in-restored-legacy-conversation-keeps-history-and-review-via-top-details",
+      "retained-handoff-with-unsent-attachment-blocks-refresh-until-user-removes-it-and-safely-retries",
+      "official-host-program-unchanged-and-isolated-process-stopped"
+    ],
+    "pageErrors": [],
+    "archiveSha256": "d73b86634b6063924abb32e71413eeb4bd0885630c579437fbff3da1bf7fbd6f"
+  },
+  "lifecycle": {
+    "passed": true,
+    "checkCount": 15,
+    "checks": [
+      "exact archive includes GPL license, corresponding pinned source and dependency lock; packaged shared engine projects only semantic concepts/entities and evidenced directed relations, preserves all reading pages and legacy articles, computes communities without page-link noise, and stops without a residual process",
+      "PDF/DOCX parser dependencies declared by the archive resolve at the exact declared versions inside the isolated profile, without developer-checkout or host dependency links",
+      "fresh actual archive supplies six complete software roles, team and one non-demo software workflow with inputs/outputs/acceptance/rework; no fabricated employees, memory or task executions; boundary documents are packaged",
+      "archive serves the single self-contained Wiki page through authenticated official host routing with network-denying CSP",
+      "official Session Controller model catalog is readable through authenticated plugin API with allowlisted selector fields and creates no employee run",
+      "six software-role presets resolve all required and preferred skills through the official model-invocable registry; QA includes code-review and the packaged task-owned worktree cleanup resource is present",
+      "public default Agent preset lease exposes installed native file/Web/Shell and extension tools plus model-invocable skills through allowlisted capability DTO; employee selections are preferences rather than a second ACL; no model call or task is created",
+      "project brief, task and two manual deliverable revisions persist through authenticated API; idempotent command retry is read-only; stale review is rejected; current version and task review permit project completion without model execution",
+      "default-on librarian switch persists via authenticated official host route; project override leaves template, employees and memories unchanged and survives reinstall",
+      "tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request",
+      "uninstall removes bundle and API; restart does not reinstall; profile config and employee data unchanged; native host serves normally",
+      "team librarian archives detached team/member knowledge, creates no extra employee/session, retains knowledge byte-for-byte through ordinary removal and reinstall",
+      "reinstall restores identical templates, employee IDs, required/preferred Skill routing, tool preferences, preserved legacy fields, memory, workflow snapshot and failed attempt, project brief, work tasks, deliverable versions and review history; no duplicate instances or replayed task",
+      "packaged purge command uses official CLI remove, clears dedicated state/config, preserves user deliverables and shared credentials; native host restarts",
+      "official npm installation and dependencies have identical program-file hash before and after install/remove/reinstall/purge"
+    ],
+    "hostUnchanged": true,
+    "apiPerformance": {
+      "scope": "Authenticated loopback state API; no model calls; populated lifecycle fixture",
+      "stateBytes": 96658,
+      "sequential": {
+        "samples": 30,
+        "p50Ms": 3.487709000000905,
+        "p95Ms": 4.9415829999998095,
+        "maxMs": 5.469208000002254
+      },
+      "concurrent": {
+        "concurrency": 8,
+        "samples": 80,
+        "p50Ms": 11.77900000000227,
+        "p95Ms": 15.411459000002651,
+        "maxMs": 16.261875000003783,
+        "requestsPerSecond": 572.657400129814
+      }
+    }
+  },
+  "archiveAudit": {
+    "result": "pass",
+    "workspaceFileMatches": 397,
+    "source": {
+      "files": 141,
+      "workspaceFileMatches": 141,
+      "mismatches": []
+    },
+    "boundaries": {
+      "outsideManifest": [],
+      "missingEntries": [],
+      "forbiddenFiles": [],
+      "credentialCandidates": [],
+      "machinePathCandidates": [],
+      "localPathDependencies": [],
+      "hostProgramFilesIncluded": false
+    },
+    "standaloneGuard": {
+      "command": "npm run check:version",
+      "exitCode": 0,
+      "nodeModulesPresent": false,
+      "developmentSdkRequired": false,
+      "rootPackageLockPresent": false,
+      "lockSource": "packaged-root-metadata",
+      "fullDependencyLockClaim": false
+    }
+  },
+  "installedProfiles": [
+    {
+      "kind": "web",
+      "version": "0.2.1",
+      "matched": 397,
+      "total": 397,
+      "mismatches": []
+    },
+    {
+      "kind": "desktop",
+      "version": "0.2.1",
+      "matched": 397,
+      "total": 397,
+      "mismatches": []
+    }
+  ],
+  "existingData": [
+    {
+      "kind": "web",
+      "stateFileUnchanged": true,
+      "definitionsUnchanged": true,
+      "changedDefinitions": [],
+      "immutableVersionsChecked": 68,
+      "alteredImmutableVersions": 0
+    },
+    {
+      "kind": "desktop",
+      "stateFileUnchanged": true,
+      "definitionsUnchanged": true,
+      "changedDefinitions": [],
+      "immutableVersionsChecked": 134,
+      "alteredImmutableVersions": 0
+    }
+  ],
+  "hostPrograms": [
+    {
+      "kind": "desktop",
+      "files": 6437,
+      "sha256": "c3695a48bca37b3b5f8b754bdb7a907c7046e7f8c76aeab346df0247338f1b7b",
+      "unchanged": true
+    },
+    {
+      "kind": "isolated-official",
+      "files": 27607,
+      "sha256": "4320efc9d117186946ef38cbf4078d44d4472de8f9ec42fc107db0b5923c64ac",
+      "unchanged": true
+    },
+    {
+      "kind": "web-cli",
+      "files": 63618,
+      "sha256": "f60d186ab9a4bcfeed7004d3add75cbe8e09ab25efa69c4c4eece88636062aec",
+      "unchanged": true
+    }
+  ],
+  "localUi": {
+    "desktop": {
+      "newMentionGroupsVerified": true,
+      "workflowControlsAbsent": true,
+      "noBusinessPromptSent": true
+    },
+    "web": {
+      "serviceHealthy": true,
+      "pluginLoaded": true
+    }
+  },
+  "observedWhoAmIRequests": {
+    "independentSessions": 2,
+    "turnsEach": 1,
+    "first": {
+      "uncachedInput": 13047,
+      "cacheRead": 896,
+      "output": 274,
+      "total": 14217
+    },
+    "second": {
+      "uncachedInput": 6543,
+      "cacheRead": 7296,
+      "output": 321,
+      "total": 14160
+    },
+    "componentSizesAreBytes": true,
+    "providerPerComponentTokenCountsAvailable": false,
+    "newProviderCallsForVerification": 0
+  },
+  "providerCacheHitImprovementMeasured": false,
+  "retentionPolicy": "Physical session deletion task closed by explicit user decision; official recoverable archiving and native history retention accepted under ADR-004.",
+  "userHistoryDeleted": false,
+  "userDataPublished": false,
+  "status": "verified-against-accepted-policy",
+  "verifiedAt": "2026-10-26T13:16:45.377Z"
+}

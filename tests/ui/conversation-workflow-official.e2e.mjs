@@ -893,6 +893,21 @@ try {
   const resumeStart = new Promise(done => { resumeStarted = done; });
   const resumeGate = new Promise(done => { allowResume = done; });
   const commandRoute = '**/digital-workers/api/command';
+  const gateFirstWorkflowView = async sessionId => {
+    let started, allow, intercepted = false;
+    const seen = new Promise(done => { started = done; });
+    const gate = new Promise(done => { allow = done; });
+    const pattern = '**/digital-workers/api/conversation-workflow?*';
+    const handler = async route => {
+      const request = route.request();
+      if (!intercepted && request.method() === 'GET' && new URL(request.url()).searchParams.get('sessionId') === sessionId) {
+        intercepted = true; started(); await gate;
+      }
+      await route.continue();
+    };
+    await page.route(pattern, handler);
+    return { seen, allow: () => allow(), dispose: () => page.unroute(pattern, handler) };
+  };
   const interceptResume = async route => {
     const request = route.request().postDataJSON();
     if (request?.action === 'conversation.workflow.resume' && request.payload?.sessionId === backgroundBefore.sessionId) {
@@ -934,15 +949,20 @@ try {
     await route.continue();
   };
   await page.route(commandRoute, interceptCurrentResume);
+  const currentViewGate = await gateFirstWorkflowView(legacyBefore.sessionId);
   const resumed = page.waitForResponse(response => response.url().endsWith('/digital-workers/api/command') && response.request().postDataJSON()?.action === 'conversation.workflow.resume');
-  await open('QA-旧独立交付'); await currentResumeStart;
+  await open('QA-旧独立交付'); await currentViewGate.seen;
   const unsentDraft = 'WF_UNSENT_DRAFT_918：恢复会话后保留我尚未发送的草稿';
   await page.locator('[data-composer-input][contenteditable=true]').fill(unsentDraft);
+  currentViewGate.allow(); await currentResumeStart;
+  await expect(page.locator('[data-composer-input]')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('[data-composer-input]')).toHaveText(unsentDraft);
   allowCurrentResume();
   const resumedResponse = await resumed;
   assert.ok(resumedResponse.ok()); assert.equal(currentResumeResult.result.sessionReopened, true);
   metrics.currentResume = { time: Date.now(), pageNavigations: metrics.pageNavigations.length };
   await page.unroute(commandRoute, interceptCurrentResume);
+  await currentViewGate.dispose();
   await expect(picker()).toContainText('工作流：' + flow.name);
   await expect(page.locator('[data-composer-input][contenteditable=true]')).toBeVisible({ timeout: 20000 });
   await expect(page.locator('[data-composer-input][contenteditable=true]')).toHaveText(unsentDraft);
@@ -992,7 +1012,8 @@ try {
     await route.continue();
   };
   await page.route(commandRoute, interceptAttachmentResume);
-  await open('QA-旧对话未发送附件'); await attachmentResumeStart;
+  const attachmentViewGate = await gateFirstWorkflowView(attachmentBefore.sessionId);
+  await open('QA-旧对话未发送附件'); await attachmentViewGate.seen;
   const attachmentDraft = 'WF_ATTACHMENT_DRAFT_918：我尚未发送的文字也必须保留';
   await page.locator('[data-composer-input][contenteditable=true]').fill(attachmentDraft);
   const attachmentName = 'qa-unsent-attachment.txt';
@@ -1002,9 +1023,14 @@ try {
   let unexpectedReloads = 0;
   const onUnexpectedReload = frame => { if (frame === page.mainFrame()) unexpectedReloads++; };
   page.on('framenavigated', onUnexpectedReload);
+  attachmentViewGate.allow(); await attachmentResumeStart;
+  await expect(page.locator('[data-composer-input]')).toHaveAttribute('contenteditable', 'false');
+  await expect(page.locator('[data-composer-input]')).toHaveText(attachmentDraft);
+  await expect(page.getByText(attachmentName, { exact: true })).toBeVisible();
   allowAttachmentResume();
   await expect(picker().getByRole('alert')).toContainText('请先移除未发送附件');
   await page.unroute(commandRoute, interceptAttachmentResume);
+  await attachmentViewGate.dispose();
   await expect(page.getByText(attachmentName, { exact: true })).toBeVisible();
   await picker().getByRole('button', { name: '刷新继续', exact: true }).click();
   await expect(picker().getByRole('alert')).toContainText('请先移除未发送附件');
