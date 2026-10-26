@@ -13,6 +13,10 @@ export interface ConversationWorkflowSnapshot {
   steps: Array<{ id: string; name: string; status: 'pending' | 'current' | 'completed'; employeeName?: string; onRejectStepId?: string }>;
   choices: Array<{ id: string; name: string; version: number; disabled?: boolean; disabledReason?: string }>;
   busy?: boolean;
+  /** Shared progress cannot change while another conversation executes this instance. */
+  progressBusy?: boolean;
+  /** Human-readable preparation/execution feedback for this conversation only. */
+  activity?: { stage: string; label: string; since?: string };
 }
 
 export interface ConversationWorkflowTransport {
@@ -98,12 +102,13 @@ export function createConversationWorkflowController(
         for (const [sessionId, target] of entries) {
           if (target.listeners.size && !target.request) void refresh(sessionId);
         }
-      }, options.pollMs ?? 4000);
+      }, options.pollMs ?? 1000);
     }
   }
-  async function mutate(sessionId: string, operation: (snapshot: ConversationWorkflowSnapshot) => Promise<unknown>) {
+  async function mutate(sessionId: string, operation: (snapshot: ConversationWorkflowSnapshot) => Promise<unknown>, changesProgress = false) {
     const target = entry(sessionId);
-    if (disposed || mutation || !target.state.snapshot || target.state.loading || target.state.snapshot.busy) return false;
+    if (disposed || mutation || !target.state.snapshot || target.state.loading || target.state.snapshot.busy
+      || (changesProgress && target.state.snapshot.progressBusy)) return false;
     const snapshot = target.state.snapshot;
     mutation = true;
     // Invalidate reads admitted before the mutation so stale polling cannot win.
@@ -141,7 +146,7 @@ export function createConversationWorkflowController(
     },
     refresh,
     selectWorkflow: (sessionId, workflowTemplateId) => mutate(sessionId, snapshot => transport.selectWorkflow(sessionId, workflowTemplateId, snapshot)),
-    selectStep: (sessionId, stepId) => mutate(sessionId, snapshot => transport.selectStep(sessionId, stepId, snapshot)),
+    selectStep: (sessionId, stepId) => mutate(sessionId, snapshot => transport.selectStep(sessionId, stepId, snapshot), true),
     dispose() {
       disposed = true;
       if (timer) clearInterval(timer);

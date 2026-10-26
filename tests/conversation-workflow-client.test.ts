@@ -113,3 +113,17 @@ test('failed loads remain retryable and a host-busy workflow refuses a selection
   assert.equal(await controller.selectStep('a', 'build'), false);
   assert.equal(writes, 0);
 });
+
+test('shared progress activity blocks step changes while an idle conversation can still choose a workflow', async t => {
+  const calls: string[] = [];
+  const controller = createConversationWorkflowController({
+    async load(sessionId) { return view(sessionId, { busy: false, progressBusy: true }); },
+    async selectWorkflow() { calls.push('workflow'); },
+    async selectStep() { calls.push('step'); },
+  }, { pollMs: 100000 });
+  t.after(() => controller.dispose());
+  const stop = controller.subscribe('idle-chat', () => {}); t.after(stop); await flush();
+  assert.equal(await controller.selectStep('idle-chat', 'build'), false, 'a shared step cannot change while another owner is executing');
+  assert.equal(await controller.selectWorkflow('idle-chat', null), true);
+  assert.deepEqual(calls, ['workflow']);
+});

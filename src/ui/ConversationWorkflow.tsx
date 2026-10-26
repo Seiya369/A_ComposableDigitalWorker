@@ -37,6 +37,7 @@ export function ConversationWorkflowPicker(props: ConversationWorkflowProps) {
   const selected = snapshot?.workflowTemplateId ?? '';
   const workflowLabel = t('工作流：{name}', { name: snapshot?.workflowName ?? t('无') });
   const busy = loading || pending || snapshot?.busy === true;
+  const activityLabel = snapshot?.busy && snapshot.activity?.label ? t(snapshot.activity.label) : undefined;
   const close = (restore = false) => { setOpen(false); if (restore) trigger.current?.focus(); };
   const show = () => {
     if (!snapshot?.projectId || busy) return;
@@ -81,8 +82,8 @@ export function ConversationWorkflowPicker(props: ConversationWorkflowProps) {
 
   if (!loading && !snapshot?.projectId && !error) return null;
   return <div ref={root} className="wf-conversation-workflow-picker" onKeyDown={event => { if (open && event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(true); } }}>
-    <button ref={trigger} type="button" className="wf-native-button wf-conversation-workflow-trigger" aria-label={workflowLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} disabled={busy || !snapshot?.projectId} title={workflowLabel} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}>
-      <Icon name="network" size={16}/><span>{workflowLabel}</span><Icon name="chevron" size={12} className="wf-conversation-workflow-chevron"/>
+    <button ref={trigger} type="button" className="wf-native-button wf-conversation-workflow-trigger" aria-label={workflowLabel} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? menuId : undefined} disabled={busy || !snapshot?.projectId} title={activityLabel ? `${workflowLabel} · ${activityLabel}` : workflowLabel} onClick={() => open ? close() : show()} onKeyDown={event => { if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); show(); } }}>
+      <Icon name="network" size={16}/><span role={activityLabel ? 'status' : undefined} aria-live={activityLabel ? 'polite' : undefined} data-stage={activityLabel ? snapshot?.activity?.stage : undefined}>{activityLabel ?? workflowLabel}</span><Icon name="chevron" size={12} className="wf-conversation-workflow-chevron"/>
     </button>
     {recoveryNotice && <span className="wf-conversation-workflow-recovery" role="alert"><span>{errorMessage(recoveryNotice)}</span><button type="button" onClick={() => props.recovery?.retry(props.sessionId)}>{t('刷新继续')}</button></span>}
     {open && <div className="wf-conversation-workflow-menu">
@@ -185,7 +186,10 @@ export function ConversationWorkflowSteps(props: ConversationWorkflowProps) {
   const moreAfter = start + count < total && afterWidth > 0;
   const graph = layoutConversationWorkflow({ steps: snapshot.steps, visibleIds: visible.map(step => step.id), width, beforeWidth, afterWidth, offsetY: alignment.offsetY, aboveSpace: alignment.aboveSpace, showLabels: alignment.showLabels });
   const ownerName = snapshot.ownerName ?? snapshot.steps.find(step => step.id === snapshot.currentStepId)?.employeeName;
-  const contactLabel = ownerName ? t('{name}正在对接', { name: ownerName }) : undefined;
+  const activityLabel = snapshot.busy && snapshot.activity?.label ? t(snapshot.activity.label) : undefined;
+  const contactLabel = activityLabel ? `${ownerName ? `${ownerName} · ` : ''}${activityLabel}`
+    : ownerName ? t('{name}正在对接', { name: ownerName }) : undefined;
+  const progressBusy = pending || snapshot.busy || snapshot.progressBusy || !!snapshot.unavailableReason;
   const returnDescription = (stepId: string) => {
     // Geometry exposes cross-step returns only; implicit/explicit self retry has no visual hint.
     const destination = graph.returns.find(edge => edge.sourceId === stepId);
@@ -199,7 +203,7 @@ export function ConversationWorkflowSteps(props: ConversationWorkflowProps) {
         {graph.edges.map(edge => <path key={edge.id} data-kind={edge.kind} data-source={edge.sourceId} data-target={edge.targetId} d={edge.path} markerEnd={edge.kind === 'reject' ? `url(#${arrowId}-return)` : undefined}/ >)}
       </svg>
       {moreBefore && <span className="wf-conversation-workflow-more is-before" role="img" aria-label={t('前面省略了{count}个步骤', { count: start })} style={{ top: graph.nodeY - 14, left: Math.max(0, (graph.nodes[0]?.x ?? 42) - 42) }}>…</span>}
-      {graph.nodes.map(node => { const step = snapshot.steps[node.index]!; const labelOffset = alignment.labelOffsets[step.id] ?? 0; return <button key={step.id} type="button" className={`wf-conversation-workflow-step is-${step.status}`} style={{ top: graph.offsetY, left: node.left, width: node.width, height: graph.contentHeight, paddingTop: 2 }} aria-current={step.status === 'current' ? 'step' : undefined} aria-label={t('{number}. {name}，{status}{owner}', { number: node.index + 1, name: step.name, status: t(step.status === 'current' ? '当前步骤' : step.status === 'completed' ? '已完成' : '未完成'), owner: step.employeeName ? t('，负责人 {name}', { name: step.employeeName }) : '' }) + returnDescription(step.id)} title={`${node.index + 1}. ${step.name}${step.employeeName ? ` · ${step.employeeName}` : ''}${returnDescription(step.id)}`} aria-disabled={pending || snapshot.busy || !!snapshot.unavailableReason} onClick={() => { if (!pending && !snapshot.busy && !snapshot.unavailableReason) void props.controller.selectStep(props.sessionId, step.id); }}>
+      {graph.nodes.map(node => { const step = snapshot.steps[node.index]!; const labelOffset = alignment.labelOffsets[step.id] ?? 0; return <button key={step.id} type="button" className={`wf-conversation-workflow-step is-${step.status}`} style={{ top: graph.offsetY, left: node.left, width: node.width, height: graph.contentHeight, paddingTop: 2 }} aria-current={step.status === 'current' ? 'step' : undefined} aria-label={t('{number}. {name}，{status}{owner}', { number: node.index + 1, name: step.name, status: t(step.status === 'current' ? '当前步骤' : step.status === 'completed' ? '已完成' : '未完成'), owner: step.employeeName ? t('，负责人 {name}', { name: step.employeeName }) : '' }) + returnDescription(step.id)} title={`${node.index + 1}. ${step.name}${step.employeeName ? ` · ${step.employeeName}` : ''}${returnDescription(step.id)}`} aria-disabled={progressBusy} onClick={() => { if (!progressBusy) void props.controller.selectStep(props.sessionId, step.id); }}>
         <span className="wf-conversation-workflow-dot" aria-hidden="true"><span className="wf-conversation-workflow-step-number">{node.index + 1}</span></span><span className="wf-conversation-workflow-step-label" data-step-id={step.id} data-offset-y={labelOffset} style={{ transform: `translateY(${labelOffset}px)` }}>{step.name}</span>
       </button>; })}
       {moreAfter && <span className="wf-conversation-workflow-more is-after" role="img" aria-label={t('后面省略了{count}个步骤', { count: total - start - count })} style={{ top: graph.nodeY - 14, left: Math.min(Math.max(0, width - 16), (graph.nodes.at(-1)?.x ?? width - 42) + 26) }}>…</span>}

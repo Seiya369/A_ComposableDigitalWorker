@@ -38,6 +38,22 @@ test('the header projection retains only the declared rejection destination with
   dispose();
 });
 
+test('the header projection keeps local conversation activity separate from shared progress activity', async () => {
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>() => native({ busy: false, progressBusy: true }) as T);
+  const snapshot = await transport.load('idle-chat');
+  assert.equal(snapshot.busy, false);
+  assert.equal(snapshot.progressBusy, true);
+  dispose();
+});
+
+test('the header projection retains owned activity stage feedback without exposing run configuration', async () => {
+  const activity = { stage: 'knowledge', label: '正在准备知识入口', since: '2026-10-26T08:00:00.000Z' };
+  const { transport, dispose } = createConversationWorkflowTransport(async <T>() => native({ busy: true, activity }) as T);
+  const snapshot = await transport.load('active-chat');
+  assert.deepEqual(snapshot.activity, activity);
+  dispose();
+});
+
 test('a superseded preview and unavailable choices cannot submit a mutation', async () => {
   let revision = 8;
   let posts = 0;

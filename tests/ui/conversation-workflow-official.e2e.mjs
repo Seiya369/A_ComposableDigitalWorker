@@ -72,7 +72,7 @@ async function start() {
   // This is the test plugin just created above, not host code or a production package file.
   await writeFile(resolve(profile, 'node_modules/dsh-plugin-employee-settings-fixture/index.js'), `
 import { LlmAdapter, ToolCallId } from '@deepseek-ai/dsh-llm';
-import { appendFile } from 'node:fs/promises';
+import { access, appendFile } from 'node:fs/promises';
 export const name = 'employee-settings-fixture';
 export const inject = ['llm'];
 class OfflineNativeAdapter extends LlmAdapter {
@@ -91,6 +91,14 @@ class OfflineNativeAdapter extends LlmAdapter {
       yield { type: 'tool-call-delta', index: 0, id, name: 'worker_plan_task', argumentsDelta: args };
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id, name: 'worker_plan_task', arguments: args } };
       yield { type: 'finish', reason: { kind: 'tool-calls' } }; return;
+    }
+    if (lastText.includes('WF_GATE_030')) {
+      const deadline = Date.now() + 30000;
+      while (!await access(${JSON.stringify(resolve(temp, 'release-concurrency-030'))}).then(() => true, () => false)) {
+        request.signal?.throwIfAborted();
+        if (Date.now() > deadline) throw new Error('Fixture concurrency gate timed out');
+        await new Promise(done => setTimeout(done, 25));
+      }
     }
     if (lastText.includes('WF_SLOW_917')) await new Promise((done, reject) => {
       const timer = setTimeout(done, 8000);
@@ -816,10 +824,27 @@ try {
   await page.emulateMedia({ colorScheme: 'dark' });
   await expect.poll(() => page.getByRole('tab', { name: '对话', exact: true }).evaluate(node => getComputedStyle(node).color)).toBe(metrics.colors[0].color);
   check('numbered-double-rings-preserve-gray-white-native-blue-states-and-readable-text-contrast-after-real-acceptance');
-  await send('WF_SLOW_917：按当前步骤验证开发交付');
+  await send('WF_GATE_030：按当前步骤验证开发交付');
   await expect.poll(async () => (await view(a)).busy, { timeout: 10000 }).toBe(true);
   await expect(picker().getByRole('button').first()).toBeDisabled({ timeout: 10000 }); await expect(steps().first()).toBeDisabled();
   await expect(steps().first()).toHaveAttribute('aria-disabled', 'true');
+  await expect(picker().locator('[role="status"][data-stage="requesting"]')).toBeVisible({ timeout: 10000 });
+  const sharedInstance = (await view(a)).instanceId;
+  await open('QA-工作流对话乙');
+  await expect(picker().getByRole('button').first()).toBeEnabled();
+  await pick('无');
+  assert.equal((await view(b)).instanceId, null);
+  assert.equal((await view(a)).busy, true, 'switching another conversation cannot cancel the active native turn');
+  await pick(flow.name);
+  assert.equal((await view(b)).instanceId, sharedInstance);
+  assert.equal((await view(b)).progressBusy, true);
+  await expect(picker().getByRole('button').first()).toBeEnabled();
+  await expect(steps().first()).toBeDisabled();
+  await page.screenshot({ path: resolve(artifacts, 'idle-conversation-picker-during-other-run.png') });
+  await open('QA-工作流对话甲');
+  await expect(picker().getByRole('button').first()).toBeDisabled();
+  await writeFile(resolve(temp, 'release-concurrency-030'), 'released');
+  check('running-conversation-shows-stage-while-another-chat-can-switch-workflow-with-shared-progress-protected');
   const secondRun = await waitRun(2, 'owner-developer'); assert.equal(secondRun.sessionId, a); assert.equal(secondRun.employeeSnapshot.templateId, developer.id);
   const rejectedDetails = await reviewDelivery('rejected', '受控验证：按退回规则复查需求'); assert.equal(rejectedDetails.currentStepId, 'requirements');
   await expect(steps().nth(0)).toHaveClass(/is-current/); await expect(steps().nth(1)).toHaveClass(/is-pending/);
@@ -828,6 +853,10 @@ try {
   for (const width of [1512, 712]) { await page.setViewportSize({ width, height: 1000 }); await expect(strip()).toBeVisible(); const box = await strip().boundingBox(); assert.ok(box.width > 30 && box.x >= 0 && box.x + box.width <= width + 1); await page.screenshot({ path: resolve(artifacts, `native-steps-${width}-dark.png`) }); }
   check('real-nonempty-native-header-step-strip-remains-visible-at-wide-and-narrow-widths');
   await page.setViewportSize({ width: 1512, height: 1000 });
+  // Restore B's explicit None after the concurrency check temporarily selected
+  // the shared workflow; later navigation assertions rely on that local choice.
+  await open('QA-工作流对话乙'); await pick('无'); await expect(strip()).toHaveCount(0);
+  await open('QA-工作流对话甲');
   await pick('无'); await expect(strip()).toHaveCount(0);
   const beforeNoneRuns = (await state()).runs.length;
   const containsRequest = (request, sentinel) => (JSON.stringify(request.messages.filter(message => message.source?.kind === 'user').at(-1)?.content) || '').includes(sentinel);

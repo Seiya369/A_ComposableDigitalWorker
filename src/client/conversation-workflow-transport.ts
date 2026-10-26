@@ -3,7 +3,8 @@ import type { ConversationWorkflowTransport } from './conversation-workflow.js';
 
 type NativeWorkflowView = Omit<ConversationWorkflowView, 'projectId' | 'steps' | 'owner'> & {
   owner?: { id: string; name: string };
-  projectId: string | null; revision: number; busy?: boolean;
+  projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean;
+  activity?: { stage: string; label: string; since?: string };
   sessionHandoffRequired?: boolean;
   steps: Array<ConversationWorkflowView['steps'][number] & { employeeName?: string }>;
 };
@@ -55,6 +56,9 @@ export function createConversationWorkflowTransport(request: WorkflowRequester, 
         ...(view.owner ? { ownerName: view.owner.name } : {}),
         ...(view.unavailableReason ? { unavailableReason: view.unavailableReason } : {}),
         ...(view.busy !== undefined ? { busy: view.busy } : {}),
+        ...(view.progressBusy !== undefined ? { progressBusy: view.progressBusy } : {}),
+        ...(view.activity ? { activity: { stage: view.activity.stage, label: view.activity.label,
+          ...(view.activity.since ? { since: view.activity.since } : {}) } } : {}),
         steps: view.steps.map(step => ({ id: step.id, name: step.name, status: step.status,
           ...(step.onRejectStepId ? { onRejectStepId: step.onRejectStepId } : {}),
           ...(step.employeeName ? { employeeName: step.employeeName } : step.employeeId === view.owner?.id ? { employeeName: view.owner.name } : {}) })),

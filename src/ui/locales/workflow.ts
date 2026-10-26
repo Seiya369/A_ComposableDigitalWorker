@@ -1,5 +1,11 @@
 /** Workflow interface copy. Saved names, instructions and delivery content remain unchanged. */
 export const workflowEn: Record<string, string> = {
+  '准备岗位模型': 'Preparing the role model',
+  '读取已有知识': 'Reading available knowledge',
+  '载入岗位技能': 'Loading role skills',
+  '等待模型响应': 'Waiting for the model',
+  '模型正在生成': 'The model is generating',
+  '正在调用工具': 'Running tools',
   '{name}正在对接': '{name} is your contact',
   '工作流定义已从库中移除，请选择其他工作流或无': 'The workflow definition was removed from the library. Select another workflow or None.',
   '此工作流正在执行，请结束本轮后再修改或移除定义': 'This workflow is running. Finish the current execution before editing or removing its definition.',

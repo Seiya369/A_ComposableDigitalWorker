@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Context } from '@deepseek-ai/cordis';
@@ -12,11 +12,12 @@ import type { ConversationWorkflowView } from '../src/domain/conversation-workfl
 import type { WorkforceRun, WorkforceState } from '../src/domain/types.js';
 import { WorkflowRepository } from '../src/workflow/repository.js';
 import { WorkService } from '../src/work/service.js';
+import { KnowledgeEngine } from '../src/knowledge/engine.js';
 import type { WorkTask } from '../src/work/types.js';
 import type { ConversationWorkflowDetails, ConversationWorkflowReviewInput } from '../src/domain/conversation-workflow-details.js';
 
 /** The real authenticated route is exercised with official services represented by fixtures. */
-async function fixture(t: { after(fn: () => Promise<void>): void }, options: { legacyHistory?: boolean; modernHistory?: boolean; blockedHistory?: boolean } = {}) {
+async function fixture(t: { after(fn: () => Promise<void>): void }, options: { legacyHistory?: boolean; modernHistory?: boolean; activeModernHistory?: boolean; blockedHistory?: boolean; failRuntimeCleanup?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'conversation-workflow-http-')); const file = join(root, 'state.json');
   let hostCleanupRegistered = false;
   t.after(() => hostCleanupRegistered ? Promise.resolve() : rm(root, { recursive: true, force: true }));
@@ -70,13 +71,14 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
       history.push(await store.updateRun(blocked.id, { status: 'blocked', error: '等待人工解决原有阻塞' }));
     }
   }
-  if (options.modernHistory) {
+  if (options.modernHistory || options.activeModernHistory) {
     const selected = await store.selectConversationWorkflow({ projectId: project.id, sessionId: 'chat-a', workflowTemplateId: workflow.id,
       workflowTemplateVersion: workflow.version, templateVersions }, { expectedRevision: store.snapshot().revision });
     let ownerRun = await store.createRun({ projectId: project.id, employeeId: selected.owner!.id, request: '已有原生工作流负责人交付',
       conversationWorkflow: { instanceId: selected.instanceId!, stepId: selected.currentStepId! } });
     ownerRun = await store.updateRun(ownerRun.id, { sessionId: 'chat-a', status: 'running' });
-    history.push(await store.updateRun(ownerRun.id, { status: 'awaiting-review', output: '保留原生对话产生的交付，等待人工验收' }));
+    history.push(options.activeModernHistory ? await store.updateRun(ownerRun.id, { status: 'blocked', error: '受控验证：当前负责人仍在处理' })
+      : await store.updateRun(ownerRun.id, { status: 'awaiting-review', output: '保留原生对话产生的交付，等待人工验收' }));
   }
   let workspaces = [{ id: project.id, title: project.name, path: project.rootPath, sessionIds: [...new Set(['chat-a', 'chat-b', ...history.map(run => run.sessionId!)])] },
     { id: other.id, title: other.name, path: other.rootPath, sessionIds: ['foreign-chat'] }];
@@ -96,7 +98,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   ctx.provide('agents', { get: (id: string) => runningSessions.has(id) ? { status: 'running' }
     : queuedIdleSessions.has(id) ? { status: 'idle', inbox: { nextTurn: queuedIdleSessions.get(id) === 'nextTurn' ? ['queued-input'] : [], nextStep: queuedIdleSessions.get(id) === 'nextStep' ? ['queued-input'] : [] } }
       : approvalNotices.has(id) ? { status: 'idle', inbox: { nextTurn: [], nextStep: [approvalNotice] } }
-      : undefined, list: () => [], values: () => [] } as never);
+      : undefined, list: () => { if (options.failRuntimeCleanup) throw new Error('fixture runtime cleanup failure'); return []; }, values: () => [] } as never);
   ctx.provide('sessionController', { modelCatalog: async () => ({ groups: [], failures: [] }) } as never);
   ctx.provide('skills', { register: () => () => undefined, list: async () => [] } as never);
   ctx.provide('tools', { schemas: () => [], guard: () => () => undefined } as never);
@@ -107,7 +109,7 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
   const state = async (): Promise<WorkforceState> => { const response = await fetch(`${origin}/digital-workers/api/state`); assert.equal(response.status, 200); return response.json() as Promise<WorkforceState>; };
   const view = async (sessionId: string) => {
     const response = await fetch(`${origin}/digital-workers/api/conversation-workflow?sessionId=${encodeURIComponent(sessionId)}`);
-    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; sessionHandoffRequired?: boolean; error?: string } };
+    return { status: response.status, body: await response.json() as Omit<ConversationWorkflowView, 'projectId'> & { projectId: string | null; revision: number; busy?: boolean; progressBusy?: boolean; sessionHandoffRequired?: boolean; error?: string } };
   };
   const command = async (action: string, payload: unknown, options: unknown) => {
     const response = await fetch(`${origin}/digital-workers/api/command`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ action, payload, options }) });
@@ -123,13 +125,37 @@ async function fixture(t: { after(fn: () => Promise<void>): void }, options: { l
     const response = await fetch(`${origin}/digital-workers/api/conversation-workflow/review`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify(input) });
     return { status: response.status, body: await response.json() as ConversationWorkflowDetails & { error?: string; code?: string } };
   };
-  return { file, project, other, architect, workflow, history, state, view, select, command, details, review,
+  return { root, file, project, other, architect, workflow, history, state, view, select, command, details, review,
+    dispose: () => ctx.fiber.dispose(),
     setRunning(sessionId: string, value: boolean) { if (value) runningSessions.add(sessionId); else runningSessions.delete(sessionId); },
     setQueuedIdle(sessionId: string, lane?: 'nextTurn' | 'nextStep') { if (lane) queuedIdleSessions.set(sessionId, lane); else queuedIdleSessions.delete(sessionId); },
     setApprovalNotice(sessionId: string) { approvalNotices.add(sessionId); return approvalNotice; },
     duplicateSession() { workspaces = workspaces.map(entry => entry.id === other.id ? { ...entry, sessionIds: [...entry.sessionIds, 'chat-a'] } : entry); },
     removeWorkspace: () => { workspaces = workspaces.filter(entry => entry.id !== project.id); } };
 }
+
+test('plugin disposal awaits archive shutdown even when an earlier runtime cleanup fails', async t => {
+  const original = KnowledgeEngine.prototype.dispose;
+  let entered = false; let released = false;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  t.mock.method(KnowledgeEngine.prototype, 'dispose', async function (this: KnowledgeEngine) {
+    entered = true; await gate; released = true; await original.call(this);
+  });
+  const f = await fixture(t, { failRuntimeCleanup: true });
+  assert.equal((await f.select()).status, 200, 'selection admits local employee archives before teardown');
+  let settled = false;
+  const closing = f.dispose().then(() => { settled = true; });
+  try {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(entered, true, 'a failing context cleanup must not skip the archive disposer');
+    assert.equal(settled, false, 'fiber disposal must wait for all owned archive writes');
+  } finally { release(); await closing; }
+  assert.equal(released, true);
+  await rm(f.root, { recursive: true, force: true });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  await assert.rejects(access(f.root), { code: 'ENOENT' }, 'no background archive writer may recreate the removed plugin directory');
+});
 
 test('production conversation routes derive the native project and preserve default inheritance and explicit none', async t => {
   const f = await fixture(t); const initial = await f.view('chat-a');
@@ -184,6 +210,28 @@ test('native Agent execution locks workflow and step mutation until the official
   assert.equal(await readFile(f.file, 'utf8'), before);
   f.setRunning('chat-a', false); assert.equal((await f.view('chat-a')).body.busy, false);
   assert.equal((await f.select('chat-a', null)).status, 200);
+});
+
+test('another conversation running the shared workflow locks progress but leaves the idle conversation picker available', async t => {
+  const f = await fixture(t, { activeModernHistory: true });
+  f.setRunning('chat-a', true);
+  const active = (await f.view('chat-a')).body;
+  const idle = (await f.view('chat-b')).body;
+  assert.equal(active.busy, true);
+  assert.equal(idle.instanceId, active.instanceId);
+  assert.equal(idle.busy, false, 'an unrelated native turn cannot disable this conversation picker');
+  assert.equal(active.progressBusy, true);
+  assert.equal(idle.progressBusy, true, 'shared progress still cannot change underneath a running owner');
+  assert.notEqual((await f.command('conversation.workflow.step', { projectId: f.project.id, sessionId: 'chat-b', stepId: 'build', instanceVersion: idle.instanceVersion }, { expectedRevision: idle.revision })).status, 200);
+  assert.notEqual((await f.select('chat-a', null)).status, 200, 'the executing conversation keeps its frozen owner');
+  assert.equal((await f.select('chat-b', null)).status, 200);
+  const restored = await f.select('chat-b');
+  assert.equal(restored.status, 200, restored.body.error);
+  assert.equal(restored.body.result.instanceId, active.instanceId);
+  assert.equal(restored.body.result.owner?.id, active.owner?.id, 'reselection reuses the installed owner and history');
+  const after = await f.state();
+  assert.deepEqual(after.runs, f.history, 'picker changes cannot cancel or rewrite another conversation run');
+  assert.equal(after.conversationWorkflows?.instances.length, 1);
 });
 
 test('an idle native Agent with queued turn or step messages locks selection, resume and shared step changes', async t => {

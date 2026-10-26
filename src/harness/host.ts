@@ -144,7 +144,18 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     },
     onError: error => ctx.logger.error(error),
   });
-  ctx.effect(() => async () => { roleDrafter.dispose(); try { await disposeConversationRuntime(); await workEngine.dispose(); await workflowEngine.dispose(); await runtime.dispose(); await knowledge.dispose(); } finally { await wiki.dispose(); } }, 'digital-workers.runtime');
+  ctx.effect(() => async () => {
+    // Each owner must quiesce even if a preceding cleanup fails. In particular,
+    // runtime errors must never leave the archive subscription or ledger writer
+    // active after the plugin's awaited disposal has finished.
+    const failures: unknown[] = [];
+    for (const stop of [() => roleDrafter.dispose(), disposeConversationRuntime,
+      () => workEngine.dispose(), () => workflowEngine.dispose(), () => runtime.dispose(),
+      () => knowledge.dispose(), () => wiki.dispose()]) {
+      try { await stop(); } catch (error) { failures.push(error); }
+    }
+    if (failures.length) throw new AggregateError(failures, '数字员工插件清理失败');
+  }, 'digital-workers.runtime');
 
   // An interrupted external write is not replayed automatically after a process restart.
   for (const run of store.snapshot().runs) if (!run.workflow && !run.workTaskId && (run.status === 'queued' || run.status === 'running')) await store.updateRun(run.id, { status: 'failed', error: '上次宿主运行中断；请检查交付文件后重新提交任务', finishedAt: new Date().toISOString() });
@@ -366,9 +377,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           json(res, 200, { sessionId, projectId: null, selection: 'inherit', instanceId: null, steps: [], choices: [], revision: state.revision }); return;
         }
         const view = resolveConversationWorkflow(state, workspace.id, sessionId);
-        const busy = conversationIsBusy(sessionId)
-          || Boolean(view.instanceId && state.runs.some(run => run.conversationWorkflow?.instanceId === view.instanceId && ['queued', 'running', 'blocked'].includes(run.status)));
-        json(res, 200, { ...view, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy,
+        const busy = conversationIsBusy(sessionId);
+        const progressBusy = Boolean(view.instanceId && state.runs.some(run => run.conversationWorkflow?.instanceId === view.instanceId && ['queued', 'running', 'blocked'].includes(run.status)));
+        const activeRun = state.runs.findLast(run => run.sessionId === sessionId && ['queued', 'running', 'blocked'].includes(run.status));
+        const labels = { 'preparing-model': '准备岗位模型', 'preparing-knowledge': '读取已有知识', 'preparing-skills': '载入岗位技能', requesting: '等待模型响应', streaming: '模型正在生成', tools: '正在调用工具' };
+        json(res, 200, { ...view, ...(view.owner ? { owner: { id: view.owner.id, name: view.owner.name } } : {}), revision: state.revision, busy, progressBusy,
+          ...(activeRun?.activity ? { activity: { ...activeRun.activity, label: labels[activeRun.activity.stage] } } : {}),
           sessionHandoffRequired: runtime.needsCompletedSessionHandoff(sessionId),
           steps: view.steps.map(step => ({ ...step, employeeName: state.employees.find(employee => employee.id === step.employeeId)?.name })) }); return;
       }
