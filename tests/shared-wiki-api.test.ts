@@ -2,13 +2,25 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { WorkforceStore } from '../src/domain/store.js';
 import { createBlankModules } from '../src/domain/seed.js';
 import { KnowledgeRepository } from '../src/knowledge/repository.js';
 import { KnowledgeEngine } from '../src/knowledge/engine.js';
 import type { KnowledgeLibraryTarget } from '../src/knowledge/library-api.js';
+import type { KnowledgeSnapshot } from '../src/knowledge/types.js';
 import type { WikiBuildRequest, WikiLibraryView, WikiRuntime } from '../src/knowledge/wiki-types.js';
+
+/** Version numbers are local to a space; bundled libraries can all publish v1. */
+async function snapshotDirectory(root: string, snapshot: Pick<KnowledgeSnapshot, 'version' | 'sourceFingerprint'>): Promise<string> {
+  const files = await readdir(root, { recursive: true });
+  const matches = (await Promise.all(files.filter(path => basename(path) === 'snapshot.json').map(async path => {
+    const manifest = JSON.parse(await readFile(join(root, path), 'utf8'));
+    return manifest.version === snapshot.version && manifest.sourceFingerprint === snapshot.sourceFingerprint ? dirname(join(root, path)) : undefined;
+  }))).filter((path): path is string => path !== undefined);
+  assert.equal(matches.length, 1, 'The target snapshot version and exact source fingerprint must resolve one knowledge space');
+  return matches[0]!;
+}
 
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const root = await mkdtemp(join(tmpdir(), 'workforce-shared-wiki-api-'));
@@ -90,10 +102,10 @@ test('Wiki rebuilding preserves raw originals and published historical snapshots
   await f.engine.flush();
   const original = await f.engine.library(f.target);
   const first = await f.engine.libraryWiki(f.target);
-  const files = await readdir(f.repository.rootPath, { recursive: true });
-  const oldSnapshotPath = join(f.repository.rootPath, files.find(path => path.endsWith(`B-knowledge/v${original.snapshot!.version}.json`))!);
+  const libraryPath = await snapshotDirectory(f.repository.rootPath, original.snapshot!);
+  const oldSnapshotPath = join(libraryPath, 'B-knowledge', `v${original.snapshot!.version}.json`);
   const oldSnapshot = await readFile(oldSnapshotPath);
-  const originalPath = join(f.repository.rootPath, files.find(path => path.endsWith(`A-originals/${original.sources[0]!.original!.storageId}.json`))!);
+  const originalPath = join(libraryPath, 'A-originals', `${original.sources[0]!.original!.storageId}.json`);
   await f.engine.upload({ target: f.target, files: [], retry: true });
   await f.engine.flush();
   const current = await f.engine.library(f.target);
@@ -186,8 +198,7 @@ test('a legacy page-network cache is replaced locally without recompiling or cha
   await f.engine.flush();
   const before = await f.engine.library(f.target);
   const files = await readdir(f.repository.rootPath, { recursive: true });
-  const snapshotFile = files.find(path => path.endsWith(`B-knowledge/v${before.snapshot!.version}.json`))!;
-  const libraryPath = dirname(dirname(join(f.repository.rootPath, snapshotFile)));
+  const libraryPath = await snapshotDirectory(f.repository.rootPath, before.snapshot!);
   const immutableFiles = files.filter(path => path.endsWith('.json') && /(?:^|\/)(?:A-sources|A-originals|B-knowledge|C-overview)\//.test(path));
   const bytes = await Promise.all(immutableFiles.map(path => readFile(join(f.repository.rootPath, path))));
   const projectionPath = join(libraryPath, 'wiki', `v${before.snapshot!.version}`, 'projection.json');

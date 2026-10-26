@@ -1,6 +1,6 @@
 {
   "format": "workforce-role-skill-presets",
-  "version": 1,
+  "version": 2,
   "roles": [
     {
       "role": "product",
@@ -15,7 +15,8 @@
           "id": "to-spec",
           "useWhen": "把已确定需求整理为正式规格时"
         }
-      ]
+      ],
+      "reportsTo": null
     },
     {
       "role": "architect",
@@ -46,7 +47,8 @@
           "id": "worktree-cleanup",
           "useWhen": "本任务创建临时工作树时先登记，合并验证后完整清理时"
         }
-      ]
+      ],
+      "reportsTo": "product"
     },
     {
       "role": "designer",
@@ -61,7 +63,8 @@
           "id": "design-system-guidance",
           "useWhen": "新产品或明确要求建立视觉设计体系时"
         }
-      ]
+      ],
+      "reportsTo": "product"
     },
     {
       "role": "developer",
@@ -84,7 +87,8 @@
           "id": "worktree-cleanup",
           "useWhen": "创建本任务临时工作树或合并验证后清理时"
         }
-      ]
+      ],
+      "reportsTo": "architect"
     },
     {
       "role": "tester",
@@ -103,7 +107,8 @@
           "id": "worktree-cleanup",
           "useWhen": "本任务测试使用临时工作树，合并核验后清理时"
         }
-      ]
+      ],
+      "reportsTo": "product"
     },
     {
       "role": "operator",
@@ -122,7 +127,8 @@
           "id": "worktree-cleanup",
           "useWhen": "本任务发布工作树合并验证后清理时"
         }
-      ]
+      ],
+      "reportsTo": "product"
     }
   ]
 }

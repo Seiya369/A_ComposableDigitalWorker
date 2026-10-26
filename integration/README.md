@@ -31,7 +31,7 @@
 先停止目标 Harness。使用你实际要管理的 `DSH_HOME` 与 profile，避免作用于另一套安装。正式使用者只需官方 DSH 和 `.tgz`，无须准备 Harness 源码仓库。
 
 ```sh
-DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
+DSH_HOME=/absolute/dsh-home dsh plugin --profile web add /absolute/dsh-plugin-composable-workforce-0.29.0.tgz --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web remove dsh-plugin-composable-workforce --config.auto-install-peers=false
 ```
 
@@ -100,3 +100,9 @@ node scripts/plugin.mjs purge --home "$HOME/.dsh" --profile desktop \
 ```
 
 The same ownership rules and native-session retention exception apply on Desktop. Full cleanup does not uninstall the shared DSH Desktop app or erase its shared shell preferences, credentials, sessions, or user workspaces.
+
+## 默认内容显式更新 / Explicit default update
+
+新安装只创建1条软件工程流程，并持久生成6岗位及团队的来源可追溯专业知识图谱。原有安装不自动重置或静默覆盖定制。解压包中的 `lib/upgrade-software-defaults.js` 支持 `--state /absolute/plugin/state.json --dry-run`；退出使用该状态的宿主后以 `--host-stopped` 执行，备份旧文件并在一次版本校验事务中更新。只改变已知原始默认库及未执行、未定制的采用实例；员工ID/模块、记忆、会话选择与历史保留。已执行或定制对象报告跳过。完整清理会移除插件专属图谱；宿主共享原生会话保留项继续适用。
+
+Fresh installs include one engineering workflow and source-backed professional graphs for the six roles and shared team. Existing profiles preserve custom definitions. The packaged explicit upgrade tool backs up state and uses a single version-checked transaction after the host stops; customized/executed adoptions remain unchanged with a skip reason. Plugin-owned graphs follow the same cleanup lifecycle.

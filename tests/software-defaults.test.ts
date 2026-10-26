@@ -18,6 +18,10 @@ test('fresh install supplies complete software roles, knowledge policies and exe
   const team = seed.teams.find(team => team.id === SOFTWARE_TEAM_ID)!;
   assert.equal(team.members.length, 6);
   assert.equal(team.members.filter(member => !member.reportsTo).length, 1);
+  assert.equal(team.members.find(member => member.memberId === 'product')!.reportsTo, undefined);
+  assert.equal(team.members.find(member => member.memberId === 'architect')!.reportsTo, 'product');
+  assert.equal(team.members.find(member => member.memberId === 'developer')!.reportsTo, 'architect');
+  for (const role of ['designer', 'tester', 'operator']) assert.equal(team.members.find(member => member.memberId === role)!.reportsTo, 'product');
   for (const role of presets.roles) {
     const member = team.members.find(member => member.memberId === role.role)!;
     const employee = seed.templates.find(employee => employee.id === member.templateId)!;
@@ -32,7 +36,24 @@ test('fresh install supplies complete software roles, knowledge policies and exe
     assert.ok(employee.modules.knowledge.sources.length >= 2);
     assert.equal(employee.modules.model.mode, 'inherit');
   }
-  assert.ok(seed.workflowTemplates!.length >= 2);
+  assert.equal(seed.workflowTemplates!.length, 1);
+  assert.equal(seed.workflowTemplates![0]!.id, 'workflow-template-software');
+  assert.equal(seed.workflowTemplates![0]!.steps.length, 11);
+  assert.equal(seed.workflowTemplates![0]!.steps.find(step => step.id === 'requirements')!.roleId, 'product');
+  assert.equal(seed.workflowTemplates![0]!.steps.find(step => step.id === 'architecture')!.roleId, 'architect');
+  assert.equal(seed.workflowTemplates![0]!.steps.find(step => step.id === 'implementation')!.roleId, 'developer');
+  assert.equal(seed.workflowTemplates![0]!.steps.find(step => step.id === 'verification')!.roleId, 'tester');
+  assert.match(seed.workflowTemplates![0]!.steps.find(step => step.id === 'implementation')!.instruction, /根因.*修复/);
+  assert.equal(team.workflows!.length, 1);
+  const flow = seed.workflowTemplates![0]!;
+  assert.equal(flow.steps.find(step => step.id === 'deployment')!.roleId, 'operator');
+  assert.ok(flow.steps.findIndex(step => step.id === 'deployment') > flow.steps.findIndex(step => step.id === 'acceptance'));
+  assert.ok(flow.steps.findIndex(step => step.id === 'deployment') < flow.steps.findIndex(step => step.id === 'retrospective'));
+  assert.equal(flow.steps.find(step => step.id === 'release')!.onRejectStepId, 'release');
+  assert.equal(flow.steps.find(step => step.id === 'acceptance')!.onRejectStepId, 'implementation');
+  assert.match(flow.steps.find(step => step.id === 'release')!.instruction, /不对公众发布或部署生产/);
+  assert.match(flow.steps.find(step => step.id === 'deployment')!.instruction, /未获授权|缺少授权/);
+  assert.match(seed.templates.find(template => template.id === 'employee-template-tester')!.modules.collaboration.escalationRules.join(' '), /直接向产品负责人.*独立/);
   for (const workflow of seed.workflowTemplates!) {
     assert.deepEqual(workflow.team!.members, team.members);
     for (const step of workflow.steps) {

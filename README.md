@@ -14,7 +14,7 @@ Start with one specialist, assemble a team, and turn its responsibilities into a
 
 [简体中文](#zh) · [English](#en) · [安装 / Installation](#zh-install) · [使用 / Usage](#zh-usage) · [English quick start](#en-install)
 
-[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.28.0/dsh-plugin-composable-workforce-0.28.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.28.0/dsh-plugin-composable-workforce-0.28.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.28.0)
+[下载插件 / Download plugin](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.29.0/dsh-plugin-composable-workforce-0.29.0.tgz) · [SHA-256](https://github.com/TigerHour/DSH_Graph-Horses/releases/download/v0.29.0/dsh-plugin-composable-workforce-0.29.0.tgz.sha256) · [版本说明 / Release notes](https://github.com/TigerHour/DSH_Graph-Horses/releases/tag/v0.29.0)
 
 > 下载 `.tgz` 安装插件；GitHub 的 Source code ZIP 是开发源码。当前版本为带已知限制的预发布。
 > Install the `.tgz` plugin package. GitHub’s Source code ZIP contains development sources. This is a prerelease with documented limitations.
@@ -72,7 +72,7 @@ flowchart LR
 
 ### 开箱提供软件开发专业团队
 
-全新 profile 首次启动时提供六个完整岗位，以及对应团队和两条工作流：
+全新 profile 首次启动时提供六个完整岗位，以及对应团队和一条完整软件工程工作流：
 
 | 岗位 | 主要职责 | 必备 Skill |
 | --- | --- | --- |
@@ -83,12 +83,25 @@ flowchart LR
 | 测试负责人 | 功能、边界、性能、回归与质量证据 | `quality-verification` |
 | 运维负责人 | 打包、安装升级、运行交接、回滚与卸载验证 | `release-readiness` |
 
-- **软件工程 · 10 步**：需求与验收基线 → 交互与体验定义 → 架构与实施契约 → 测试与性能计划 → 增量开发 → 独立代码审查 → 功能与性能复测 → 打包与运行交接 → 需求覆盖与用户验收 → 复盘与知识交接。
-- **缺陷修复 · 5 步**：复现与根因定位 → 最小修复 → 独立审查 → 功能与性能回归 → 修复交付。
+- **软件工程 · 11 步**：需求澄清与验收基线 → 交互与体验设计 → 技术方案与根因分析 → 测试计划与回归基线 → 增量实现与缺陷修复 → 独立代码与契约审查 → 独立功能、性能与体验复测 → 候选版本与运行就绪 → 用户验收与发布决定 → 授权发布与运行核验 → 工程复盘与知识交接。
+缺陷复现、根因分析、最小修复、独立审查和回归已融入软件工程流程，不再单独安装“缺陷修复”工作流。
+
+默认组织结构为 **产品负责人（第1级）→ 技术负责人／架构师、UX/UI设计师、测试负责人、运维负责人（第2级）；开发人员为第3级，向技术负责人／架构师汇报**。设计、质量验证与运维运行各自保持专业责任，跨岗位由产品负责人统筹；只有开发人员由技术负责人带领。候选制品准备、用户验收和授权发布分别交付证据，未授权的外部发布不会被当作已完成。组织图初始完整适配窗口，支持滚轮缩放、拖动、放大／缩小和一键适配。
 
 每个岗位包含职责与边界、模型继承、必备／优先技能、工作方法、证据与记忆规范、协作及交付定义；每个步骤包含负责人、输入、产物、验收与退回规则。插件共提供 **22 项内置技能**，覆盖需求、架构、设计、实现、测试、代码审查、发布和工程收尾。详见[软件岗位技能](docs/architecture/software-role-skills.md)。
 
+六个岗位和团队共享库自带有原文引用的专业概念与关系，首次启动即可生成并保存知识图谱，无需额外模型请求；原始资料、B/C快照和阅读内容保存在插件专属目录，重启继续使用。随包图谱是专业参考，不能冒充项目事实、已执行任务或已确认记忆。新增资料仍使用现有增量整理流程。
+
 默认内容可编辑、复用或替换，不包含【演示】工作流、模拟完成记录或伪造的已确认记忆。安装不自动执行业务任务；升级已有 profile 不静默覆盖用户配置，也不自动补入默认对象。
+
+已有安装不会自动覆盖用户定义。要显式更新仍未修改的旧默认团队、软件工程流程，并移除未采用的旧“缺陷修复”，先退出目标Web/Desktop，再从解压包运行：
+
+```sh
+node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --dry-run
+node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host-stopped
+```
+
+工具先备份旧状态并登记归属，在一次事务中更新；完整卸载也会清理这些有归属标记的插件备份，未标记的用户备份保留。定制或已有执行记录的团队／流程会保留并说明跳过。尚未执行、仍保持原始配置的已引入团队会同步新层级和负责人，保留员工ID、配置与会话选择。默认Desktop状态为 `$DSH_HOME/composable-workforce/state.json`（未设`DSH_HOME`时为`~/.dsh`）；Web按其实际插件`statePath`配置确定。
 
 <a id="zh-install"></a>
 
@@ -102,7 +115,7 @@ flowchart LR
 | Node.js | 声明范围 `^22.19.0 || >=24`；当前验收使用 `24.21.0`。 |
 | 界面 | DSH Web 和官方 macOS Apple Silicon Desktop `0.2.1-rc.3`；插件界面跟随 DSH 的中文／English 设置，业务内容保持原文。 |
 | 模型 | 在 DSH 中配置可用模型；员工可继承 DSH 默认值或选择单独的岗位模型。 |
-| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.28.0.tgz` 及对应 SHA-256。 |
+| 安装包 | 维护者提供的 `dsh-plugin-composable-workforce-0.29.0.tgz` 及对应 SHA-256。 |
 
 截至 2026-10-26，官方最新 GitHub 发行标签和 npm `next` 为 `0.2.1-rc.3`，npm `latest` 仍为 `0.2.1-rc.2`。本版本按 rc.3 验证；使用 npm 时可显式安装 `@deepseek-ai/dsh@0.2.1-rc.3`。
 
@@ -111,7 +124,7 @@ flowchart LR
 ```sh
 # 替换为你的 DSH 数据目录、profile 和插件归档绝对路径。
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.29.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -131,7 +144,7 @@ DSH 已提供官方 Desktop。请从 [DSH 官网](https://deepseek-harness.githu
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.29.0.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -263,22 +276,22 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 清理只处理经归属校验的插件配置、状态、知识、空专属目录及显式指定的自建服务日志。自定义外部状态需要 `--owned-state-path`；本仓库开发服务清理需要按指南指定 `--service-root`。用户项目、已交付成果、共享凭据、其他插件数据及不明文件保留。
 
-**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.28.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.28.0.md)。
+**当前未满足项：** 官方 `DSH 0.2.1-rc.3` 没有会话持久记录删除接口，员工创建的专属原生会话历史仍会保留。因此，目前通过的是插件运行能力、专属文件和配置级清理，尚未满足全部插件专属持久记录清除的严格要求；**0.29.0 是带保留项的验收候选，不能标记为无保留合规成品。** 详见[ADR-001](docs/decisions/001-official-plugin-boundary.md)和[版本验收记录](integration/verification-0.29.0.md)。
 
 ### 验证状态与已知限制
 
 最近一次代码审计与归档复测基于官方 DSH、独立临时 profile 和固定归档 SHA-256：
 
-| 检查 | 0.28.0 验收结果 |
+| 检查 | 0.29.0 验收结果 |
 | --- | --- |
 | 类型检查与构建 | 通过 |
-| 自动化测试 | 698 项：697 通过、0 失败、1 项可选私有数据测试跳过 |
+| 自动化测试 | 领域、知识库、工作流与界面回归；最终统计见版本验收记录 |
 | 真实归档安装、移除、重装与清理 | 15 项生命周期检查通过；原生会话持久记录保留项见上文 |
-| 跨版本升级 | 官方 alpha.2 / 插件 0.27.0 → rc.3 / 插件 0.28.0，保留自定义岗位定义与库对象 |
+| 跨版本升级 | 官方 alpha.2 / 插件 0.27.0 → rc.3 / 插件 0.29.0，保留自定义岗位定义与库对象 |
 | 官方原生界面与对话工作流 | Web 29 项检查通过；macOS Desktop 实机安装、保存、卸载和重装通过 |
 | 宿主程序完整性 | 27,607 个程序文件前后总哈希一致 |
 
-界面与业务执行测试使用临时离线模型适配器，不等同于实际供应商的回答质量、费用、延迟或生产容量验收。当前仅实测 macOS arm64、Node `24.21.0` 和指定 DSH 版本；本地 JSON 全量事务仍随历史规模增长。性能负载、原始证据、根因与后续计划见[完整审计报告](docs/audits/2026-10-26-dsh-desktop.md)。
+界面与业务执行测试使用临时离线模型适配器，不等同于实际供应商的回答质量、费用、延迟或生产容量验收。当前仅实测 macOS arm64、Node `24.21.0` 和指定 DSH 版本；本地 JSON 全量事务仍随历史规模增长。性能负载、原始证据、根因与后续计划见[完整审计报告](docs/audits/2026-10-26-knowledge-team-workflow.md)。
 
 当前资源库界面只保留自由职业人、团队和工作流；工作入口是原生项目对话及顶部详情。项目目标、任务依赖、成果版本与并行调度等旧工作台后端能力和记录仍保留兼容，**旧工作台编辑器并非当前公开页面入口**。
 
@@ -310,7 +323,7 @@ npm pack --pack-destination artifacts
 | --- | --- |
 | `npm start` | 启动本仓库独立开发 profile。 |
 | `npm run service:start / service:status / service:stop / service:open` | macOS 开发后台服务管理；其他系统使用独立终端 `npm start`。 |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.28.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.29.0.tgz` | 在官方 npm 安装和临时 profile 验证真实归档生命周期。 |
 | `npm run test:performance` | 本地合成负载下的状态、持久化、知识包与布局测量。 |
 
 发布前需重新生成归档、SHA-256 和绑定该哈希的验收记录；改动随包文件后不能沿用旧归档验收。提交问题时请附版本、复现步骤、预期／实际行为与脱敏日志。新增能力需遵守 [AGENTS.md](AGENTS.md) 的官方扩展、数据归属和清理要求。
@@ -388,7 +401,7 @@ This is a configuration example. The included preset is the software development
 
 ### A software development team is included
 
-A fresh profile starts with six complete role definitions, a team, and two workflows:
+A fresh profile starts with six complete role definitions, a team, and one complete software engineering workflow:
 
 | Role | Focus | Required Skill |
 | --- | --- | --- |
@@ -399,12 +412,25 @@ A fresh profile starts with six complete role definitions, a team, and two workf
 | QA lead | Functional, boundary, performance, and regression evidence | `quality-verification` |
 | Operations lead | Packaging, installation, upgrades, handover, rollback, removal checks | `release-readiness` |
 
-- **Software engineering · 10 steps:** requirements and acceptance baseline → interaction design → architecture and implementation contracts → test and performance planning → incremental implementation → independent code review → functional and performance verification → packaging and handover → requirements coverage and user acceptance → retrospective and knowledge handover.
-- **Defect repair · 5 steps:** reproduction and root-cause analysis → minimal repair → independent review → functional and performance regression → repair delivery.
+- **Software engineering · 11 steps:** requirements and acceptance baseline → interaction design → architecture and implementation contracts → test and performance planning → incremental implementation → independent code review → functional and performance verification → candidate packaging and release readiness → requirements coverage, user acceptance and release decision → authorized release and operational verification → retrospective and knowledge handover.
+Defect reproduction, root-cause analysis, minimal repair, independent review and regression are integrated into the main engineering workflow. No separate defect-repair workflow is installed.
+
+The default hierarchy is **product owner (level1) → technical lead / architect, UX/UI designer, QA lead and operations lead (level2); only the developer is level3, reporting to the technical lead / architect**. The organization chart initially fits the whole tree and supports wheel zoom, dragging, zoom controls and fit reset.
 
 Roles include responsibilities, boundaries, model inheritance, required/preferred Skills, working methods, evidence and memory policies, collaboration, and delivery definitions. Steps include owners, inputs, outputs, acceptance criteria, and rework rules. **22 bundled Skills** cover the engineering lifecycle; see [software role Skills](docs/architecture/software-role-skills.md).
 
+Each role and the shared team library ships with source-backed professional concepts and explicit relationships. First startup persists the graphs without provider calls; plugin-owned sources, B/C snapshots and reading content survive restarts. These references are not fabricated project facts, completed tasks or confirmed memory. Added materials continue through incremental compilation.
+
 You can edit, reuse, or replace these defaults. They contain no demo workflows, simulated completions, or fabricated confirmed memories. Installation does not execute business tasks. Upgrades preserve existing profiles instead of silently replacing definitions or adding new defaults.
+
+Existing installations preserve user definitions. To explicitly update untouched older defaults and remove an unused legacy defect workflow, quit the target Web/Desktop host and run from the extracted package:
+
+```sh
+node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --dry-run
+node lib/upgrade-software-defaults.js --state /absolute/plugin/state.json --host-stopped
+```
+
+The tool creates an owned backup and commits once. Full plugin cleanup removes these marked plugin backups; unmarked user backups are preserved. Customized or previously executed rosters/workflows are retained with a skip reason. Untouched, unexecuted adopted teams receive the hierarchy and owner updates while keeping employee IDs, configurations and conversation selections. Desktop uses `$DSH_HOME/composable-workforce/state.json` by default (`~/.dsh` if unset); Web uses its configured plugin `statePath`.
 
 <a id="en-install"></a>
 
@@ -416,7 +442,7 @@ You can edit, reuse, or replace these defaults. They contain no demo workflows, 
 | Node.js | Declared range: `^22.19.0 || >=24`; current acceptance used `24.21.0`. |
 | Interface | DSH Web and official macOS Apple Silicon Desktop `0.2.1-rc.3`. UI language follows DSH Chinese/English settings; user content stays in its original language. |
 | Models | Configure a working model in DSH. Employees can inherit the default or use an explicit role model. |
-| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.28.0.tgz` and matching SHA-256 checksum. |
+| Distribution | The maintainer-provided `dsh-plugin-composable-workforce-0.29.0.tgz` and matching SHA-256 checksum. |
 
 As checked on 2026-10-26, the newest official GitHub tag and npm `next` are `0.2.1-rc.3`; npm `latest` remains `0.2.1-rc.2`. Select `@deepseek-ai/dsh@0.2.1-rc.3` explicitly for this release.
 
@@ -425,7 +451,7 @@ End users need the supported official DSH installation and the plugin `.tgz`. Th
 ```sh
 # Replace the data directory, profile, and absolute archive path.
 DSH_HOME=/absolute/dsh-home dsh plugin --profile web add \
-  /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  /absolute/dsh-plugin-composable-workforce-0.29.0.tgz \
   --config.auto-install-peers=false \
   --config.strict-peer-dependencies=false \
   --ignore-scripts
@@ -445,7 +471,7 @@ Open Desktop once to initialize it, then quit. Install into `desktop` with **the
 
 ```sh
 "$HOME/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh" \
-  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.28.0.tgz \
+  plugin --profile desktop add /absolute/dsh-plugin-composable-workforce-0.29.0.tgz \
   --config.auto-install-peers=false --config.strict-peer-dependencies=false --ignore-scripts
 ```
 
@@ -570,21 +596,21 @@ node /installed/plugin/scripts/plugin.mjs purge \
 
 Cleanup verifies ownership and removes this plugin's configuration, state, knowledge, empty dedicated parents, and explicitly identified custom service logs. External custom state requires `--owned-state-path`; repository development-service cleanup requires `--service-root` as described in the guide. User projects, delivered files, shared credentials, other plugins' data, and unknown files are preserved.
 
-**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.28.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.28.0.md).
+**Open requirement:** official `DSH 0.2.1-rc.3` has no API for deleting persistent session records. Dedicated native employee-session history remains. Runtime, plugin-owned file, and configuration cleanup pass, but removal of every plugin-specific persistent record is still unmet. **Version 0.29.0 is a validation candidate with this exception, not an unqualified compliant release.** See [ADR-001](docs/decisions/001-official-plugin-boundary.md) and the [version acceptance record](integration/verification-0.29.0.md).
 
 ### Verification status and limitations
 
 The latest code audit and archive verification used an official release, isolated temporary profiles, and one fixed archive SHA-256:
 
-| Check | 0.28.0 result |
+| Check | 0.29.0 result |
 | --- | --- |
 | Type checking and build | Passed |
-| Automated tests | 698 total: 697 passed, 0 failed, 1 optional private-data test skipped |
+| Automated tests | Domain, knowledge, workflow and UI regressions; exact totals are in the version acceptance record |
 | Real archive installation, removal, reinstallation, cleanup | 15 lifecycle checks passed; session-persistence exception above remains |
-| Official native UI and conversation workflows | 29 checks passed |
+| Official native UI and conversation workflows | 29 native conversation checks and8new UI/knowledge persistence checks |
 | Host program integrity | Identical aggregate hash across 27,607 program files before and after |
 
-UI and execution tests use temporary offline model adapters. They do not establish real provider answer quality, cost, latency, or production capacity. The verified environment is macOS arm64, Node `24.21.0`, and the specified DSH release. Full-file local JSON transactions still grow with history. Loads, evidence, root causes, and follow-up plans are in the [audit report](docs/audits/2026-10-26-dsh-desktop.md).
+UI and execution tests use temporary offline model adapters. They do not establish real provider answer quality, cost, latency, or production capacity. The verified environment is macOS arm64, Node `24.21.0`, and the specified DSH release. Full-file local JSON transactions still grow with history. Loads, evidence, root causes, and follow-up plans are in the [audit report](docs/audits/2026-10-26-knowledge-team-workflow.md).
 
 The current library UI exposes employees, teams, and workflows; work happens through native project conversations and header details. Backend services and records for legacy project goals, task dependencies, deliverable versions, and parallel scheduling remain compatible. **The old workbench editor is not a current public page entry.**
 
@@ -616,7 +642,7 @@ Skip `setup` if all peers are already prepared from official npm packages. Launc
 | --- | --- |
 | `npm start` | Launch the repository's separate development profile. |
 | `npm run service:start / service:status / service:stop / service:open` | Manage the macOS development service; on other systems use `npm start` in a separate terminal. |
-| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.28.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
+| `npm run test:lifecycle -- artifacts/dsh-plugin-composable-workforce-0.29.0.tgz` | Verify the actual archive using an official npm installation and a temporary profile. |
 | `npm run test:performance` | Measure local synthetic state, persistence, knowledge-packet, and layout loads. |
 
 Before distribution, generate a new archive, checksum, and acceptance record bound to that hash. Changes to packaged files cannot reuse an older archive's acceptance. Report issues with versions, reproduction steps, expected/actual behavior, and redacted logs. Contributions must follow the public extension, ownership, and cleanup requirements in [AGENTS.md](AGENTS.md).

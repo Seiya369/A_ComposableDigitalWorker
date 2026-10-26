@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createHash } from 'node:crypto';
 import { access, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
@@ -27,6 +28,14 @@ async function knowledgeRoot(statePath: string) {
   await writeFile(resolve(root, '.owner.json'), JSON.stringify({ plugin: pluginName, schemaVersion: 1, rootPath: root }));
   await writeFile(resolve(root, 'templates/team-1/team/A-sources/source/v1.json'), 'source evidence');
   return root;
+}
+async function defaultsBackup(statePath: string, stamp = '2026-10-26T01-02-03-004Z', data: unknown = fixtureState()) {
+  const path = `${statePath}.before-defaults-${stamp}.json`;
+  const bytes = JSON.stringify(data);
+  const markerPath = `${path}.owner.json`;
+  const marker = { schemaVersion: 1, plugin: pluginName, kind: 'software-defaults-backup', statePath, backupName: basename(path), sha256: createHash('sha256').update(bytes).digest('hex') };
+  await writeFile(path, bytes); await writeFile(markerPath, JSON.stringify(marker));
+  return { path, markerPath, marker, bytes };
 }
 
 test('purge preview is read-only and cleanup preserves projects, credentials, native history and other configuration', async () => {
@@ -185,5 +194,100 @@ test('complete purge removes empty dedicated parents and is repeatable, while un
     const unknown = resolve(dirname(f.statePath), 'user-note.txt'); await writeFile(unknown, 'preserve');
     await applyPurge(await planPurge({ home: f.home }));
     assert.equal(await readFile(unknown, 'utf8'), 'preserve');
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('purge removes integrity-marked default backups and markers while preserving similar unowned files', async () => {
+  const f = await fixture();
+  try {
+    const backup = await defaultsBackup(f.statePath);
+    const unmarked = `${f.statePath}.before-defaults-2026-10-26T01-02-03-005Z.json`;
+    const unknown = `${f.statePath}.before-defaults-manual.json`;
+    const foreign = await defaultsBackup(f.statePath, '2026-10-26T01-02-03-006Z');
+    await writeFile(unmarked, 'user file'); await writeFile(unknown, 'user note');
+    await writeFile(foreign.markerPath, JSON.stringify({ ...foreign.marker, plugin: 'another-plugin' }));
+    const plan = await planPurge({ home: f.home });
+    assert.deepEqual(plan.files.map((file: { path: string }) => file.path), [f.statePath, backup.path, backup.markerPath]);
+    assert.equal(await readFile(backup.path, 'utf8'), backup.bytes, 'preview cannot alter recovery bytes');
+    await removed(f.profile); await applyPurge(plan);
+    for (const path of [f.statePath, backup.path, backup.markerPath]) await assert.rejects(access(path), /ENOENT/);
+    assert.equal(await readFile(unmarked, 'utf8'), 'user file'); assert.equal(await readFile(unknown, 'utf8'), 'user note');
+    await access(foreign.path); await access(foreign.markerPath);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('backup cleanup works after state removal and recovers a payload-first interrupted cleanup idempotently', async () => {
+  const f = await fixture();
+  try {
+    const backup = await defaultsBackup(f.statePath);
+    const orphan = await defaultsBackup(f.statePath, '2026-10-26T01-02-03-005Z');
+    await rm(f.statePath); await rm(orphan.path); await removed(f.profile);
+    const plan = await planPurge({ home: f.home });
+    assert.deepEqual(plan.files.map((file: { path: string }) => file.path), [backup.path, backup.markerPath, orphan.markerPath]);
+    await applyPurge(plan);
+    await assert.rejects(access(dirname(f.statePath)), /ENOENT/);
+    await applyPurge(await planPurge({ home: f.home }));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('marked default backups refuse tampered payloads, state formats, ownership fields and damaged markers', async () => {
+  const f = await fixture();
+  try {
+    const backup = await defaultsBackup(f.statePath);
+    await writeFile(backup.path, `${backup.bytes}\n`);
+    await assert.rejects(planPurge({ home: f.home }), /备份校验和不符/);
+    await writeFile(backup.path, backup.bytes);
+    for (const change of [{ schemaVersion: 2 }, { kind: 'unrelated' }, { statePath: resolve(f.root, 'other-state.json') }, { backupName: 'other.json' }, { sha256: 'invalid' }]) {
+      await writeFile(backup.markerPath, JSON.stringify({ ...backup.marker, ...change }));
+      await assert.rejects(planPurge({ home: f.home }), /备份归属不符/);
+    }
+    await writeFile(backup.markerPath, '{broken');
+    await assert.rejects(planPurge({ home: f.home }), /备份归属标记损坏/);
+    await defaultsBackup(f.statePath, '2026-10-26T01-02-03-004Z', { unrelated: true });
+    await assert.rejects(planPurge({ home: f.home }), /备份不是本插件状态格式/);
+    assert.equal(await readFile(f.statePath, 'utf8'), JSON.stringify(fixtureState()));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('default backup payload and marker symlinks or hardlinks are refused without touching their targets', async () => {
+  for (const member of ['payload', 'marker']) for (const linked of ['symlink', 'hardlink']) {
+    const f = await fixture();
+    try {
+      const backup = await defaultsBackup(f.statePath);
+      const path = member === 'payload' ? backup.path : backup.markerPath;
+      const target = resolve(f.root, 'shared.json'); const bytes = await readFile(path);
+      await writeFile(target, bytes); await rm(path);
+      if (linked === 'symlink') await symlink(target, path); else await link(target, path);
+      await assert.rejects(planPurge({ home: f.home }), /备份.*链接/);
+      assert.deepEqual(await readFile(target), bytes); await access(f.statePath);
+    } finally { await rm(f.root, { recursive: true, force: true }); }
+  }
+});
+
+test('new or changed owned backups invalidate a purge before configuration or state changes', async () => {
+  const f = await fixture();
+  try {
+    const patch = '- id: composable-workforce\n  config: {}\n';
+    const patchPath = resolve(f.profile, 'cordis.patch.yml'); await writeFile(patchPath, patch);
+    const initial = await defaultsBackup(f.statePath);
+    const plan = await planPurge({ home: f.home }); await removed(f.profile);
+    const later = await defaultsBackup(f.statePath, '2026-10-26T01-02-03-005Z');
+    await assert.rejects(applyPurge(plan), /备份已改变/);
+    assert.equal(await readFile(patchPath, 'utf8'), patch); await access(f.statePath); await access(initial.path);
+    const changed = await planPurge({ home: f.home });
+    await writeFile(later.markerPath, `${JSON.stringify(later.marker)}\n`);
+    await assert.rejects(applyPurge(changed), /备份已改变/);
+    assert.equal(await readFile(patchPath, 'utf8'), patch); await access(f.statePath); await access(initial.path);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('an integrity-marked backup reused as another profile state remains protected shared data', async () => {
+  const f = await fixture();
+  try {
+    const backup = await defaultsBackup(f.statePath);
+    const other = resolve(f.home, 'profiles/other'); await mkdir(other, { recursive: true });
+    await writeFile(resolve(other, 'cordis.patch.yml'), `- id: composable-workforce\n  config:\n    statePath: ${JSON.stringify(backup.path)}\n`);
+    await assert.rejects(planPurge({ home: f.home }), /备份正被 profile other.*共享/);
+    assert.equal(await readFile(backup.path, 'utf8'), backup.bytes); await access(f.statePath);
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });

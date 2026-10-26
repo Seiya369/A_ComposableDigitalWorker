@@ -9,6 +9,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 await mkdir(resolve(root, 'lib'), { recursive: true });
 await buildLlmWiki(root);
 await build({entryPoints: [resolve(root, 'src/harness/host.ts')], outfile: resolve(root, 'lib/index.js'), bundle: true, platform: 'node', format: 'esm', packages: 'external', target: 'node22', sourcemap: true});
+await build({entryPoints: [resolve(root, 'src/tools/upgrade-software-defaults.ts')], outfile: resolve(root, 'lib/upgrade-software-defaults.js'), bundle: true, platform: 'node', format: 'esm', packages: 'external', target: 'node22'});
 const client = await build({
   entryPoints: [resolve(root, 'src/client/index.tsx')], outfile: resolve(root, 'lib/client.js'),
   bundle: true, platform: 'browser', format: 'cjs', target: 'es2022', jsx: 'automatic',

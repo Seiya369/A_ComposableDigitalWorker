@@ -54,6 +54,56 @@ const sha256 = data => createHash('sha256').update(data).digest('hex');
 const identity = metadata => ({ dev: metadata.dev, ino: metadata.ino });
 function sameIdentity(metadata, expected) { return metadata.dev === expected.dev && metadata.ino === expected.ino; }
 
+/** Upgrade backups are owned only through exact names and an integrity-bound sidecar. */
+async function inspectDefaultBackups(statePath) {
+  const parent = dirname(statePath);
+  const escaped = basename(statePath).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escaped}\\.before-defaults-(\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-\\d{3}Z)\\.json(?:\\.owner\\.json)?$`);
+  const names = (await readdir(parent).catch(error => { if (absent(error)) return []; throw error; })).filter(name => pattern.test(name));
+  const backups = [...new Set(names.map(name => name.endsWith('.owner.json') ? name.slice(0, -'.owner.json'.length) : name))].sort();
+  const files = [];
+  for (const name of backups) {
+    const path = resolve(parent, name), markerPath = `${path}.owner.json`;
+    const markerMetadata = await lstat(markerPath).catch(error => { if (absent(error)) return undefined; throw error; });
+    // A similar filename is not proof; unrelated/unmarked user files survive.
+    if (!markerMetadata) continue;
+    if (!markerMetadata.isFile() || markerMetadata.isSymbolicLink() || markerMetadata.nlink !== 1) throw new Error(`默认配置备份归属标记是链接或非普通文件，拒绝清理：${markerPath}`);
+    const markerBytes = await readFile(markerPath);
+    let marker;
+    try { marker = JSON.parse(markerBytes.toString('utf8')); } catch { throw new Error(`默认配置备份归属标记损坏，拒绝清理：${markerPath}`); }
+    if (marker?.plugin !== pluginName) continue;
+    const stamp = pattern.exec(name)[1];
+    const date = new Date(stamp.replace(/T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, 'T$1:$2:$3.$4Z'));
+    if (!Number.isFinite(date.valueOf()) || date.toISOString().replace(/[:.]/g, '-') !== stamp
+      || marker.schemaVersion !== 1 || marker.kind !== 'software-defaults-backup' || marker.statePath !== statePath
+      || marker.backupName !== name || typeof marker.sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(marker.sha256)) throw new Error(`默认配置备份归属不符，拒绝清理：${markerPath}`);
+    const parentMetadata = await lstat(parent);
+    const parentCanonical = await realpath(parent);
+    const describe = (filePath, metadata, bytes) => ({ path: filePath, sha256: sha256(bytes), ...identity(metadata), parentCanonical, parentIdentity: identity(parentMetadata) });
+    const metadata = await lstat(path).catch(error => { if (absent(error)) return undefined; throw error; });
+    if (metadata) {
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink !== 1) throw new Error(`默认配置备份是链接或非普通文件，拒绝清理：${path}`);
+      const bytes = await readFile(path);
+      if (sha256(bytes) !== marker.sha256) throw new Error(`默认配置备份校验和不符，拒绝清理：${path}`);
+      let data;
+      try { data = JSON.parse(bytes.toString('utf8')); } catch { throw new Error(`默认配置备份不是本插件状态格式，拒绝清理：${path}`); }
+      if (!stateShape(data)) throw new Error(`默认配置备份不是本插件状态格式，拒绝清理：${path}`);
+      files.push(describe(path, metadata, bytes));
+    }
+    // Payload first, ownership last. An interrupted cleanup can remove a remaining owned marker.
+    files.push(describe(markerPath, markerMetadata, markerBytes));
+  }
+  return { statePath, files };
+}
+
+async function assertPurgeFile(file) {
+  const metadata = await lstat(file.path);
+  if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1 || (file.ino !== undefined && !sameIdentity(metadata, file))) throw new Error(`文件归属已改变：${file.path}`);
+  if (file.parentCanonical && (await realpath(dirname(file.path)) !== file.parentCanonical || !sameIdentity(await lstat(dirname(file.path)), file.parentIdentity))) throw new Error(`默认配置备份目录已改变，请重新预览：${file.path}`);
+  if (sha256(await readFile(file.path)) !== file.sha256) throw new Error(`状态文件已改变，请停止 Harness 后重新预览：${file.path}`);
+  await access(`${file.path}.lock`).then(() => { throw new Error(`状态文件仍被写入：${file.path}`); }, error => { if (!absent(error)) throw error; });
+}
+
 /** Knowledge belongs to exactly one state file. Never follow links or infer ownership from contents. */
 async function inspectKnowledge(statePath) {
   const root = resolve(dirname(statePath), 'knowledge', basename(statePath));
@@ -110,28 +160,44 @@ export async function planPurge({ home, profile = 'web', ownedStatePath, service
   if (ownedStatePath && !statePaths.includes(resolve(ownedStatePath))) throw new Error('--owned-state-path 必须与本插件配置的 statePath 完全一致。');
   const profilesDirectory = resolve(home, 'profiles');
   const profiles = await readdir(profilesDirectory, { withFileTypes: true }).catch(error => { if (absent(error)) return []; throw error; });
+  const otherStateReferences = [];
   for (const entry of profiles) {
     if (!entry.isDirectory() || entry.name === profile) continue;
     const other = await profilePatch(home, entry.name);
     const active = await installed(home, entry.name);
     const references = [...other.statePaths, ...(active ? homeConfig.statePaths : [])];
     if (active && references.length === 0) references.push(defaultState);
+    for (const path of references) otherStateReferences.push({ profile: entry.name, path });
     for (const path of references) for (const target of statePaths) if (await canonical(target) === await canonical(path)) throw new Error(`statePath 正被 profile ${entry.name} 共享；拒绝删除共享数据。`);
     if (active && homeConfig.count) throw new Error(`home 级配置仍由 profile ${entry.name} 使用；拒绝修改共享配置。`);
   }
-  const files = []; const knowledgeTrees = [];
+  const files = []; const knowledgeTrees = []; const defaultBackups = [];
   for (const statePath of statePaths) {
     if (statePath !== defaultState && resolve(ownedStatePath || '') !== statePath) throw new Error(`自定义 statePath 需要显式归属声明：--owned-state-path ${statePath}`);
     if (statePath === defaultState && await canonical(dirname(statePath)) !== resolve(await canonical(home), pluginId)) throw new Error(`默认 statePath 目录是链接，拒绝删除：${statePath}`);
     knowledgeTrees.push(await inspectKnowledge(statePath));
+    const backups = await inspectDefaultBackups(statePath);
+    defaultBackups.push(backups);
     await access(`${statePath}.lock`).then(() => { throw new Error(`状态文件仍被写入，先停止目标 Harness：${statePath}.lock`); }, error => { if (!absent(error)) throw error; });
     const metadata = await lstat(statePath).catch(error => { if (absent(error)) return undefined; throw error; });
-    if (!metadata) continue;
-    if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`statePath 不是普通文件，拒绝删除：${statePath}`);
-    if (metadata.nlink > 1) throw new Error(`statePath 存在硬链接，拒绝删除：${statePath}`);
-    const text = await readFile(statePath, 'utf8');
-    if (!stateShape(JSON.parse(text))) throw new Error(`文件不是本插件状态格式，拒绝删除：${statePath}`);
-    files.push({ path: statePath, sha256: createHash('sha256').update(text).digest('hex') });
+    if (metadata) {
+      if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`statePath 不是普通文件，拒绝删除：${statePath}`);
+      if (metadata.nlink > 1) throw new Error(`statePath 存在硬链接，拒绝删除：${statePath}`);
+      const text = await readFile(statePath, 'utf8');
+      if (!stateShape(JSON.parse(text))) throw new Error(`文件不是本插件状态格式，拒绝删除：${statePath}`);
+      files.push({ path: statePath, sha256: createHash('sha256').update(text).digest('hex') });
+    }
+    files.push(...backups.files);
+  }
+  for (const backups of defaultBackups) for (const file of backups.files) for (const reference of otherStateReferences) {
+    if (await canonical(file.path) === await canonical(reference.path)) throw new Error(`默认配置备份正被 profile ${reference.profile} 用作 statePath；拒绝删除共享数据。`);
+  }
+  // Multiple explicit historical paths may include a backup reused as this profile's state.
+  const uniqueFiles = new Map();
+  for (const file of files) {
+    const previous = uniqueFiles.get(file.path);
+    if (previous && previous.sha256 !== file.sha256) throw new Error(`状态文件在预览期间已改变：${file.path}`);
+    if (!previous || file.parentCanonical) uniqueFiles.set(file.path, file);
   }
   const logs = [];
   if (serviceRoot) {
@@ -146,7 +212,7 @@ export async function planPurge({ home, profile = 'web', ownedStatePath, service
     const metadata = await lstat(patch.path);
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1) throw new Error(`配置文件通过链接共享，拒绝修改：${patch.path}`);
   }
-  return { home, profile, files, knowledgeTrees, logs, patches, serviceRoot: serviceRoot ? resolve(serviceRoot) : undefined };
+  return { home, profile, files: [...uniqueFiles.values()], knowledgeTrees, defaultBackups, logs, patches, serviceRoot: serviceRoot ? resolve(serviceRoot) : undefined };
 }
 
 /** Caller must stop the target host, then run the official CLI remove successfully. */
@@ -157,13 +223,8 @@ export async function applyPurge(plan) {
     const metadata = await lstat(patch.path);
     if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1 || await optionalRead(patch.path) !== patch.text) throw new Error(`配置已改变，请重新预览：${patch.path}`);
   }
-  for (const file of plan.files) {
-    const metadata = await lstat(file.path);
-    if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.nlink > 1) throw new Error(`文件归属已改变：${file.path}`);
-    const hash = createHash('sha256').update(await readFile(file.path)).digest('hex');
-    if (hash !== file.sha256) throw new Error(`状态文件已改变，请停止 Harness 后重新预览：${file.path}`);
-    await access(`${file.path}.lock`).then(() => { throw new Error(`状态文件仍被写入：${file.path}`); }, error => { if (!absent(error)) throw error; });
-  }
+  for (const backups of plan.defaultBackups ?? []) if (JSON.stringify(await inspectDefaultBackups(backups.statePath)) !== JSON.stringify(backups)) throw new Error(`默认配置备份已改变，请重新预览：${backups.statePath}`);
+  for (const file of plan.files) await assertPurgeFile(file);
   for (const tree of plan.knowledgeTrees ?? []) {
     const current = await inspectKnowledge(tree.statePath);
     if (JSON.stringify(current) !== JSON.stringify(tree)) throw new Error(`知识库内容或目录树已改变，请停止 Harness 后重新预览：${tree.root}`);
@@ -190,6 +251,7 @@ export async function applyPurge(plan) {
     await rmdir(dirname(tree.root)).catch(error => { if (!['ENOTEMPTY', 'ENOENT'].includes(error.code)) throw error; });
   }
   for (const file of plan.files) {
+    await assertPurgeFile(file);
     await unlink(file.path);
     if (dirname(file.path) === resolve(plan.home, pluginId)) await rmdir(dirname(file.path)).catch(error => { if (!['ENOTEMPTY', 'ENOENT'].includes(error.code)) throw error; });
   }

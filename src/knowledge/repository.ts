@@ -572,9 +572,9 @@ export class KnowledgeRepository {
       await this.ensure(space);
       const path = await this.spacePath(space);
       const actualFingerprint = await this.fingerprint(space);
-      check(actualFingerprint === expectedSourceFingerprint, 'Knowledge sources changed; compilation conflict');
+      if (actualFingerprint !== expectedSourceFingerprint) throw new WorkforceError('CONFLICT', 'Knowledge sources changed; compilation conflict');
       const baseline = await this.manifest(space);
-      if (expectedSnapshotVersion !== undefined) check((baseline?.version ?? null) === expectedSnapshotVersion, 'Knowledge snapshot changed; incremental compilation conflict');
+      if (expectedSnapshotVersion !== undefined && (baseline?.version ?? null) !== expectedSnapshotVersion) throw new WorkforceError('CONFLICT', 'Knowledge snapshot changed; incremental compilation conflict');
       const sources = await this.sources(space);
       const sourceById = new Map(sources.map(source => [source.id, source]));
       const validateCitations = (citations: KnowledgeCitation[]): void => {

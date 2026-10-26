@@ -14,6 +14,7 @@ import { planIncrementalKnowledge } from './incremental.js';
 import { knowledgeCategoryForInput } from './categories.js';
 import { defaultKnowledgeArchivePolicy, isAutoArchiveCategory, validateKnowledgeArchivePolicyChange, type KnowledgeArchivePolicy } from './archive-policy.js';
 import { isExplicitKnowledgeInput, knowledgeArchiveCheckpointEntries } from './archive-checkpoints.js';
+import { bundledSoftwareKnowledge } from './software-knowledge.js';
 
 type Library = 'team' | 'employee';
 interface Group {
@@ -166,8 +167,9 @@ function abortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
 
 /**
  * Event-driven system librarian. Startup archives historical records without model
- * calls; C stays pending until a new source event or prepareFor explicitly requests
- * this employee's visible libraries. No employee, run, session or timer is created.
+ * calls. Exact bundled professional references can publish an initial source-backed
+ * graph locally; other C stays pending until an explicit request or source event.
+ * No employee, run, session or timer is created.
  */
 export class KnowledgeEngine {
   private pending: Promise<void> = Promise.resolve();
@@ -389,6 +391,7 @@ export class KnowledgeEngine {
         const fingerprint = await this.repository.fingerprint(plan.space);
         await this.repository.checkpointSourceManifest(plan.space, fingerprint, () => this.spaceActive(plan.space));
         if (!this.spaceActive(plan.space)) continue;
+        await this.seedBundledKnowledge(plan, fingerprint);
         const changed = this.observed.has(spaceKey) ? this.observed.get(spaceKey) !== fingerprint : allowCompile;
         this.observed.set(spaceKey, fingerprint);
         // Native strict-incremental compilation batches model work at business
@@ -417,6 +420,24 @@ export class KnowledgeEngine {
         this.queueCompilation({ space: plan.space, fingerprint, signature: this.signature(latest), ...(this.rebuildRequested.delete(spaceKey) ? { force: true } : {}) });
       } catch (error) { if (!writeCancelled(error)) throw error; }
     }
+  }
+  /** A bundled reference is initialized once; existing publications and user evidence win. */
+  private async seedBundledKnowledge(plan: SpacePlan, fingerprint: string): Promise<void> {
+    if (this.closing || this.disposed || await this.repository.snapshot(plan.space)) return;
+    const compilation = bundledSoftwareKnowledge(await this.repository.sources(plan.space));
+    if (!compilation || !this.spaceActive(plan.space)) return;
+    const spaceKey = key(plan.space);
+    const active = { signature: this.signature(plan), controller: new AbortController() };
+    this.active.set(spaceKey, active);
+    this.cancelStaleCompilation();
+    try {
+      if (!active.controller.signal.aborted && !this.closing && !this.disposed) await this.repository.publish(plan.space, compilation, fingerprint, active.controller.signal, null);
+    } catch (error) {
+      // Another profile may have published first or admitted a new source. Keep
+      // publication CAS intact; optional initial seeding must not block activation.
+      if (!active.controller.signal.aborted && !this.disposed && !(error instanceof WorkforceError && error.code === 'CONFLICT')) throw error;
+    }
+    finally { if (this.active.get(spaceKey) === active) this.active.delete(spaceKey); }
   }
   private queueCompilation(request: CompilationJob): void {
     if (this.closing || this.disposed) return;

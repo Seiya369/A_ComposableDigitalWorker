@@ -246,12 +246,12 @@ try {
   const fresh=await snapshot();
   assert.equal(fresh.templates.length,6,'fresh archive must supply all six software roles');
   assert.equal(fresh.teams[0].members.length,6);
-  assert.equal(fresh.workflowTemplates.length,2);
+  assert.equal(fresh.workflowTemplates.length,1);
   assert.ok(fresh.workflowTemplates.every(flow=>flow.team.members.length===6 && flow.steps.every(step=>step.inputs.length&&step.outputs.length&&step.acceptanceCriteria.length&&step.onRejectStepId)));
   assert.doesNotMatch(JSON.stringify(fresh),/【演示】|demo-preview/);
   for(const key of ['employees','memories','runs']) assert.equal(fresh[key].length,0);
   for(const file of ['AGENTS.md','docs/decisions/001-official-plugin-boundary.md']) await access(resolve(packagePath,file));
-  report.checks.push('fresh actual archive supplies six complete software roles, team and two non-demo workflows with inputs/outputs/acceptance/rework; no fabricated employees, memory or task executions; boundary documents are packaged');
+  report.checks.push('fresh actual archive supplies six complete software roles, team and one non-demo software workflow with inputs/outputs/acceptance/rework; no fabricated employees, memory or task executions; boundary documents are packaged');
   const wikiPage=await fetch(`${base}/digital-workers/api/wiki`,{headers:{Cookie:cookie}});
   assert.equal(wikiPage.status,200);assert.ok((wikiPage.headers.get('content-security-policy')||'').includes("connect-src 'none'"));
   assert.ok((await wikiPage.text()).includes('workforce-llm-wiki'));
