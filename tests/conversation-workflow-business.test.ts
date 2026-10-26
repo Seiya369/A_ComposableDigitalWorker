@@ -131,7 +131,7 @@ test('ordinary native turns load the owner model, step, skill and C knowledge wh
   await f.send('follow up on this same topic');
   const second = f.rootRun();
   assert.equal(second.status, 'awaiting-review', second.error);
-  assert.equal(second.output, 'second owner answer'); assert.deepEqual(second.usage, { inputTokens: 30, outputTokens: 10 });
+  assert.equal(second.output, 'second owner answer'); assert.deepEqual(second.usage, { inputTokens: 30, outputTokens: 10, modelCalls: 1, reportedCalls: 1 });
   assert.equal(f.view().currentStepId, 'architecture', 'answers do not automatically pass human acceptance');
   assert.equal(prepared, 2); assert.equal(f.adapter.requests.length, 2);
   assert.equal((f.runtime as unknown as { conversationLeases: Map<string, unknown> }).conversationLeases.size, 0, 'completed leases release their native Agent and knowledge closures');
@@ -204,18 +204,20 @@ test('necessary cross-step consultation requires a concrete reason and never cop
   assert.equal(f.rootRun().status, 'awaiting-review', JSON.stringify(f.store.snapshot().runs.map(run => ({ name: run.employeeSnapshot.name, status: run.status, error: run.error }))));
 });
 
-test('native owner and standalone tasks cannot run the same employee concurrently in either admission direction', async t => {
+test('a frozen employee role serves separate native conversations and an independent task concurrently', async t => {
   const entered = deferred(); const release = deferred();
-  const f = await fixture(t, [async () => { entered.resolve(); await release.promise; return text('owner completed'); }]);
+  const f = await fixture(t, [async () => { entered.resolve(); await release.promise; return text('owner completed'); }, () => text('independent delivered'), () => text('second conversation delivered')]);
   try {
     const sending = f.send('work in native conversation'); await entered.promise;
-    await assert.rejects(f.runtime.start({ projectId: f.project.id, employeeId: f.employee('architect').id, request: 'parallel @ job' }), /负责原生对话/);
+    const independent = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee('architect').id, request: 'parallel @ job' });
+    assert.equal((await f.runtime.wait(independent.id)).status, 'awaiting-review');
     const another = await f.createNative();
     another.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'parallel native job' }] }));
     await another.whenIdle();
-    assert.equal(f.store.snapshot().runs.length, 1); assert.equal(f.adapter.requests.length, 1);
+    assert.equal(f.store.snapshot().runs.length, 3); assert.equal(f.adapter.requests.length, 3);
     const end = another.session.snapshotEvents().findLast(event => event.type === 'turn/end');
-    assert.match(JSON.stringify(end), /当前负责人正在处理其他任务/);
+    assert.equal(end?.type, 'turn/end'); if (end?.type === 'turn/end') assert.equal(end.data.reason.kind, 'completed');
+    assert.equal(f.rootRun().status, 'running', 'the original turn stays active while the other two finish');
     release.resolve(); await sending;
   } finally { release.resolve(); }
 });
@@ -260,18 +262,63 @@ test('losing official workspace membership prevents the next model step and furt
   assert.equal(f.adapter.requests.length, 1);
 });
 
-test('an already executing standalone employee also blocks a new native owner turn', async t => {
+test('an executing standalone task does not block the same role in a separate native conversation', async t => {
   const entered = deferred(); const release = deferred();
-  const f = await fixture(t, [async () => { entered.resolve(); await release.promise; return text('standalone delivered'); }]);
+  const f = await fixture(t, [async () => { entered.resolve(); await release.promise; return text('standalone delivered'); }, () => text('native owner delivered')]);
   try {
     const standalone = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee('architect').id, request: 'already executing independent job' });
     await entered.promise;
     await f.send('parallel native owner job');
-    assert.equal(f.store.snapshot().runs.length, 1); assert.equal(f.adapter.requests.length, 1);
+    assert.equal(f.store.snapshot().runs.length, 2); assert.equal(f.adapter.requests.length, 2);
     const end = f.native.session.snapshotEvents().findLast(event => event.type === 'turn/end');
-    assert.match(JSON.stringify(end), /当前负责人正在处理其他任务/);
+    assert.equal(end?.type, 'turn/end'); if (end?.type === 'turn/end') assert.equal(end.data.reason.kind, 'completed');
+    assert.equal(f.rootRun().output, 'native owner delivered');
     release.resolve(); assert.equal((await f.runtime.wait(standalone.id)).status, 'awaiting-review');
   } finally { release.resolve(); }
+});
+
+test('a 147862-token first response can continue to an answer under the native default context policy', async t => {
+  const f = await fixture(t, [() => call('worker_deliver', { title: 'Evidence', content: 'Real task evidence' }).map(chunk => chunk.type === 'usage' ? { type: 'usage' as const, usage: { inputTokens: 147862, outputTokens: 1665, cacheReadTokens: 0, totalTokens: 149527 } } : chunk), () => text('Final user answer')]);
+  await f.send('ordinary question in a long native conversation');
+  assert.equal(f.adapter.requests.length, 2);
+  assert.equal(f.rootRun().status, 'awaiting-review', f.rootRun().error);
+  assert.match(f.rootRun().output!, /Final user answer/);
+  assert.equal(f.rootRun().usage?.inputTokens, 147892);
+});
+
+test('an explicitly configured cumulative budget includes cache tokens and names the actual limit', async t => {
+  const f = await fixture(t, [() => call('worker_deliver', { title: 'Partial evidence', content: 'Keep this artifact' }).map(chunk => chunk.type === 'usage' ? { type: 'usage' as const, usage: { inputTokens: 194, cacheReadTokens: 140160, outputTokens: 1330, totalTokens: 141684 } } : chunk)], { maxTreeTokens: 120000 });
+  await f.send('explicit budget');
+  assert.equal(f.adapter.requests.length, 1);
+  assert.equal(f.rootRun().status, 'failed');
+  assert.match(f.rootRun().error!, /已配置.*141684 \/ 120000/);
+  assert.equal(f.rootRun().artifacts.length, 1);
+});
+
+test('an explicitly insufficient budget rejects before spending the first model request', async t => {
+  const f = await fixture(t, [() => text('must not be requested')], { maxTreeTokens: 10 });
+  await f.send('too little explicitly configured budget');
+  assert.equal(f.adapter.requests.length, 0);
+  assert.equal(f.rootRun().status, 'failed');
+  assert.match(f.rootRun().error!, /请求前.*估算.*预算/);
+});
+
+test('an explicit budget cannot silently continue when the provider omits usage', async t => {
+  const f = await fixture(t, [() => call('worker_deliver', { title: 'Evidence', content: 'Retain despite missing accounting' }).filter(chunk => chunk.type !== 'usage'), () => text('must not be requested')], { maxTreeTokens: 1_000_000 });
+  await f.send('explicitly bounded task with missing usage');
+  assert.equal(f.adapter.requests.length, 1);
+  assert.match(f.rootRun().error!, /服务商.*用量.*预算/);
+  assert.equal(f.rootRun().usage?.reportedCalls, 0);
+});
+
+test('only an explicitly configured task budget applies its reserved output limit to native owner requests', async t => {
+  for (const maxTreeTokens of [0, 1_000_000]) {
+    const f = await fixture(t, [() => text('bounded workflow answer')], { maxTreeTokens });
+    await f.send('verify the output reservation');
+    assert.equal(f.adapter.requests.length, 1, f.rootRun().error);
+    assert.equal(f.adapter.requests[0]!.maxTokens, maxTreeTokens ? 8000 : undefined);
+    assert.equal(f.rootRun().status, 'awaiting-review', f.rootRun().error);
+  }
 });
 
 test('native write and explicit file delivery preserve one real historical project artifact', async t => {

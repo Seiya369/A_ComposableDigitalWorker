@@ -121,6 +121,27 @@ test('non-knowledge overflow is explicit and leaves original history untouched',
   } finally { await f.dispose(); }
 });
 
+test('native context management defers long native history pressure while still enforcing plugin ABC limits', async () => {
+  const f = await fixture();
+  try {
+    const original = f.session.append('user/message', createUserMessage({ source: { kind: 'user' },
+      content: [{ type: 'text', text: 'LONG_NATIVE_HISTORY '.repeat(5000) }] }), { surfaceOp: 'append' });
+    const immutable = JSON.stringify(original);
+    const c = packet('current-overview', 'C', '当前候选知识入口。');
+    f.result(packet('bounded-detail'));
+    const usage = compactKnowledgeSurface(f.session, c, limits, { events: f.events,
+      contextWindow: 64_000, outputReserve: 8000, nativeContextManagement: true });
+    assert.equal(usage.requestBudgetOwner, 'native');
+    assert.ok(usage.requestTokens > 64_000, 'the byte estimate is diagnostic, not an extra native turn limit');
+    assert.ok(usage.totalTokens <= limits.total); assert.ok(usage.bTokens <= limits.bActive);
+    assert.ok(f.session.surface.nodes.includes(original.seq)); assert.equal(JSON.stringify(original), immutable);
+    const before = f.events.length;
+    assert.throws(() => compactKnowledgeSurface(f.session, c, { ...limits, cMax: 1 }, { events: f.events,
+      contextWindow: 64_000, outputReserve: 8000, nativeContextManagement: true }), /pinned C overview/);
+    assert.equal(f.events.length, before, 'owned knowledge overflow fails before any mutation');
+  } finally { await f.dispose(); }
+});
+
 test('surface helper supports a pluggable counter and refuses absent event provenance', async () => {
   const f = await fixture();
   try {

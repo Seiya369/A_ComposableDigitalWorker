@@ -276,7 +276,7 @@ test('real Harness loop runs isolated sessions, includes project memory, and awa
   const result = await f.runtime.wait(first.id);
   assert.equal(result.status, 'awaiting-review', result.error);
   assert.equal(result.output, '架构方案已交付');
-  assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 8 });
+  assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 8, modelCalls: 1, reportedCalls: 1 });
   assert.equal(f.attached[0], result.sessionId);
   assert.notEqual(result.sessionId, f.employee.id);
   assert.match(JSON.stringify(adapter.requests[0]), /snake_case/);
@@ -347,7 +347,7 @@ test('the runtime stops repeated model-tool loops at its configured step budget'
   const run = await f.runtime.start({ projectId: f.project.id, employeeId: f.employee.id, request: '检查循环限制' });
   const result = await f.runtime.wait(run.id);
   assert.equal(result.status, 'failed');
-  assert.match(result.error!, /预算/);
+  assert.match(result.error!, /步数上限/);
   assert.equal(adapter.requests.length, 2);
   await f.runtime.dispose();
 });
@@ -719,15 +719,20 @@ test('workflow engine executes real Harness sessions exactly once per reserved a
 });
 
 test('workflow step deadline aborts the real provider, blocks the flow, and never starts the next employee', async t => {
+  let providerAborted = false;
   const adapter = new ScriptedAdapter([request => new Promise((_resolve, reject) => {
-    const abort = () => reject(new Error('provider aborted'));
+    const abort = () => { providerAborted = true; reject(new Error('provider aborted')); };
     if (request.signal?.aborted) abort(); else request.signal?.addEventListener('abort', abort, { once: true });
   })]);
-  const f = await workflowFixture(adapter, 100);
+  // The step deadline includes native preparation and durable activity writes.
+  // Leave startup headroom under the parallel suite so this tests provider abort,
+  // rather than the separately valid case where preparation uses the whole limit.
+  const f = await workflowFixture(adapter, 2_000);
   t.after(async () => { await f.engine.dispose(); await f.runtime.dispose(); await rm(f.root, { recursive: true, force: true }); });
   const result = await f.waitCurrent();
   assert.equal(result.status, 'failed'); assert.match(result.error!, /时间上限/);
   assert.equal(f.current().status, 'blocked'); assert.equal(adapter.requests.length, 1);
+  assert.equal(providerAborted, true, 'the deadline must abort an already-started provider');
   assert.equal(f.current().steps[1]!.attempts.length, 0); assert.deepEqual(f.errors, []);
 });
 

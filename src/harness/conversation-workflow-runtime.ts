@@ -1,21 +1,31 @@
 import type { Context } from '@deepseek-ai/cordis';
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent';
-import { boundContextSummary, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm';
+import { boundContextSummary, createUserMessage, type StreamChunk, type UserMessage } from '@deepseek-ai/dsh-llm';
 import type { SessionEvent } from '@deepseek-ai/dsh-session';
+import type {} from '@deepseek-ai/dsh-api-session-controller';
 import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt';
 import type { ToolDefinition, ToolDispatchExecution, ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools';
+import { pendingWorkflowTask, retainedWorkflowRole, retireWorkflowContexts, workflowContextDefinition, WORKFLOW_ROLE_CONTEXT, type WorkflowContextDefinition } from './native-workflow-context.js';
 
 /** Business ownership for one turn of an existing native conversation. */
 export interface NativeWorkflowLease {
   id: string;
   prompt: string;
+  /** Stable identity/config scope. No request, run id, timestamp or transient status. */
+  contextKey?: string;
+  /** Variable step/C knowledge, appended separately from the stable role definition. */
+  taskContext?: string;
   model: ModelSelection;
+  /** An explicit task-budget reservation; undefined preserves the native output setting. */
+  maxTokens?: number;
   tools?: readonly ToolDefinition[];
   beforeStep?: (step: NativeConversationStep) => Promise<void>;
   guard?: (execution: ToolExecution) => string | undefined;
   afterTool?: (execution: ToolDispatchExecution, result: ToolExecutionResult) => Promise<void>;
   finish?: (events: readonly SessionEvent[]) => Promise<void>;
   dispose?: () => void | Promise<void>;
+  /** Read-only progress observation; the native stream is never intercepted or rewritten. */
+  onStreamChunk?: (chunk: StreamChunk) => void;
 }
 
 export interface NativeConversationStep {
@@ -34,6 +44,8 @@ export interface ConversationWorkflowRuntimeDependencies {
   isDeliverySession(sessionId: string): boolean;
   /** Synchronous read-only classification allows unload to cancel real pending owners promptly. */
   ownsPendingTurn?: (agent: Agent) => boolean;
+  /** Public full-event observation seam; production uses the injected Session controller. */
+  readEvents?: (agent: Agent, signal?: AbortSignal) => Promise<readonly SessionEvent[]>;
   onError?: (error: unknown) => void;
 }
 
@@ -53,11 +65,11 @@ interface TurnState {
   settling?: Promise<void>;
   assembly?: PromptAssembly;
   ownsPending?: boolean;
+  roleDefinition?: WorkflowContextDefinition;
+  taskDefinition?: WorkflowContextDefinition;
 }
 
 interface AgentState { current?: TurnState; settlement: Promise<void> }
-
-const CONTEXT_NAME = 'composable-workforce:conversation-workflow';
 
 function userText(messages: readonly UserMessage[]): string {
   return messages.filter(message => message.source.kind === 'user')
@@ -87,8 +99,13 @@ function modelNotice(agent: Agent, model: ModelSelection): UserMessage | undefin
  * on the very first request. Later assemblies reuse that turn's frozen lease.
  */
 export function registerConversationWorkflowRuntime(ctx: Context, deps: ConversationWorkflowRuntimeDependencies): () => Promise<void> {
+  // Cordis may dispose sibling service providers concurrently with this
+  // adapter. Keep the public handles needed to finish owned cleanup.
+  const agentRegistry = ctx.agents;
+  const sessionController = ctx.get('sessionController');
   const agents = new Map<string, AgentState>();
   const hooks: Array<() => void> = [];
+  const observed = new Map<string, { events: Map<number, SessionEvent>; primed: boolean; priming?: Promise<void> }>();
   let closed = false;
   let closing: Promise<void> | undefined;
 
@@ -96,6 +113,29 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     try { if (deps.onError) deps.onError(error); else ctx.logger.error(error); }
     catch { /* A reporting failure must not strand lease cleanup. */ }
   };
+  const observation = (sessionId: string) => {
+    let value = observed.get(sessionId);
+    if (!value) { value = { events: new Map(), primed: false }; observed.set(sessionId, value); }
+    return value;
+  };
+  const primeEvents = async (agent: Agent, signal?: AbortSignal, refresh = false): Promise<void> => {
+    const value = observation(agent.id);
+    if (value.priming) await value.priming;
+    if (value.primed && !refresh) return;
+    const read = deps.readEvents ?? (sessionController ? async (target: Agent, abort?: AbortSignal) => (await sessionController.inspect(target.id, abort)).events : undefined);
+    // Service-less in-memory compositions observe only their own event feed.
+    // The production plugin already requires the public Session controller.
+    if (!read) { value.primed = true; return; }
+    value.priming = (async () => {
+      const baseline = await read(agent, signal);
+      // Event subscriptions are installed before the query; do not overwrite
+      // newer observations that arrived while this immutable cut was awaited.
+      for (const event of baseline) if (!value.events.has(event.seq)) value.events.set(event.seq, event);
+      value.primed = true;
+    })();
+    try { await value.priming; } finally { value.priming = undefined; }
+  };
+  const retire = (agent: Agent, role?: WorkflowContextDefinition, task?: WorkflowContextDefinition) => retireWorkflowContexts(agent.session, [...observation(agent.id).events.values()], role, task);
   const agentState = (agent: Agent): AgentState => {
     let state = agents.get(agent.id);
     if (!state) { state = { settlement: Promise.resolve() }; agents.set(agent.id, state); }
@@ -161,8 +201,13 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
       turn.ownsPending = deps.ownsPendingTurn?.(turn.agent);
       await agentState(turn.agent).settlement;
       signal?.throwIfAborted();
+      await primeEvents(turn.agent, signal);
+      signal?.throwIfAborted();
       if (turn.ended || (closed && turn.ownsPending === true)) throw new Error('工作流对话服务已关闭');
-      if (closed && turn.ownsPending === false) { turn.prepared = true; return; }
+      if (closed && turn.ownsPending === false) {
+        retire(turn.agent);
+        turn.prepared = true; return;
+      }
       // Inbox claims precede assembly; logged user/message is a resume fallback.
       const messages = turn.incoming.length ? turn.incoming : turn.agent.session.snapshotEvents()
         .filter(event => event.seq >= turn.startSeq && event.type === 'user/message')
@@ -170,10 +215,16 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
       turn.lease = await deps.prepare(turn.agent, turn.key, userText(messages), signal);
       // None is still the native sender even if uninstall raced an async
       // project lookup. It must reach the original sink without cancellation.
-      if (!turn.lease && closed) { turn.prepared = true; return; }
+      if (!turn.lease && closed) {
+        retire(turn.agent);
+        turn.prepared = true; return;
+      }
       signal?.throwIfAborted();
       if (closed || turn.ended) throw new Error('工作流对话服务已关闭');
       const lease = turn.lease;
+      turn.roleDefinition = lease && workflowContextDefinition(lease.prompt, lease.contextKey);
+      turn.taskDefinition = lease?.taskContext ? workflowContextDefinition(lease.taskContext, turn.roleDefinition?.version) : undefined;
+      retire(turn.agent, turn.roleDefinition, turn.taskDefinition);
       if (lease) for (const definition of lease.tools ?? []) {
         if (turn.agent.ctx.tools.get(definition.name, turn.agent)) throw new Error(`工作流工具与现有工具重名：${definition.name}`);
         turn.toolDisposers.push(turn.agent.ctx.tools.register({
@@ -194,8 +245,8 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     return result;
   };
 
-  hooks.push(ctx.systemPrompt.context({ name: CONTEXT_NAME, order: 650, required: true, interpolate: false,
-    text: context => active(context.agent)?.lease?.prompt ?? '',
+  hooks.push(ctx.systemPrompt.context({ name: WORKFLOW_ROLE_CONTEXT, order: 650, required: true, interpolate: false,
+    text: context => context.agent ? retainedWorkflowRole(context.agent.session, active(context.agent)?.roleDefinition) : '',
   }));
   hooks.push(ctx.on('agent/inbox/claimed', ({ agent, message, turn: number }) => {
     const turn = turnFor(agent);
@@ -220,13 +271,18 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
   hooks.push(ctx.on('agent/pre-step', async (payload, next) => {
     const turn = active(payload.agent);
     if (!turn?.lease) return next();
-    await turn.lease.beforeStep?.({ ...payload, assembly: turn.assembly });
+    const task = pendingWorkflowTask(payload.agent.session, turn.roleDefinition, turn.taskDefinition);
+    await turn.lease.beforeStep?.({ ...payload, messages: task ? [...payload.messages, task] : payload.messages, assembly: turn.assembly });
     payload.signal.throwIfAborted();
     const decision = await next();
     if (decision.kind === 'reject') return decision;
     // The native selector still owns its setting, but its automatic notice must
     // describe the actual workflow model rather than an unused selector route.
     const messages = decision.messages.filter(message => message.source.kind !== 'model-selection');
+    // Native automatic compaction can remove a retained task snapshot inside
+    // next(). Recheck after that maintenance instead of sending a dangling C ref.
+    const admittedTask = pendingWorkflowTask(payload.agent.session, turn.roleDefinition, turn.taskDefinition);
+    if (admittedTask) messages.push(task ?? admittedTask);
     if (messages.length || (payload.step !== 1 && payload.messages.length === 0)) {
       const notice = modelNotice(payload.agent, turn.lease.model);
       if (notice) messages.push(notice);
@@ -240,6 +296,7 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     const { reasoningEffort: _nativeEffort, ...native } = config;
     return { ...native, provider: lease.model.provider, model: lease.model.model,
       ...(lease.model.reasoningEffort === undefined ? {} : { reasoningEffort: lease.model.reasoningEffort }),
+      ...(lease.maxTokens === undefined ? {} : { maxTokens: Math.min(native.maxTokens ?? lease.maxTokens, lease.maxTokens) }),
     };
   }, { prepend: true }));
   hooks.push(ctx.tools.guard(execution => active(execution.agent)?.lease?.guard?.(execution)));
@@ -250,8 +307,15 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
     return result;
   }));
   hooks.push(ctx.on('session/event', (session, event) => {
+    observation(session.id).events.set(event.seq, event);
     const turn = agents.get(session.id)?.current;
     if (turn && event.type === 'turn/end' && event.data.turn === turn.turn) void settle(turn);
+  }));
+  hooks.push(ctx.on('session/disposed', session => { observed.delete(session.id); }));
+  hooks.push(ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    if (frame.type !== 'chunk') return;
+    try { active(agent)?.lease?.onStreamChunk?.(frame.chunk); }
+    catch (error) { report(error); }
   }));
   hooks.push(ctx.on('agent/disposed', ({ agent }) => {
     const owner = agents.get(agent.id);
@@ -274,6 +338,17 @@ export function registerConversationWorkflowRuntime(ctx: Context, deps: Conversa
       await settle(turn);
     }));
     await Promise.all([...agents.values()].map(owner => owner.settlement));
+    // Restored idle agents can contain an older plugin snapshot without ever
+    // having opened a turn under this registration. Inspect the public live
+    // registry too; never start/load a persisted session or touch active senders.
+    for (const agent of agentRegistry.list()) {
+      if (agent.status !== 'idle' || deps.isDeliverySession(agent.id)) continue;
+      await primeEvents(agent, undefined, true);
+      // Reading may yield to another native sender; never mutate an active or
+      // replaced Agent merely because it was idle before that observation.
+      if (agentRegistry.get(agent.id) === agent && agent.status === 'idle' && !deps.isDeliverySession(agent.id)) retire(agent);
+    }
+    observed.clear();
     agents.clear();
   })();
 }

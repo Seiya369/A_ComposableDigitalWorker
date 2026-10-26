@@ -8,6 +8,8 @@ import {
 } from '../knowledge/context.js';
 
 export interface KnowledgeSurfaceOptions {
+  /** Native Agent pressure/overflow recovery owns the full request window; enforce only plugin ABC pools here. */
+  nativeContextManagement?: boolean;
   /** Captured official session/event notifications, including prior replacements. */
   events?: readonly SessionEvent[];
   contextWindow?: number;
@@ -28,6 +30,7 @@ export interface KnowledgeSurfaceUsage {
   requestTokens: number; replaced: number; countMode: string;
   contextWindow: number; contextWindowKnown: boolean; outputReserve: number;
   headroom: number; knowledgeLimit: number;
+  requestBudgetOwner: 'plugin' | 'native';
 }
 
 export class KnowledgeContextBudgetError extends ContextBudgetError {
@@ -158,9 +161,10 @@ export function compactKnowledgeSurface(
   }, counter);
   const empty = new Map(candidates.map(candidate => [candidate.message.id, [] as ContentBlock[]]));
   const baseRequestTokens = requestCost(empty);
-  if (baseRequestTokens > inputLimit) throw new KnowledgeContextBudgetError('Task instructions, tools and non-knowledge history already exceed the available input budget; narrow this phase or hand it off.');
+  if (!options.nativeContextManagement && baseRequestTokens > inputLimit) throw new KnowledgeContextBudgetError('Task instructions, tools and non-knowledge history already exceed the available input budget; narrow this phase or hand it off.');
   // systemText/derived system already contains C; add C only to the knowledge accounting allowance.
-  const knowledgeLimit = Math.min(limits.total, Math.floor((contextWindow - outputReserve) * 0.25), cTokens + inputLimit - baseRequestTokens);
+  const knowledgeLimit = Math.min(limits.total, Math.floor((contextWindow - outputReserve) * 0.25),
+    options.nativeContextManagement ? limits.total : cTokens + inputLimit - baseRequestTokens);
   if (knowledgeLimit < cTokens) throw new KnowledgeContextBudgetError('The pinned C overview cannot fit the remaining knowledge allowance.');
 
   // Identical packets keep the most recent body; prior occurrences become small, counted pointers.
@@ -196,7 +200,7 @@ export function compactKnowledgeSurface(
   }
   const totalTokens = cTokens + bTokens + aTokens;
   const requestTokens = requestCost(replacements);
-  if (totalTokens > knowledgeLimit || bTokens > limits.bActive || aTokens > limits.aActive || requestTokens > inputLimit) {
+  if (totalTokens > knowledgeLimit || bTokens > limits.bActive || aTokens > limits.aActive || (!options.nativeContextManagement && requestTokens > inputLimit)) {
     throw new KnowledgeContextBudgetError('The complete knowledge envelopes and task history do not fit the request budget; narrow this phase or hand it off.');
   }
   // All planning/validation happens before the first durable mutation.
@@ -214,5 +218,6 @@ export function compactKnowledgeSurface(
     replaced++;
   }
   return { cTokens, bTokens, aTokens, totalTokens, requestTokens, replaced, countMode,
-    contextWindow, contextWindowKnown: options.contextWindow !== undefined, outputReserve, headroom, knowledgeLimit };
+    contextWindow, contextWindowKnown: options.contextWindow !== undefined, outputReserve, headroom, knowledgeLimit,
+    requestBudgetOwner: options.nativeContextManagement ? 'native' : 'plugin' };
 }
