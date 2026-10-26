@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-composable-workforce",
-  "version": "0.2.1-rc.3",
+  "version": "0.2.1",
   "description": "Composable digital employees, project memory, and reviewed delivery for DeepSeek Harness",
   "type": "module",
   "license": "SEE LICENSE IN LICENSES.md",
@@ -72,7 +72,8 @@
     "docs/decisions/001-official-plugin-boundary.md",
     "scripts/check-version-alignment.mjs",
     "docs/decisions/003-host-aligned-versioning.md",
-    "docs/architecture/session-retention.md"
+    "docs/architecture/session-retention.md",
+    "build-support/version-lock.json"
   ],
   "engines": {
     "node": "^22.19.0 || >=24",

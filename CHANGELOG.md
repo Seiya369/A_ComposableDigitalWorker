@@ -1,10 +1,10 @@
 # 更新记录
 
-## 0.2.1-rc.3 — 2026-10-26（与DSH统一编号）
+## 0.2.1 — 2026-10-26（跟随DSH主次补丁号）
 
-- 插件版本与已验收的官方DSH 0.2.1-rc.3完全一致，保留原0.30.0全部功能与数据。历史发布保持原号，不覆盖旧包。
+- 插件版本取已验收DSH的主次补丁号0.2.1，实际兼容宿主仍精确为0.2.1-rc.3，保留原0.30.0全部功能与数据。历史发布保持原号，不覆盖旧包。
 - 构建与打包增加版本一致性检查；后续DSH升级须先完成兼容验证，同宿主插件修订以独立构建标签和SHA区分。
-- Plugin version now exactly follows the verified DSH release; this is a renumbering of the 0.30.0 feature baseline. Build/prepack checks enforce aligned declarations. Historical artifacts remain immutable.
+- Plugin version now follows the verified DSH major.minor.patch; this is a renumbering of the 0.30.0 feature baseline. Build/prepack checks enforce aligned declarations. Historical artifacts remain immutable.
 
 ## 0.30.0 — 2026-10-26
 

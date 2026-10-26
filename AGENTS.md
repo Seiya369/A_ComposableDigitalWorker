@@ -31,9 +31,9 @@
 - 必须在干净官方发行版和独立临时 profile 中验证安装、核心功能、普通卸载与重装、完全清理及宿主原生功能；核对宿主程序文件前后未变。
 - 当前补丁宿主上的演示、历史测试和已有 `.tgz` 不等同于新约束验收通过。完成迁移前如实报告差距，不发布为合规成品。
 
-## 5. 版本与 DSH 一致
+## 5. 版本跟随 DSH 的主、次、补丁号
 
-- 自本次版本对齐起，插件 `package.json.version` 必须与已实际验收的官方 DSH 版本完全相同（包括 `alpha` / `rc` 后缀）；当前为 `0.2.1-rc.3`。不再独立递增 `0.30.x`。
-- 同步维护 `engines.dsh`、所有 `@deepseek-ai/dsh-*` runtime peer、官方基线及 lockfile 根版本；构建和打包必须通过 `npm run check:version`。更新 DSH 之前先研究公开接口，完成兼容与归档验收，不得仅改版本号宣称兼容。
-- 同一 DSH 版本中的插件独立修订保持相同包版本，以独立 GitHub 构建标签和 SHA-256 区分（如 `v0.2.1-rc.3-plugin.1`）；不覆盖既有 tag/归档。使用带构建身份或哈希的不同安装来源，避免同版本本地路径缓存复用。该规则适用于本项目 GitHub `.tgz` 交付，不代表 npm registry 允许覆盖同版本。
-- 历史版本及其验收记录保留原号；新版本的验收记录重新绑定实际归档。详细规则见 [ADR-003](docs/decisions/003-host-aligned-versioning.md)。
+- 插件 `package.json.version` 取已实际验收的官方 DSH 版本的 `major.minor.patch`，不带 `alpha` / `rc` 或构建后缀。当前插件为 `0.2.1`，兼容的实际官方宿主仍为 `0.2.1-rc.3`；不再独立递增 `0.30.x`。
+- `engines.dsh`、所有 `@deepseek-ai/dsh-*` runtime peer及官方基线继续精确保留实际验收的完整DSH版本，不能因插件去掉后缀而放宽兼容范围。lockfile根版本及随包根版本元数据快照同步维护；构建和打包必须通过 `npm run check:version`。
+- 更新 DSH 前先研究公开接口，完成兼容与归档验收，不能仅改版本号宣称兼容。同一DSH主次补丁号内的宿主/插件独立修订使用独立GitHub构建标签及SHA-256区分，不覆盖旧tag/归档，并使用不同构建身份/哈希的安装来源避免缓存复用。当前GitHub `.tgz` 规则不代表npm registry允许覆盖同版本。
+- 历史版本及验收记录保留原号；新版本验收重新绑定实际归档。详细规则见 [ADR-003](docs/decisions/003-host-aligned-versioning.md)。

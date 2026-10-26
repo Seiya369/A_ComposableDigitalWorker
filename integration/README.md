@@ -109,6 +109,6 @@ Fresh installs include one engineering workflow and source-backed professional g
 
 ## 版本同步规则 / Version alignment
 
-插件包版本与已验收DSH逐字相同，包括预发布后缀；当前二者均为`0.2.1-rc.3`。构建和打包校验声明一致性。由旧`0.30.0`明确安装对齐包是编号切换，不回退功能或迁移用户数据。同宿主独立修订使用不可变构建标签、SHA和不同安装来源，不覆盖旧包；见[ADR-003](../docs/decisions/003-host-aligned-versioning.md)。
+插件版本仅取已验收DSH的主、次、补丁号，不带rc/alpha后缀。当前插件为`0.2.1`，实际兼容宿主及runtime peer仍精确为`0.2.1-rc.3`。构建/打包校验这些对应关系及根版本元数据；由旧0.30.0明确安装新包是编号切换，不回退功能或迁移数据。同core修订以不可变构建标签、SHA及不同安装源区分；见[ADR-003](../docs/decisions/003-host-aligned-versioning.md)。
 
-Package and verified host versions must match exactly. Existing 0.30.0 profiles require an explicit archive install; independent same-host builds retain immutable identities. Version checks do not replace official archive acceptance.
+The plugin uses only the verified host's major.minor.patch; full host compatibility declarations remain exact. Existing 0.30.0 profiles require an explicit archive install. Version checks do not replace official archive acceptance.
