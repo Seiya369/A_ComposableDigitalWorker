@@ -1,0 +1,358 @@
+{
+  "version": "0.2.1",
+  "buildTag": "v0.2.1-plugin.3",
+  "date": "2026-10-26",
+  "dshVersion": "0.2.1-rc.3",
+  "sourceCommit": "eb1d1e55a1d116dabaa042e5f6e63954257c86f9",
+  "platform": "macOS arm64",
+  "nodeVersion": "v24.21.0",
+  "archive": {
+    "filename": "dsh-plugin-composable-workforce-0.2.1.tgz",
+    "sha256": "cd4c92030065be87aa0ec0aeb8a298c7a36ebd05895ddafc1b83c10c057c033c",
+    "bytes": 1284526,
+    "files": 407,
+    "unpackedBytes": 5380920
+  },
+  "result": "pass",
+  "tests": {
+    "unit": {
+      "total": 858,
+      "passed": 857,
+      "failed": 0,
+      "skipped": 1,
+      "skip": "optional private full-clone fixture"
+    },
+    "typecheck": "pass",
+    "build": "pass",
+    "officialUI": [
+      {
+        "kind": "resident-chat",
+        "passed": 8,
+        "checks": [
+          "default-Chat-native-turns-create-no-resident-binding-employee-or-run",
+          "explicit-dropdown-aligned-with-native-tabs-browses-local-card-with-zero-model-calls",
+          "explicit-selection-defaults-to-consult-and-affects-only-selected-session",
+          "two-native-streamed-consultations-stay-in-one-session-without-tools-skills-or-rebinding",
+          "explicit-execute-mode-restores-authorized-tools-and-required-skills",
+          "busy-resident-conversation-does-not-disable-another-Chat-employee-menu",
+          "explicit-exit-keeps-history-and-followup-returns-to-native-without-an-employee-run",
+          "paused-resident-remains-visible-and-can-still-be-explicitly-cleared"
+        ]
+      },
+      {
+        "kind": "one-time-Chat",
+        "passed": 8,
+        "checks": [
+          "fresh-Chat-uses-native-model-without-workflow-owner-binding-team-or-run",
+          "Chat-native-composer-and-header-show-no-workflow-selector-steps-or-owner",
+          "native-at-candidates-and-pick-create-nothing-submit-creates-one-standalone-employee-and-reuses-it",
+          "standalone-at-work-uses-role-model-responsibilities-required-skill-without-copying-source-workflow-context",
+          "Chat-mentions-explain-workspace-instance-scope-and-open-distinct-work-order-sessions",
+          "ordinary-followup-after-employee-delivery-uses-native-model-without-resident-employee-context",
+          "historical-employee-delivery-reload-preserves-native-continuation",
+          "Chat-exclusion-survives-reload-while-normal-project-workflow-service-remains-enabled"
+        ]
+      },
+      {
+        "kind": "project-workflow",
+        "passed": 31,
+        "checks": [
+          "unconfigured-native-project-shows-literal-workflow-none-and-explicit-none-installs-or-runs-nothing",
+          "native-input-workflow-upward-menu-none-first-and-frozen-team-installed-without-running",
+          "native-svg-sequence-and-upper-reject-connections-touch-real-circles-avoid-labels-and-native-controls-with-click-through",
+          "first-native-workflow-selection-clears-prior-none-and-unifies-all-project-conversations-without-running",
+          "native-permission-change-keeps-idle-composer-workflow-picker-and-step-navigation-enabled-without-running",
+          "project-name-header-two-tabs-and-read-only-knowledge-view-use-the-frozen-project-team",
+          "details-show-frozen-owner-hierarchy-three-requirements-and-return-target-without-activating-inspected-step",
+          "library-retains-only-three-resource-sections-and-no-project-workspace-or-team-configuration-ui",
+          "zero-one-three-and-zero-return-lanes-keep-native-none-header-body-anchors-and-fixed-step-text-bottom-aligned-with-trajectory",
+          "sixteen-native-language-theme-width-cases-compare-none-zero-three-zero-again-with-identical-native-anchors-and-aligned-text",
+          "narrow-native-return-keeps-true-hidden-target-without-fake-ellipsis-edge-horizontal-scroll-or-click-interception",
+          "numbered-double-ring-nodes-readable-in-dark-light-with-labels-below-compact-height-and-ellipsis-fixed-details-at-wide-narrow-widths",
+          "seven-visible-native-window-holds-first-four-centers-from-five-clamps-the-complete-tail-and-reverses-without-coordinate-jumps-or-running",
+          "numbered-step-circles-retain-global-definition-indices-after-leading-ellipsis-and-current-step-shifts",
+          "later-alternate-workflow-and-none-are-local-persist-after-refresh-and-preserve-project-default-without-running",
+          "top-native-header-steps-click-change-owner-and-roster-without-marking-previous-steps-complete",
+          "ordinary-native-message-uses-current-owner-model-step-criteria-and-required-skill-on-same-session-once",
+          "owner-plan-tool-saves-one-draft-and-its-summary-remains-accessible-in-details-without-project-workbench",
+          "only-real-owner-delivery-review-whitens-completed-step-and-advances-current-blue-without-moving-header",
+          "numbered-double-rings-preserve-gray-white-native-blue-states-and-readable-text-contrast-after-real-acceptance",
+          "running-conversation-shows-stage-while-another-chat-can-switch-workflow-with-shared-progress-protected",
+          "active-native-turn-locks-selector-and-shared-steps-and-rejected-delivery-returns-with-history-retained",
+          "real-nonempty-native-header-step-strip-remains-visible-at-wide-and-narrow-widths",
+          "none-removes-owner-context-tools-and-tracking-and-obeys-native-last-used-and-explicit-model-selection",
+          "removed-delivery-dock-has-no-entry-or-polling-and-none-does-not-select-a-workflow",
+          "late-retained-session-handoff-preserves-user-navigation-to-another-conversation",
+          "stopped-legacy-root-refreshes-same-native-session-with-unsent-draft-and-inherited-selector-no-stale-dock-or-model-call",
+          "ordinary-message-in-legacy-conversation-uses-current-owner-once-and-keeps-old-delivery-unchanged",
+          "explicit-none-in-restored-legacy-conversation-keeps-history-and-review-via-top-details",
+          "retained-handoff-with-unsent-attachment-blocks-refresh-until-user-removes-it-and-safely-retries",
+          "official-host-program-unchanged-and-isolated-process-stopped"
+        ]
+      }
+    ],
+    "lifecycle": {
+      "passed": 15,
+      "checks": [
+        "exact archive includes GPL license, corresponding pinned source and dependency lock; packaged shared engine projects only semantic concepts/entities and evidenced directed relations, preserves all reading pages and legacy articles, computes communities without page-link noise, and stops without a residual process",
+        "PDF/DOCX parser dependencies declared by the archive resolve at the exact declared versions inside the isolated profile, without developer-checkout or host dependency links",
+        "fresh actual archive supplies six complete software roles, team and one non-demo software workflow with inputs/outputs/acceptance/rework; no fabricated employees, memory or task executions; boundary documents are packaged",
+        "archive serves the single self-contained Wiki page through authenticated official host routing with network-denying CSP",
+        "official Session Controller model catalog is readable through authenticated plugin API with allowlisted selector fields and creates no employee run",
+        "six software-role presets resolve all required and preferred skills through the official model-invocable registry; QA includes code-review and the packaged task-owned worktree cleanup resource is present",
+        "public default Agent preset lease exposes installed native file/Web/Shell and extension tools plus model-invocable skills through allowlisted capability DTO; employee selections are preferences rather than a second ACL; no model call or task is created",
+        "project brief, task and two manual deliverable revisions persist through authenticated API; idempotent command retry is read-only; stale review is rejected; current version and task review permit project completion without model execution",
+        "default-on librarian switch persists via authenticated official host route; project override leaves template, employees and memories unchanged and survives reinstall",
+        "tarball installed through DSH; isolated employee, memory, project workflow and failed attempt created without an external model request",
+        "uninstall removes bundle and API; restart does not reinstall; profile config and employee data unchanged; native host serves normally",
+        "team librarian archives detached team/member knowledge, creates no extra employee/session, retains knowledge byte-for-byte through ordinary removal and reinstall",
+        "reinstall restores identical templates, employee IDs, required/preferred Skill routing, tool preferences, preserved legacy fields, memory, workflow snapshot and failed attempt, project brief, work tasks, deliverable versions and review history; no duplicate instances or replayed task",
+        "packaged purge command uses official CLI remove, clears dedicated state/config, preserves user deliverables and shared credentials; native host restarts",
+        "official npm installation and dependencies have identical program-file hash before and after install/remove/reinstall/purge"
+      ]
+    },
+    "modelCalls": {
+      "external": 0,
+      "note": "Offline fixture responses are not provider usage/cache/latency evidence."
+    }
+  },
+  "residentLayout": {
+    "tabBottom": 66,
+    "contactBottom": 66,
+    "popupBounds": {
+      "x": 1144,
+      "y": 75,
+      "width": 340,
+      "height": 650
+    },
+    "responsiveWidths": [
+      1024,
+      768
+    ],
+    "pageErrors": []
+  },
+  "composition": {
+    "safety": "Official in-memory rc.3 Agent/Session and filesystem/skill plugins; complete production product-role seed and bundled Skills, isolated temporary Chat directories, offline response Adapter. No user Session, credentials, external model or cache usage claims.",
+    "unit": "UTF-8 serialized bytes; not tokenizer count. Native fixture includes official filesystem and skill tools; it is not a full desktop native 32-tool snapshot.",
+    "consult": {
+      "provider": "resident-fixture",
+      "model": "employee-template-product",
+      "reasoningEffort": "high",
+      "toolNames": [],
+      "toolSchemaBytes": 2,
+      "sentCatalogMessages": 0,
+      "modelContentBytes": 2649,
+      "fullEnvelopeBytes": 5531,
+      "employeeContexts": [
+        {
+          "name": "composable-workforce:conversation-workflow",
+          "bytes": 2115,
+          "sha256": "e050a70ac194abe34b7bf07b57cde30f7a971a4147d874985e60a0edff593860"
+        }
+      ],
+      "messageComposition": [
+        {
+          "role": "system",
+          "source": "system-prompt",
+          "bytes": 110
+        },
+        {
+          "role": "user",
+          "source": "user",
+          "bytes": 36
+        },
+        {
+          "role": "user",
+          "source": "runtime-context",
+          "bytes": 2406
+        }
+      ],
+      "operations": {
+        "skillDiscoveryCalls": 0,
+        "skillBodies": 0,
+        "knowledgePrepare": 0,
+        "knowledgeOverview": 0,
+        "knowledgeIngest": 0
+      }
+    },
+    "execute": {
+      "provider": "resident-fixture",
+      "model": "employee-template-product",
+      "reasoningEffort": "high",
+      "toolNames": [
+        "edit",
+        "read",
+        "skill",
+        "worker_delegate",
+        "worker_memory_search",
+        "worker_memory_write",
+        "write"
+      ],
+      "toolSchemaBytes": 3779,
+      "sentCatalogMessages": 1,
+      "modelContentBytes": 13844,
+      "fullEnvelopeBytes": 35006,
+      "employeeContexts": [
+        {
+          "name": "composable-workforce:conversation-workflow",
+          "bytes": 7917,
+          "sha256": "eb29281ee6e5c19b34ced78ade9b3dfe50d347544ce7b36c9eee7dc205046a3f"
+        }
+      ],
+      "messageComposition": [
+        {
+          "role": "system",
+          "source": "system-prompt",
+          "bytes": 524
+        },
+        {
+          "role": "user",
+          "source": "user",
+          "bytes": 36
+        },
+        {
+          "role": "user",
+          "source": "runtime-context",
+          "bytes": 8320
+        },
+        {
+          "role": "user",
+          "source": "skill-catalog",
+          "bytes": 4064
+        },
+        {
+          "role": "user",
+          "source": "composable-workforce-task-context",
+          "bytes": 749
+        }
+      ],
+      "operations": {
+        "skillDiscoveryCalls": 2,
+        "skillBodies": 1,
+        "knowledgePrepare": 1,
+        "knowledgeOverview": 1,
+        "knowledgeIngest": 0
+      }
+    }
+  },
+  "archiveAudit": {
+    "result": "pass",
+    "archive": {
+      "filename": "dsh-plugin-composable-workforce-0.2.1.tgz",
+      "sha256": "cd4c92030065be87aa0ec0aeb8a298c7a36ebd05895ddafc1b83c10c057c033c",
+      "bytes": 1284526,
+      "files": 407,
+      "unpackedBytes": 5380920
+    },
+    "workspaceFileMatches": 407,
+    "mismatches": [],
+    "source": {
+      "files": 146
+    },
+    "boundaries": {
+      "forbidden": [],
+      "credentials": [],
+      "machinePaths": [],
+      "localDependencies": [],
+      "hostProgramFilesIncluded": false
+    },
+    "standaloneGuard": {
+      "exitCode": 0,
+      "output": "Plugin 0.2.1 and 37 official runtime peers match DSH 0.2.1-rc.3; lockSource=packaged-root-metadata.",
+      "nodeModulesPresent": false
+    }
+  },
+  "installedProfiles": [
+    {
+      "kind": "web",
+      "archiveSHA": "cd4c92030065be87aa0ec0aeb8a298c7a36ebd05895ddafc1b83c10c057c033c",
+      "expectedFiles": 407,
+      "installedFiles": 407,
+      "matchingFiles": 407,
+      "missing": 0,
+      "extra": 0,
+      "mismatches": 0,
+      "allBytesMatch": true,
+      "versionGuard": true
+    },
+    {
+      "kind": "desktop",
+      "archiveSHA": "cd4c92030065be87aa0ec0aeb8a298c7a36ebd05895ddafc1b83c10c057c033c",
+      "expectedFiles": 407,
+      "installedFiles": 407,
+      "matchingFiles": 407,
+      "missing": 0,
+      "extra": 0,
+      "mismatches": 0,
+      "allBytesMatch": true,
+      "versionGuard": true
+    }
+  ],
+  "dataPreservation": [
+    {
+      "kind": "web",
+      "stateUnchanged": true,
+      "definitionsUnchanged": {
+        "templates": true,
+        "teams": true,
+        "workflowTemplates": true,
+        "employees": true,
+        "projectTeams": true,
+        "conversationWorkflows": true,
+        "conversationEmployees": true
+      },
+      "immutableVersionsChecked": 68,
+      "alteredImmutableVersions": 0,
+      "addedImmutableVersions": 0
+    },
+    {
+      "kind": "desktop",
+      "stateUnchanged": true,
+      "definitionsUnchanged": {
+        "templates": true,
+        "teams": true,
+        "workflowTemplates": true,
+        "employees": true,
+        "projectTeams": true,
+        "conversationWorkflows": true,
+        "conversationEmployees": true
+      },
+      "immutableVersionsChecked": 134,
+      "alteredImmutableVersions": 0,
+      "addedImmutableVersions": 0
+    }
+  ],
+  "hostPrograms": [
+    {
+      "kind": "desktop-app",
+      "files": 6437,
+      "sha256": "c3695a48bca37b3b5f8b754bdb7a907c7046e7f8c76aeab346df0247338f1b7b",
+      "unchanged": true
+    },
+    {
+      "kind": "isolated-official",
+      "files": 27607,
+      "sha256": "4320efc9d117186946ef38cbf4078d44d4472de8f9ec42fc107db0b5923c64ac",
+      "unchanged": true
+    },
+    {
+      "kind": "global-official-cli",
+      "files": 63618,
+      "sha256": "f60d186ab9a4bcfeed7004d3add75cbe8e09ab25efa69c4c4eece88636062aec",
+      "unchanged": true
+    }
+  ],
+  "localUISmoke": {
+    "desktop": "Native header dropdown visible; default native assistant; consult/execute and saved cards available; no user prompt sent or binding changed.",
+    "web": "Profile updated, service healthy, native page loaded and plugin visible; actual Web workspace unchanged. Chat behavior independently verified in the isolated official browser suite."
+  },
+  "limits": [
+    "Existing native history, previous skill catalogs, tool results and required reasoning remain; switching modes can increase a historical request.",
+    "No fixed provider cache-hit percentage, token reduction, latency or charge is claimed by byte measurements.",
+    "Consultation skips automatic long-term archive/synthesis; execution deliveries require explicit review.",
+    "Employee model/reasoning configuration and native policies remain; consultation cannot silently upgrade to execution.",
+    "One-time @ remains a separate work order, and prior mentions never create residency.",
+    "Native recoverable archiving is sufficient under ADR-004; physical session deletion remains closed.",
+    "Compatibility is verified only for official DSH 0.2.1-rc.3 on the tested platform; version 0.2.1 alone is not a broader-host claim."
+  ]
+}
